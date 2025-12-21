@@ -1,0 +1,39 @@
+# 1. Python 编译文件 (这是 Python 自动生成的，不需要上传)
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# 2. Django 本地数据库 (包含你的本地数据，每个人环境不一样，且是二进制文件，容易冲突)
+db.sqlite3
+db.sqlite3-journal
+
+
+media/*
+!media/.gitkeep
+
+# 4. ImageKit 生成的缩略图缓存 (虽然在 media 里，但单独列出以防万一)
+/media/CACHE/
+
+# 5. 收集后的静态文件 (生产环境用的，开发环境不需要)
+staticfiles/
+static_root/
+
+# 6. 虚拟环境 (你的 miniconda 或 venv 环境，绝对不能上传)
+venv/
+env/
+.env/
+.venv/
+
+# 7. 敏感配置 (比如存有 SECRET_KEY 或数据库密码的文件)
+.env
+local_settings.py
+
+# 8. IDE 编辑器配置文件 (每个人的编辑器配置不同，不要上传)
+.idea/
+.vscode/
+*.swp
+
+# 9. 操作系统生成的文件
+.DS_Store
+Thumbs.db

@@ -1,0 +1,317 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ group.title }} - 详情</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <link rel="stylesheet" href="{% static 'gallery/style.css' %}">
+</head>
+<body>
+
+<nav class="navbar navbar-expand-lg navbar-light navbar-glass sticky-top shadow-sm">
+    <div class="container d-flex align-items-center justify-content-between">
+        <a class="navbar-brand fw-bold text-dark" href="/">
+            <i class="bi bi-stars text-primary me-2"></i>灵感图库
+        </a>
+        
+        <div class="d-flex align-items-center gap-3">
+            <div class="d-none d-md-block">
+                <form action="{% url 'home' %}" method="get" class="nav-search-wrapper">
+                    <input type="text" name="q" class="nav-search-input" placeholder="搜索提示词、标题..." autocomplete="off">
+                    <button class="nav-search-btn" type="submit"><i class="bi bi-search" style="font-size: 0.9rem;"></i></button>
+                </form>
+            </div>
+
+            <div class="platform-links d-none d-lg-flex gap-2">
+                <a href="https://jimeng.jianying.com/" target="_blank" class="btn btn-sm btn-platform rounded-pill px-3"><i class="bi bi-palette me-1 text-danger"></i>即梦</a>
+                <a href="https://dreamina.capcut.com/ai-tool/home/" target="_blank" class="btn btn-sm btn-platform rounded-pill px-3"><i class="bi bi-magic me-1 text-warning"></i>Dreamina</a>
+                <a href="https://gemini.google.com/" target="_blank" class="btn btn-sm btn-platform rounded-pill px-3"><i class="bi bi-google me-1 text-primary"></i>Gemini</a>
+                <a href="https://aistudio.google.com/" target="_blank" class="btn btn-sm btn-platform rounded-pill px-3"><i class="bi bi-code-square me-1 text-info"></i>AI Studio</a>
+            </div>
+            
+            <a href="{% url 'upload' %}?next={{ request.get_full_path|urlencode }}" class="btn btn-sm rounded-pill px-4 py-2 btn-upload-nav shadow-sm d-flex align-items-center">
+                <i class="bi bi-plus-lg me-1"></i>发布
+            </a>
+        </div>
+    </div>
+</nav>
+
+<div class="container my-5">
+    <div class="d-flex align-items-center justify-content-between mb-4">
+        <a href="/" class="btn btn-light rounded-pill px-3 shadow-sm text-secondary" style="background: rgba(255,255,255,0.6); backdrop-filter: blur(5px); border: var(--glass-border);">
+            <i class="bi bi-arrow-left me-2"></i>返回灵感图库
+        </a>
+    </div>
+
+    <div class="row gx-lg-5">
+        <div class="col-lg-8 mb-5 mb-lg-0">
+            <div class="d-flex justify-content-between align-items-start mb-2">
+                <h2 class="fw-bold text-dark mb-0">{{ group.title }}</h2>
+                <button type="button" class="btn btn-primary rounded-pill px-3 shadow-sm btn-sm d-flex align-items-center" 
+                        data-bs-toggle="modal" data-bs-target="#addImagesModal"
+                        style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); border: none;">
+                    <i class="bi bi-plus-lg me-1"></i>添加生成图
+                </button>
+            </div>
+            
+            <div class="mb-4">
+                {% for tag in sorted_tags %}
+                    {% if tag.name == group.model_info %}
+                        <a href="/?q={{ tag.name }}" class="tag-badge fs-6 px-3 py-1 fw-bold" 
+                           style="background: linear-gradient(120deg, #a18cd1 0%, #fbc2eb 100%); color: white; border: none;">
+                           <i class="bi bi-robot me-1"></i>{{ tag.name }}
+                        </a>
+                    {% else %}
+                        <a href="/?q={{ tag.name }}" class="tag-badge fs-6 px-3 py-1">{{ tag.name }}</a>
+                    {% endif %}
+                {% empty %}
+                    <span class="text-muted small">暂无标签</span>
+                {% endfor %}
+            </div>
+
+            {% with img_count=group.images.count %}
+            <div class="row g-3 mb-5 
+                {% if img_count == 1 %} row-cols-1
+                {% elif img_count == 2 %} row-cols-1 row-cols-md-2
+                {% elif img_count == 3 %} row-cols-1 row-cols-md-3
+                {% else %} row-cols-1 row-cols-sm-2 row-cols-md-4 {% endif %}">
+            {% endwith %}
+            
+                {% for img in group.images.all %}
+                <div class="col">
+                    <div class="detail-img-card shadow-sm position-relative">
+                        <div class="position-relative" role="button" onclick="showModal({{ forloop.counter0 }})">
+                            <img src="{{ img.image.url }}" class="thumb-img" alt="AI Artwork">
+                            <div class="hover-overlay"><i class="bi bi-zoom-in text-white fs-2"></i></div>
+                        </div>
+                        <div class="img-action-bar">
+                            <a href="{{ img.image.url }}" download class="action-btn download" title="下载原图"><i class="bi bi-download"></i></a>
+                            <form action="{% url 'delete_image' img.pk %}" method="post" class="delete-form-confirm" style="display:inline;">
+                                {% csrf_token %}
+                                <button type="button" class="action-btn delete" title="删除图片" onclick="confirmDelete(event)"><i class="bi bi-trash3-fill"></i></button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+                {% empty %}
+                <div class="col-12"><div class="alert alert-light border text-center py-5 text-muted rounded-3" style="background: rgba(255,255,255,0.5)"><i class="bi bi-image fs-1 d-block mb-3 opacity-50"></i>暂无图片</div></div>
+                {% endfor %}
+            </div>
+
+            {% if related_groups %}
+            <div class="mt-5 pt-4 border-top border-light">
+                <h4 class="mb-4 fw-bold text-secondary"><i class="bi bi-stars text-primary me-2"></i>猜你喜欢</h4>
+                <div class="row row-cols-1 row-cols-sm-2 row-cols-md-4 g-3">
+                    {% for related in related_groups %}
+                    <div class="col">
+                        <a href="{% url 'detail' related.pk %}" class="gallery-card h-100 d-block text-decoration-none">
+                            <div class="img-wrapper" style="height: 160px;">
+                                {% with cover=related.images.first %}
+                                    {% if cover %}
+                                        <img src="{{ cover.thumbnail.url }}" alt="{{ related.title }}">
+                                    {% endif %}
+                                {% endwith %}
+                            </div>
+                            <div class="card-body p-2">
+                                <h6 class="card-title text-truncate mb-1 small">{{ related.title }}</h6>
+                                <p class="text-muted small mb-0 text-truncate">{{ related.prompt_text }}</p>
+                            </div>
+                        </a>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="col-lg-4 ps-lg-4">
+            <div class="sticky-sidebar">
+                
+                <div class="prompt-card p-4 border-danger border-opacity-25 mb-4" style="background: rgba(255, 230, 230, 0.4);">
+                    <div class="section-header mb-2"><span class="section-label text-danger">管理操作</span></div>
+                    <form action="{% url 'delete_group' group.pk %}" method="post" class="delete-form-confirm">
+                        {% csrf_token %}
+                        <button type="button" class="btn btn-danger w-100 rounded-pill btn-sm" onclick="confirmDelete(event)">
+                            <i class="bi bi-trash3 me-2"></i>永久删除整个作品
+                        </button>
+                    </form>
+                </div>
+
+                <div class="prompt-card p-4">
+                   <div class="section-header mb-3"><span class="section-label">快速跳转创作</span></div>
+                   <div class="platform-links d-grid gap-2">
+                       <a href="https://jimeng.jianying.com/" target="_blank" class="btn btn-platform rounded-pill justify-content-center"><i class="bi bi-palette me-2 text-danger"></i>前往 即梦AI</a>
+                       <a href="https://dreamina.capcut.com/ai-tool/home/" target="_blank" class="btn btn-platform rounded-pill justify-content-center"><i class="bi bi-magic me-2 text-warning"></i>前往 Dreamina</a>
+                       <a href="https://gemini.google.com/" target="_blank" class="btn btn-platform rounded-pill justify-content-center"><i class="bi bi-google me-2 text-primary"></i>前往 Gemini</a>
+                       <a href="https://aistudio.google.com/" target="_blank" class="btn btn-platform rounded-pill justify-content-center"><i class="bi bi-code-square me-2 text-info"></i>前往 AI Studio</a>
+                   </div>
+                </div>
+
+                <div class="prompt-card p-4">
+                    <div class="section-header mb-3 d-flex justify-content-between align-items-center">
+                        <span class="section-label text-info">参考图 (References)</span>
+                        <button class="btn btn-sm btn-outline-info rounded-circle" style="width:24px; height:24px; padding:0;" 
+                                data-bs-toggle="modal" data-bs-target="#addReferenceModal" title="添加参考图">
+                            <i class="bi bi-plus"></i>
+                        </button>
+                    </div>
+                    
+                    <div class="row row-cols-3 g-2">
+                        {% for ref in group.references.all %}
+                        <div class="col position-relative">
+                            <div class="ratio ratio-1x1 rounded overflow-hidden border bg-light">
+                                <a href="{{ ref.image.url }}" target="_blank">
+                                    <img src="{{ ref.thumbnail.url }}" alt="Ref" style="object-fit: contain; width: 100%; height: 100%;">
+                                </a>
+                            </div>
+                            <form action="{% url 'delete_reference' ref.pk %}" method="post" class="position-absolute top-0 end-0 m-1">
+                                {% csrf_token %}
+                                <button type="button" class="btn btn-danger btn-sm p-0 d-flex align-items-center justify-content-center rounded-circle shadow-sm" 
+                                        style="width: 20px; height: 20px; opacity: 0.9;" onclick="confirmDelete(event)" title="删除参考图">
+                                    <i class="bi bi-x" style="font-size: 14px;"></i>
+                                </button>
+                            </form>
+                        </div>
+                        {% empty %}
+                        <div class="col-12 text-center text-muted small py-3 fst-italic">
+                            无参考图
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <div class="prompt-card p-4">
+                    <div class="section-header">
+                        <span class="section-label text-primary">Prompt (正向)</span>
+                        <button onclick="copyText('promptText', this)" class="btn btn-sm btn-outline-primary rounded-pill px-3" {% if not group.prompt_text %}disabled{% endif %}><i class="bi bi-clipboard me-1"></i>复制</button>
+                    </div>
+                    <div class="prompt-box" id="promptText">{% if group.prompt_text %}{{ group.prompt_text }}{% else %}<span class="empty-text">未填写</span>{% endif %}</div>
+                </div>
+
+                <div class="prompt-card p-4">
+                    <div class="section-header">
+                        <span class="section-label text-danger">Negative Prompt</span>
+                        <button onclick="copyText('negPrompt', this)" class="btn btn-sm btn-outline-danger rounded-pill px-3" {% if not group.negative_prompt %}disabled{% endif %}><i class="bi bi-clipboard me-1"></i>复制</button>
+                    </div>
+                    <div class="prompt-box" id="negPrompt">{% if group.negative_prompt %}{{ group.negative_prompt }}{% else %}<span class="empty-text">未填写</span>{% endif %}</div>
+                </div>
+
+                <div class="prompt-card p-4">
+                    <div class="section-header mb-3"><span class="section-label">Model Info</span></div>
+                    <ul class="list-unstyled mb-0 text-secondary small">
+                        <li class="mb-3 d-flex align-items-start"><i class="bi bi-cpu me-2 mt-1 text-primary"></i><div><strong class="d-block text-dark">模型/参数</strong><span class="text-muted">{{ group.model_info|default:"<span class='empty-text'>未填写</span>" }}</span></div></li>
+                        <li class="d-flex align-items-center"><i class="bi bi-calendar3 me-2 text-primary"></i><div><strong class="text-dark me-1">创建时间:</strong>{{ group.created_at|date:"Y-m-d H:i" }}</div></li>
+                    </ul>
+                </div>
+
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="addImagesModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4" style="background: rgba(255,255,255,0.95); backdrop-filter: blur(10px);">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title fw-bold text-dark">添加生成图</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body pt-4">
+                <form action="{% url 'add_images' group.pk %}" method="post" enctype="multipart/form-data">
+                    {% csrf_token %}
+                    <div class="mb-4">
+                        <label class="form-label small text-muted text-uppercase fw-bold ls-1">选择图片 (支持多选)</label>
+                        <input type="file" name="new_images" class="form-control" multiple required accept="image/*">
+                    </div>
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary rounded-pill fw-bold" 
+                                style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); border: none;">
+                            <i class="bi bi-cloud-upload me-2"></i>开始上传
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="addReferenceModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4" style="background: rgba(255,255,255,0.95); backdrop-filter: blur(10px);">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title fw-bold text-dark">添加参考图</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body pt-4">
+                <form action="{% url 'add_references' group.pk %}" method="post" enctype="multipart/form-data">
+                    {% csrf_token %}
+                    <div class="mb-4">
+                        <label class="form-label small text-muted text-uppercase fw-bold ls-1">选择参考图 (支持多选)</label>
+                        <input type="file" name="new_references" class="form-control" multiple required accept="image/*">
+                    </div>
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-info text-white rounded-pill fw-bold border-0">
+                            <i class="bi bi-cloud-upload me-2"></i>上传参考图
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="imageModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-xl" style="max-width: 100vw; margin: 0;">
+        <div class="modal-content border-0" style="background: transparent;">
+            <div class="modal-body p-0 position-relative">
+                <a href="#" id="modalDownloadBtn" download class="modal-download-btn"><i class="bi bi-download"></i> 下载原图</a>
+                <form id="modalDeleteForm" method="post" class="delete-form-confirm">
+                    {% csrf_token %}
+                    <button type="button" class="modal-delete-btn" onclick="confirmDelete(event)"><i class="bi bi-trash3"></i> 删除此图</button>
+                </form>
+                <button type="button" class="close-modal-btn" data-bs-dismiss="modal"><i class="bi bi-x-lg"></i></button>
+                <div class="nav-btn nav-prev" onclick="changeImage(-1)"><i class="bi bi-chevron-left"></i></div>
+                <img src="" id="previewImage" alt="Preview">
+                <div class="nav-btn nav-next" onclick="changeImage(1)"><i class="bi bi-chevron-right"></i></div>
+                <div id="imageCounter" class="image-counter"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    const galleryImages = [
+        {% for img in group.images.all %}
+        { url: "{{ img.image.url }}", id: {{ img.pk }} },
+        {% endfor %}
+    ];
+</script>
+<script src="{% static 'gallery/detail.js' %}"></script>
+<script>
+    function confirmDelete(event) {
+        event.preventDefault(); 
+        const form = event.target.closest('form');
+        Swal.fire({
+            title: '确定要删除吗？',
+            text: "此操作无法撤销！文件将被永久删除。",
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#dc3545',
+            cancelButtonColor: '#6c757d',
+            confirmButtonText: '是的，彻底删除',
+            cancelButtonText: '取消',
+            background: 'rgba(255, 255, 255, 0.95)',
+            backdrop: `rgba(0,0,0,0.4)`,
+            customClass: { popup: 'rounded-4 shadow-lg border-0' }
+        }).then((result) => {
+            if (result.isConfirmed) form.submit();
+        })
+    }
+</script>
+</body>
+</html>
