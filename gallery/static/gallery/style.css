@@ -127,20 +127,97 @@ a { text-decoration: none; }
 
 /* 扫光光束 */
 .gallery-card::before {
-    content: ''; position: absolute; top: 0; left: -100%; z-index: 10;
-    display: block; width: 50%; height: 100%;
+    content: ''; 
+    position: absolute; 
+    top: 0; 
+    
+    /* 【修改点1】从 -100% 改为 -200%，防止长图因为倾斜露馅 */
+    left: -200%; 
+    
+    z-index: 10;
+    display: block; 
+    width: 50%; 
+    height: 100%;
     background: linear-gradient(to right, rgba(255,255,255,0) 0%, rgba(255,255,255,0.4) 100%);
-    transform: skewX(-25deg); transition: none; pointer-events: none;
+    transform: skewX(-25deg); 
+    
+    /* 【修改点2】默认完全透明，防止任何边缘露出来 */
+    opacity: 0; 
+    
+    transition: none; 
+    pointer-events: none;
 }
 
 .gallery-card:hover {
-    transform: translateY(-8px); box-shadow: var(--shadow-hover) !important;
-    background: rgba(255, 255, 255, 0.95); z-index: 5;
+    transform: translateY(-8px); 
+    box-shadow: var(--shadow-hover) !important;
+    background: rgba(255, 255, 255, 0.95); 
+    z-index: 5;
 }
 
 /* 鼠标悬停时触发扫光 */
 .gallery-card:hover::before {
-    left: 150%; transition: left 0.7s ease;
+    /* 【修改点3】配合上面的修改，这里也要设为透明度1 */
+    opacity: 1; 
+    
+    left: 150%; 
+    transition: left 0.7s ease;
+}
+/* ================== 导航栏下拉菜单美化 ================== */
+
+/* 1. 下拉菜单容器 (毛玻璃风格) */
+.nav-dropdown-menu {
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(15px);
+    border: var(--glass-border);
+    box-shadow: var(--shadow-hover);
+    border-radius: var(--radius-md);
+    padding: 0.5rem;
+    min-width: 180px;
+    margin-top: 10px !important; /* 让菜单稍微也就是离按钮远一点点 */
+    animation: fadeInUp 0.3s ease; /* 展开时有轻微上浮动画 */
+}
+
+/* 2. 触发按钮样式 */
+.btn-dropdown-trigger {
+    background: rgba(255, 255, 255, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    color: var(--text-main);
+    font-size: 0.9rem;
+    font-weight: 500;
+    backdrop-filter: blur(5px);
+    transition: all 0.3s ease;
+}
+
+.btn-dropdown-trigger:hover, .btn-dropdown-trigger[aria-expanded="true"] {
+    background: white;
+    color: var(--accent-color);
+    box-shadow: var(--shadow-sm);
+    transform: translateY(-1px);
+}
+
+/* 3. 下拉项样式 */
+.dropdown-item {
+    border-radius: 10px;
+    font-size: 0.9rem;
+    color: var(--text-main);
+    padding: 10px 16px;
+    transition: all 0.2s;
+    margin-bottom: 2px;
+    display: flex;
+    align-items: center;
+}
+
+/* 悬停效果：变成主题色背景，文字变白 */
+.dropdown-item:hover {
+    background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+    color: white !important; /* 强制文字变白 */
+    transform: translateX(5px); /* 轻微右移，增加动感 */
+}
+
+/* 悬停时，图标也变白 */
+.dropdown-item:hover i {
+    color: white !important; 
 }
 
 /* ================== 【特效4】图片模糊过渡 ================== */

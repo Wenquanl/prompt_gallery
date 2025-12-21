@@ -31,12 +31,34 @@
                 </form>
             </div>
 
-            <div class="platform-links d-none d-lg-flex gap-2">
-                <a href="https://jimeng.jianying.com/" target="_blank" class="btn btn-sm btn-platform rounded-pill px-3"><i class="bi bi-palette me-1 text-danger"></i>即梦</a>
-                <a href="https://dreamina.capcut.com/ai-tool/home/" target="_blank" class="btn btn-sm btn-platform rounded-pill px-3"><i class="bi bi-magic me-1 text-warning"></i>Dreamina</a>
-                <a href="https://gemini.google.com/" target="_blank" class="btn btn-sm btn-platform rounded-pill px-3"><i class="bi bi-google me-1 text-primary"></i>Gemini</a>
-                <a href="https://aistudio.google.com/" target="_blank" class="btn btn-sm btn-platform rounded-pill px-3"><i class="bi bi-code-square me-1 text-info"></i>AI Studio</a>
-            </div>
+            <div class="dropdown d-none d-lg-block">
+    <button class="btn btn-sm rounded-pill px-3 py-2 btn-dropdown-trigger dropdown-toggle d-flex align-items-center gap-2" 
+            type="button" data-bs-toggle="dropdown" aria-expanded="false">
+        <i class="bi bi-grid-fill" style="opacity: 0.7;"></i> AI 工具箱
+    </button>
+    <ul class="dropdown-menu nav-dropdown-menu dropdown-menu-end">
+        <li>
+            <a class="dropdown-item" href="https://jimeng.jianying.com/" target="_blank">
+                <i class="bi bi-palette me-2 text-danger"></i>即梦 AI
+            </a>
+        </li>
+        <li>
+            <a class="dropdown-item" href="https://dreamina.capcut.com/ai-tool/home/" target="_blank">
+                <i class="bi bi-magic me-2 text-warning"></i>Dreamina
+            </a>
+        </li>
+        <li>
+            <a class="dropdown-item" href="https://gemini.google.com/" target="_blank">
+                <i class="bi bi-google me-2 text-primary"></i>Gemini
+            </a>
+        </li>
+        <li>
+            <a class="dropdown-item" href="https://aistudio.google.com/" target="_blank">
+                <i class="bi bi-code-square me-2 text-info"></i>AI Studio
+            </a>
+        </li>
+    </ul>
+</div>
             
             <a href="{% url 'upload' %}?next={{ request.get_full_path|urlencode }}" class="btn btn-sm rounded-pill px-4 py-2 btn-upload-nav shadow-sm d-flex align-items-center">
                 <i class="bi bi-plus-lg me-1"></i>发布
