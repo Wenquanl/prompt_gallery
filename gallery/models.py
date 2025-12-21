@@ -3,7 +3,6 @@ import os
 from django.db import models
 from django.utils import timezone
 from imagekit.models import ImageSpecField
-# 【核心修改】引入 ResizeToFit (按比例缩放)，删掉 ResizeToFill (裁剪)
 from imagekit.processors import ResizeToFit
 
 # === 工具函数 ===
@@ -38,7 +37,7 @@ class AIModel(models.Model):
         verbose_name_plural = "AI模型管理"
         ordering = ['-order', 'name']
 
-# === 3. 提示词组 ===
+# === 3. 提示词组 (卡片) ===
 class PromptGroup(models.Model):
     title = models.CharField("主题/标题", max_length=200, default="未命名组")
     prompt_text = models.TextField("正向提示词 (Prompt)")
@@ -46,6 +45,8 @@ class PromptGroup(models.Model):
     model_info = models.CharField("模型信息", max_length=200, blank=True)
     tags = models.ManyToManyField(Tag, blank=True, verbose_name="关联标签")
     created_at = models.DateTimeField("创建时间", auto_now_add=True)
+    
+    is_liked = models.BooleanField("是否喜欢", default=False)
 
     def __str__(self): return self.title
     class Meta:
@@ -53,12 +54,16 @@ class PromptGroup(models.Model):
         verbose_name_plural = "提示词组列表"
         ordering = ['-created_at']
 
-# === 4. 生成图 (作品) ===
+# === 4. 生成图 (作品单图) ===
 class ImageItem(models.Model):
     group = models.ForeignKey(PromptGroup, on_delete=models.CASCADE, related_name='images', verbose_name="所属提示词组")
     image = models.ImageField("图片文件", upload_to=unique_file_path)
     
-    # 【核心修改】ResizeToFit: 宽度限制600，高度自适应，upscale=False防止小图变糊
+    is_liked = models.BooleanField("是否喜欢", default=False)
+
+    # 【新增】存储图像特征向量 (BinaryField 用于存 numpy array bytes)
+    feature_vector = models.BinaryField("特征向量", null=True, blank=True)
+    
     thumbnail = ImageSpecField(source='image',
                                processors=[ResizeToFit(width=600, upscale=False)],
                                format='JPEG',
@@ -72,7 +77,6 @@ class ReferenceItem(models.Model):
     group = models.ForeignKey(PromptGroup, on_delete=models.CASCADE, related_name='references', verbose_name="所属提示词组")
     image = models.ImageField("参考图文件", upload_to=reference_file_path)
     
-    # 【核心修改】参考图也改为自适应
     thumbnail = ImageSpecField(source='image',
                                processors=[ResizeToFit(width=300, upscale=False)],
                                format='JPEG',

@@ -17,50 +17,42 @@
 </head>
 <body>
 
-<nav class="navbar navbar-expand-lg navbar-light navbar-glass sticky-top shadow-sm">
-    <div class="container d-flex align-items-center justify-content-between">
+<nav class="navbar navbar-expand-lg navbar-light navbar-glass">
+    <div class="container position-relative">
         <a class="navbar-brand fw-bold text-dark" href="/">
             <i class="bi bi-stars text-primary me-2"></i>灵感图库
         </a>
-        
-        <div class="d-flex align-items-center gap-3">
-            <div class="d-none d-md-block">
-                <form action="{% url 'home' %}" method="get" class="nav-search-wrapper">
-                    <input type="text" name="q" class="nav-search-input" placeholder="搜索提示词、标题..." autocomplete="off">
-                    <button class="nav-search-btn" type="submit"><i class="bi bi-search" style="font-size: 0.9rem;"></i></button>
-                </form>
-            </div>
 
+        <div class="navbar-center d-none d-md-flex">
+            <div class="nav-tabs-custom">
+                <a href="{% url 'home' %}" class="nav-link-custom">全部</a>
+                <a href="{% url 'home' %}?filter=liked" class="nav-link-custom">
+                    <i class="bi bi-heart-fill me-1 text-danger"></i>喜欢
+                </a>
+                <a href="{% url 'liked_images_gallery' %}" class="nav-link-custom">
+                    <i class="bi bi-images me-1 text-primary"></i>图墙
+                </a>
+            </div>
+        </div>
+        
+        <div class="d-flex align-items-center gap-2 ms-auto">
             <div class="dropdown d-none d-lg-block">
-    <button class="btn btn-sm rounded-pill px-3 py-2 btn-dropdown-trigger dropdown-toggle d-flex align-items-center gap-2" 
-            type="button" data-bs-toggle="dropdown" aria-expanded="false">
-        <i class="bi bi-grid-fill" style="opacity: 0.7;"></i> AI 工具箱
-    </button>
-    <ul class="dropdown-menu nav-dropdown-menu dropdown-menu-end">
-        <li>
-            <a class="dropdown-item" href="https://jimeng.jianying.com/" target="_blank">
-                <i class="bi bi-palette me-2 text-danger"></i>即梦 AI
-            </a>
-        </li>
-        <li>
-            <a class="dropdown-item" href="https://dreamina.capcut.com/ai-tool/home/" target="_blank">
-                <i class="bi bi-magic me-2 text-warning"></i>Dreamina
-            </a>
-        </li>
-        <li>
-            <a class="dropdown-item" href="https://gemini.google.com/" target="_blank">
-                <i class="bi bi-google me-2 text-primary"></i>Gemini
-            </a>
-        </li>
-        <li>
-            <a class="dropdown-item" href="https://aistudio.google.com/" target="_blank">
-                <i class="bi bi-code-square me-2 text-info"></i>AI Studio
-            </a>
-        </li>
-    </ul>
-</div>
+                <button class="btn btn-sm rounded-pill nav-toolbox-btn d-flex align-items-center dropdown-toggle" 
+                        type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                    <i class="bi bi-cpu-fill me-2"></i>AI 工具箱
+                </button>
+                <ul class="dropdown-menu toolbox-dropdown-menu">
+                    <li><h6 class="toolbox-header">图像生成</h6></li>
+                    <li><a class="dropdown-item toolbox-item" href="https://jimeng.jianying.com/" target="_blank"><i class="bi bi-palette2 text-danger"></i>即梦 AI</a></li>
+                    <li><a class="dropdown-item toolbox-item" href="https://dreamina.capcut.com/ai-tool/home/" target="_blank"><i class="bi bi-magic text-warning"></i>Dreamina</a></li>
+                    <li><hr class="toolbox-divider"></li>
+                    <li><h6 class="toolbox-header">大语言模型</h6></li>
+                    <li><a class="dropdown-item toolbox-item" href="https://gemini.google.com/" target="_blank"><i class="bi bi-google text-primary"></i>Google Gemini</a></li>
+                    <li><a class="dropdown-item toolbox-item" href="https://aistudio.google.com/" target="_blank"><i class="bi bi-code-square text-info"></i>AI Studio</a></li>
+                </ul>
+            </div>
             
-            <a href="{% url 'upload' %}?next={{ request.get_full_path|urlencode }}" class="btn btn-sm rounded-pill px-4 py-2 btn-upload-nav shadow-sm d-flex align-items-center">
+            <a href="{% url 'upload' %}?next={{ request.get_full_path|urlencode }}" class="btn btn-sm rounded-pill px-4 py-2 btn-upload-nav shadow-sm d-flex align-items-center ms-1">
                 <i class="bi bi-plus-lg me-1"></i>发布
             </a>
         </div>
@@ -68,9 +60,9 @@
 </nav>
 
 <div class="container my-5">
-    <div class="d-flex align-items-center justify-content-between mb-4">
+    <div class="mb-4">
         <a href="/" class="btn btn-light rounded-pill px-3 shadow-sm text-secondary" style="background: rgba(255,255,255,0.6); backdrop-filter: blur(5px); border: var(--glass-border);">
-            <i class="bi bi-arrow-left me-2"></i>返回灵感图库
+            <i class="bi bi-arrow-left me-2"></i>返回首页
         </a>
     </div>
 
@@ -88,34 +80,32 @@
             <div class="mb-4">
                 {% for tag in sorted_tags %}
                     {% if tag.name == group.model_info %}
-                        <a href="/?q={{ tag.name }}" class="tag-badge fs-6 px-3 py-1 fw-bold" 
+                        <a href="/?q={{ tag.name }}" class="tag-badge fw-bold" 
                            style="background: linear-gradient(120deg, #a18cd1 0%, #fbc2eb 100%); color: white; border: none;">
                            <i class="bi bi-robot me-1"></i>{{ tag.name }}
                         </a>
                     {% else %}
-                        <a href="/?q={{ tag.name }}" class="tag-badge fs-6 px-3 py-1">{{ tag.name }}</a>
+                        <a href="/?q={{ tag.name }}" class="tag-badge">{{ tag.name }}</a>
                     {% endif %}
                 {% empty %}
                     <span class="text-muted small">暂无标签</span>
                 {% endfor %}
             </div>
 
-            {% with img_count=group.images.count %}
-            <div class="row g-3 mb-5 
-                {% if img_count == 1 %} row-cols-1
-                {% elif img_count == 2 %} row-cols-1 row-cols-md-2
-                {% elif img_count == 3 %} row-cols-1 row-cols-md-3
-                {% else %} row-cols-1 row-cols-sm-2 row-cols-md-4 {% endif %}">
-            {% endwith %}
-            
+            <div id="detail-masonry-grid" class="row">
                 {% for img in group.images.all %}
-                <div class="col">
+                <div class="grid-item mb-3">
                     <div class="detail-img-card shadow-sm position-relative">
                         <div class="position-relative" role="button" onclick="showModal({{ forloop.counter0 }})">
                             <img src="{{ img.image.url }}" class="thumb-img" alt="AI Artwork">
                             <div class="hover-overlay"><i class="bi bi-zoom-in text-white fs-2"></i></div>
                         </div>
                         <div class="img-action-bar">
+                            <button type="button" class="action-btn like {% if img.is_liked %}active{% endif %}" 
+                                    id="like-btn-{{ img.pk }}"
+                                    title="喜欢" onclick="toggleImageLike(event, {{ img.pk }})">
+                                <i class="bi {% if img.is_liked %}bi-heart-fill{% else %}bi-heart{% endif %}"></i>
+                            </button>
                             <a href="{{ img.image.url }}" download class="action-btn download" title="下载原图"><i class="bi bi-download"></i></a>
                             <form action="{% url 'delete_image' img.pk %}" method="post" class="delete-form-confirm" style="display:inline;">
                                 {% csrf_token %}
@@ -132,7 +122,6 @@
             {% if related_groups %}
             <div class="mt-5 pt-4 border-top border-light">
                 <h4 class="mb-4 fw-bold text-secondary"><i class="bi bi-stars text-primary me-2"></i>猜你喜欢</h4>
-                
                 <div class="horizontal-scroll-wrapper" id="horizontal-scroll">
                     {% for related in related_groups %}
                     <div class="horizontal-card-item">
@@ -177,10 +166,10 @@
                 <div class="prompt-card p-4">
                    <div class="section-header mb-3"><span class="section-label">快速跳转创作</span></div>
                    <div class="platform-links d-grid gap-2">
-                       <a href="https://jimeng.jianying.com/" target="_blank" class="btn btn-platform rounded-pill justify-content-center"><i class="bi bi-palette me-2 text-danger"></i>前往 即梦AI</a>
-                       <a href="https://dreamina.capcut.com/ai-tool/home/" target="_blank" class="btn btn-platform rounded-pill justify-content-center"><i class="bi bi-magic me-2 text-warning"></i>前往 Dreamina</a>
-                       <a href="https://gemini.google.com/" target="_blank" class="btn btn-platform rounded-pill justify-content-center"><i class="bi bi-google me-2 text-primary"></i>前往 Gemini</a>
-                       <a href="https://aistudio.google.com/" target="_blank" class="btn btn-platform rounded-pill justify-content-center"><i class="bi bi-code-square me-2 text-info"></i>前往 AI Studio</a>
+                       <a href="https://jimeng.jianying.com/" target="_blank" class="btn btn-platform rounded-pill"><i class="bi bi-palette me-2 text-danger"></i>前往 即梦AI</a>
+                       <a href="https://dreamina.capcut.com/ai-tool/home/" target="_blank" class="btn btn-platform rounded-pill"><i class="bi bi-magic me-2 text-warning"></i>前往 Dreamina</a>
+                       <a href="https://gemini.google.com/" target="_blank" class="btn btn-platform rounded-pill"><i class="bi bi-google me-2 text-primary"></i>前往 Gemini</a>
+                       <a href="https://aistudio.google.com/" target="_blank" class="btn btn-platform rounded-pill"><i class="bi bi-code-square me-2 text-info"></i>前往 AI Studio</a>
                    </div>
                 </div>
 
@@ -262,11 +251,17 @@
         </div>
     </div>
 </div>
+
 <div class="modal fade" id="imageModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered modal-xl" style="max-width: 100vw; margin: 0;">
         <div class="modal-content border-0" style="background: transparent;">
             <div class="modal-body p-0 position-relative">
                 <a href="#" id="modalDownloadBtn" download class="modal-download-btn"><i class="bi bi-download"></i> 下载原图</a>
+                
+                <button type="button" id="modalLikeBtn" class="modal-like-btn" onclick="toggleModalLike()">
+                    <i class="bi bi-heart"></i> 喜欢
+                </button>
+
                 <form id="modalDeleteForm" method="post" class="delete-form-confirm">{% csrf_token %}<button type="button" class="modal-delete-btn" onclick="confirmDelete(event)"><i class="bi bi-trash3"></i> 删除此图</button></form>
                 <button type="button" class="close-modal-btn" data-bs-dismiss="modal"><i class="bi bi-x-lg"></i></button>
                 <div class="nav-btn nav-prev" onclick="changeImage(-1)"><i class="bi bi-chevron-left"></i></div>
@@ -279,40 +274,164 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/masonry-layout@4.2.2/dist/masonry.pkgd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/imagesloaded@5.0.0/imagesloaded.pkgd.min.js"></script>
 
 <script>
     const galleryImages = [
         {% for img in group.images.all %}
-        { url: "{{ img.image.url }}", id: {{ img.pk }} },
+        { url: "{{ img.image.url }}", id: {{ img.pk }}, isLiked: {% if img.is_liked %}true{% else %}false{% endif %} },
         {% endfor %}
     ];
 </script>
-<script src="{% static 'gallery/detail.js' %}"></script>
-
 <script>
-    function confirmDelete(event) {
-        event.preventDefault(); 
-        const form = event.target.closest('form');
-        Swal.fire({
-            title: '确定要删除吗？',
-            text: "此操作无法撤销！文件将被永久删除。",
-            icon: 'warning', showCancelButton: true, confirmButtonColor: '#dc3545', cancelButtonColor: '#6c757d', confirmButtonText: '是的，彻底删除', cancelButtonText: '取消',
-            background: 'rgba(255, 255, 255, 0.95)', backdrop: `rgba(0,0,0,0.4)`, customClass: { popup: 'rounded-4 shadow-lg border-0' }
-        }).then((result) => { if (result.isConfirmed) form.submit(); })
+let currentIndex = 0;
+let imageModal = null; 
+
+document.addEventListener('DOMContentLoaded', function() {
+    const modalEl = document.getElementById('imageModal');
+    if (modalEl) {
+        imageModal = new bootstrap.Modal(modalEl);
+    }
+    
+    var grid = document.querySelector('#detail-masonry-grid');
+    if (grid) {
+        var msnry = new Masonry(grid, { itemSelector: '.grid-item', percentPosition: true });
+        imagesLoaded(grid).on('progress', function(instance, image) { msnry.layout(); });
     }
 
-    // 【特效】为横向滚动的图片添加模糊过渡
-    document.addEventListener('DOMContentLoaded', function() {
-        var container = document.querySelector('#horizontal-scroll');
-        if (container) {
-            imagesLoaded(container).on('progress', function(instance, image) {
-                if (image.isLoaded) {
-                    image.img.classList.add('loaded');
-                }
-            });
+    var hScroll = document.querySelector('#horizontal-scroll');
+    if(hScroll) {
+        imagesLoaded(hScroll).on('progress', function(instance, image) {});
+    }
+
+    document.addEventListener('keydown', function(event) {
+        if (modalEl && modalEl.classList.contains('show')) {
+            if (event.key === 'ArrowLeft') changeImage(-1);
+            if (event.key === 'ArrowRight') changeImage(1);
+            if (event.key === 'Escape') imageModal.hide();
         }
     });
+});
+
+function showModal(index) {
+    currentIndex = index;
+    updateModalImage();
+    imageModal.show();
+}
+
+function changeImage(direction) {
+    currentIndex += direction;
+    if (currentIndex >= galleryImages.length) { currentIndex = 0; } 
+    else if (currentIndex < 0) { currentIndex = galleryImages.length - 1; }
+    updateModalImage();
+}
+
+function updateModalImage() {
+    const imgElement = document.getElementById('previewImage');
+    const downloadBtn = document.getElementById('modalDownloadBtn');
+    const deleteForm = document.getElementById('modalDeleteForm');
+    const counterElement = document.getElementById('imageCounter');
+    const likeBtn = document.getElementById('modalLikeBtn');
+
+    const currentImgData = galleryImages[currentIndex];
+
+    imgElement.style.opacity = '0.5';
+    imgElement.src = currentImgData.url;
+    imgElement.onload = function() { imgElement.style.opacity = '1'; };
+
+    if (downloadBtn) { downloadBtn.href = currentImgData.url; }
+    if (deleteForm) { deleteForm.action = `/delete-image/${currentImgData.id}/`; }
+    if (counterElement) { counterElement.innerText = `${currentIndex + 1} / ${galleryImages.length}`; }
+    
+    if (likeBtn) {
+        if (currentImgData.isLiked) {
+            likeBtn.classList.add('active');
+            likeBtn.innerHTML = '<i class="bi bi-heart-fill"></i> 已喜欢';
+        } else {
+            likeBtn.classList.remove('active');
+            likeBtn.innerHTML = '<i class="bi bi-heart"></i> 喜欢';
+        }
+    }
+}
+
+function toggleModalLike() {
+    const currentImgData = galleryImages[currentIndex];
+    fetch(`/toggle-like-image/${currentImgData.id}/`, {
+        method: 'POST',
+        headers: { 'X-CSRFToken': '{{ csrf_token }}', 'Content-Type': 'application/json' }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            currentImgData.isLiked = data.is_liked;
+            updateModalImage(); 
+            const listBtn = document.getElementById(`like-btn-${currentImgData.id}`);
+            if (listBtn) {
+                const icon = listBtn.querySelector('i');
+                if (data.is_liked) {
+                    listBtn.classList.add('active');
+                    icon.classList.remove('bi-heart'); icon.classList.add('bi-heart-fill');
+                } else {
+                    listBtn.classList.remove('active');
+                    icon.classList.remove('bi-heart-fill'); icon.classList.add('bi-heart');
+                }
+            }
+        }
+    });
+}
+
+function toggleImageLike(event, pk) {
+    event.stopPropagation(); 
+    const btn = event.currentTarget;
+    const icon = btn.querySelector('i');
+    
+    fetch(`/toggle-like-image/${pk}/`, {
+        method: 'POST',
+        headers: { 'X-CSRFToken': '{{ csrf_token }}', 'Content-Type': 'application/json' }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            if (data.is_liked) {
+                btn.classList.add('active');
+                icon.classList.remove('bi-heart'); icon.classList.add('bi-heart-fill');
+            } else {
+                btn.classList.remove('active');
+                icon.classList.remove('bi-heart-fill'); icon.classList.add('bi-heart');
+            }
+            const imgData = galleryImages.find(img => img.id === pk);
+            if (imgData) { imgData.isLiked = data.is_liked; }
+        }
+    });
+}
+
+function confirmDelete(event) {
+    event.preventDefault(); 
+    const form = event.target.closest('form');
+    Swal.fire({
+        title: '确定要删除吗？',
+        text: "此操作无法撤销！文件将被永久删除。",
+        icon: 'warning', showCancelButton: true, confirmButtonColor: '#dc3545', cancelButtonColor: '#6c757d', confirmButtonText: '是的，彻底删除', cancelButtonText: '取消',
+        background: 'rgba(255, 255, 255, 0.95)', backdrop: `rgba(0,0,0,0.4)`, customClass: { popup: 'rounded-4 shadow-lg border-0' }
+    }).then((result) => { if (result.isConfirmed) form.submit(); })
+}
+
+function copyText(elementId, btnElement) {
+    const textElement = document.getElementById(elementId);
+    if (textElement.querySelector('.empty-text')) return;
+    navigator.clipboard.writeText(textElement.innerText).then(() => {
+        const originalHTML = btnElement.innerHTML;
+        const isPrimary = btnElement.classList.contains('btn-outline-primary');
+        const originalClass = isPrimary ? 'btn-outline-primary' : 'btn-outline-danger';
+        btnElement.innerHTML = '<i class="bi bi-check-lg me-1"></i>已复制';
+        btnElement.classList.remove(originalClass); btnElement.classList.add('btn-success', 'text-white');
+        setTimeout(() => {
+            btnElement.innerHTML = originalHTML;
+            btnElement.classList.remove('btn-success', 'text-white'); btnElement.classList.add(originalClass);
+        }, 2000);
+    });
+}
 </script>
 </body>
 </html>

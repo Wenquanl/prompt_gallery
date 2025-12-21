@@ -17,50 +17,49 @@
 </head>
 <body>
 
-<nav class="navbar navbar-expand-lg navbar-light navbar-glass sticky-top shadow-sm">
-    <div class="container d-flex align-items-center justify-content-between">
+<nav class="navbar navbar-expand-lg navbar-light navbar-glass">
+    <div class="container navbar-container">
         <a class="navbar-brand fw-bold text-dark" href="/">
             <i class="bi bi-stars text-primary me-2"></i>灵感图库
         </a>
+
+        <div class="navbar-center d-none d-md-flex">
+            <div class="nav-tabs-custom">
+                <a href="{% url 'home' %}" class="nav-link-custom {% if not current_filter %}active{% endif %}">全部</a>
+                <a href="{% url 'home' %}?filter=liked" class="nav-link-custom {% if current_filter == 'liked' %}active{% endif %}">
+                    <i class="bi bi-heart-fill me-1 text-danger"></i>喜欢
+                </a>
+                <a href="{% url 'liked_images_gallery' %}" class="nav-link-custom">
+                    <i class="bi bi-images me-1 text-primary"></i>图墙
+                </a>
+            </div>
+        </div>
         
-        <div class="d-flex align-items-center gap-3">
-            <div class="d-none d-md-block">
-                <form action="{% url 'home' %}" method="get" class="nav-search-wrapper">
-                    <input type="text" name="q" class="nav-search-input" placeholder="搜索提示词、标题..." autocomplete="off" value="{{ search_query|default:'' }}">
-                    <button class="nav-search-btn" type="submit"><i class="bi bi-search" style="font-size: 0.9rem;"></i></button>
+        <div class="navbar-right d-none d-lg-flex">
+            <div class="me-2">
+                <form action="{% url 'home' %}" method="get" class="nav-search-wrapper" onsubmit="return this.q.value.trim() !== ''">
+                    <input type="text" name="q" class="nav-search-input" placeholder="搜索提示词..." autocomplete="off" value="{{ search_query|default:'' }}">
+                    <button class="nav-search-btn" type="submit"><i class="bi bi-search" style="font-size: 0.8rem;"></i></button>
                 </form>
             </div>
 
-            <div class="dropdown d-none d-lg-block">
-    <button class="btn btn-sm rounded-pill px-3 py-2 btn-dropdown-trigger dropdown-toggle d-flex align-items-center gap-2" 
-            type="button" data-bs-toggle="dropdown" aria-expanded="false">
-        <i class="bi bi-grid-fill" style="opacity: 0.7;"></i> AI 工具箱
-    </button>
-    <ul class="dropdown-menu nav-dropdown-menu dropdown-menu-end">
-        <li>
-            <a class="dropdown-item" href="https://jimeng.jianying.com/" target="_blank">
-                <i class="bi bi-palette me-2 text-danger"></i>即梦 AI
-            </a>
-        </li>
-        <li>
-            <a class="dropdown-item" href="https://dreamina.capcut.com/ai-tool/home/" target="_blank">
-                <i class="bi bi-magic me-2 text-warning"></i>Dreamina
-            </a>
-        </li>
-        <li>
-            <a class="dropdown-item" href="https://gemini.google.com/" target="_blank">
-                <i class="bi bi-google me-2 text-primary"></i>Gemini
-            </a>
-        </li>
-        <li>
-            <a class="dropdown-item" href="https://aistudio.google.com/" target="_blank">
-                <i class="bi bi-code-square me-2 text-info"></i>AI Studio
-            </a>
-        </li>
-    </ul>
-</div>
+            <div class="dropdown">
+                <button class="btn btn-sm rounded-pill nav-toolbox-btn dropdown-toggle" 
+                        type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                    <i class="bi bi-cpu-fill me-2"></i>AI 工具箱
+                </button>
+                <ul class="dropdown-menu toolbox-dropdown-menu">
+                    <li><h6 class="toolbox-header">图像生成</h6></li>
+                    <li><a class="dropdown-item toolbox-item" href="https://jimeng.jianying.com/" target="_blank"><i class="bi bi-palette2 text-danger"></i>即梦 AI</a></li>
+                    <li><a class="dropdown-item toolbox-item" href="https://dreamina.capcut.com/ai-tool/home/" target="_blank"><i class="bi bi-magic text-warning"></i>Dreamina</a></li>
+                    <li><hr class="toolbox-divider"></li>
+                    <li><h6 class="toolbox-header">大语言模型</h6></li>
+                    <li><a class="dropdown-item toolbox-item" href="https://gemini.google.com/" target="_blank"><i class="bi bi-google text-primary"></i>Google Gemini</a></li>
+                    <li><a class="dropdown-item toolbox-item" href="https://aistudio.google.com/" target="_blank"><i class="bi bi-code-square text-info"></i>AI Studio</a></li>
+                </ul>
+            </div>
             
-            <a href="{% url 'upload' %}?next={{ request.get_full_path|urlencode }}" class="btn btn-sm rounded-pill px-4 py-2 btn-upload-nav shadow-sm d-flex align-items-center">
+            <a href="{% url 'upload' %}?next={{ request.get_full_path|urlencode }}" class="btn btn-sm rounded-pill px-4 btn-upload-nav ms-1">
                 <i class="bi bi-plus-lg me-1"></i>发布
             </a>
         </div>
@@ -68,18 +67,16 @@
 </nav>
 
 <div class="container py-5">
-    
-    {% if not search_query %}
+    {% if not search_query and not current_filter %}
     <div class="row justify-content-center hero-section">
         <div class="col-lg-8">
             <h1 class="hero-title">探索创意图片与提示词</h1>
-            <p class="hero-subtitle">
-                发现令人惊叹的 AI 生成图片及其对应的提示词<br>
-                获取灵感，提升您的创作效率
-            </p>
+            <p class="hero-subtitle">发现令人惊叹的 AI 生成图片及其对应的提示词，获取灵感。</p>
         </div>
     </div>
-    {% else %}
+    {% endif %}
+
+    {% if search_query %}
     <div class="row justify-content-center mb-4">
         <div class="col-12 text-center">
             <span class="badge bg-white text-primary shadow-sm px-3 py-2 rounded-pill fw-normal" 
@@ -94,14 +91,19 @@
     <div id="masonry-grid">
         {% for group in page_obj %}
         <div class="grid-item">
-            <div class="gallery-card masonry-entry h-100 d-block position-relative group-card-container"
+            <div class="gallery-card masonry-entry h-100 d-block position-relative group-card-container" id="group-card-{{ group.pk }}"
                  style="animation-delay: {{ forloop.counter0|stringformat:'d' }}00ms;">
                  
                 <button class="btn btn-sm btn-light position-absolute top-0 end-0 m-2 rounded-circle shadow-sm z-3 d-flex align-items-center justify-content-center" 
-                        style="width: 32px; height: 32px; opacity: 0.9;"
+                        style="width: 32px; height: 32px; opacity: 0.9; right: 50px!important;"
                         onclick="copyHomePrompt(event, '{{ group.prompt_text|escapejs }}')"
                         title="复制提示词">
                     <i class="bi bi-clipboard text-primary"></i>
+                </button>
+                
+                <button class="btn-like-card position-absolute top-0 end-0 m-2 {% if group.is_liked %}active{% endif %}"
+                        onclick="toggleGroupLike(event, {{ group.pk }}, {% if group.is_liked %}true{% else %}false{% endif %})">
+                    <i class="bi {% if group.is_liked %}bi-heart-fill{% else %}bi-heart{% endif %}"></i>
                 </button>
 
                 <a href="{% url 'detail' group.pk %}" class="text-decoration-none text-dark">
@@ -123,6 +125,7 @@
 
                     <div class="card-body p-3">
                         <h5 class="card-title text-truncate mb-2">{{ group.title }}</h5>
+                        
                         <div class="mb-2" style="height: 28px; overflow: hidden;">
                             {% for tag in group.tags.all|slice:":3" %}
                             <object><a href="/?q={{ tag.name }}" class="tag-badge">{{ tag.name }}</a></object>
@@ -131,7 +134,9 @@
                             <span class="text-muted small align-middle">+{{ group.tags.count|add:"-3" }}</span>
                             {% endif %}
                         </div>
+
                         <p class="card-text text-clamp">{{ group.prompt_text }}</p>
+                        
                         <div class="d-flex justify-content-between align-items-center mt-3 border-top border-light pt-2 text-muted small">
                             <span><i class="bi bi-clock me-1"></i>{{ group.created_at|date:"m-d" }}</span>
                             <span>查看详情 &rarr;</span>
@@ -145,8 +150,8 @@
             <div class="my-5 p-5 gallery-card d-inline-block" style="width: auto;">
                 <i class="bi bi-stars fs-1 d-block mb-3 text-primary opacity-50"></i>
                 <h4>暂无内容</h4>
-                <p class="mb-0">没有找到匹配的结果，去发布第一张作品吧！</p>
-                {% if search_query %}
+                <p class="mb-0">这里空空如也。</p>
+                {% if search_query or current_filter %}
                 <a href="/" class="btn btn-primary mt-3 btn-sm rounded-pill">查看所有图片</a>
                 {% endif %}
             </div>
@@ -160,19 +165,11 @@
             <nav aria-label="Page navigation">
                 <ul class="pagination shadow-sm">
                     {% if page_obj.has_previous %}
-                    <li class="page-item"><a class="page-link border-0" href="?page=1{% if search_query %}&q={{ search_query }}{% endif %}">&laquo;</a></li>
-                    <li class="page-item"><a class="page-link border-0" href="?page={{ page_obj.previous_page_number }}{% if search_query %}&q={{ search_query }}{% endif %}">上一页</a></li>
-                    {% else %}
-                    <li class="page-item disabled"><span class="page-link border-0">&laquo;</span></li>
-                    <li class="page-item disabled"><span class="page-link border-0">上一页</span></li>
+                    <li class="page-item"><a class="page-link border-0" href="?page={{ page_obj.previous_page_number }}{% if search_query %}&q={{ search_query }}{% endif %}{% if current_filter %}&filter={{ current_filter }}{% endif %}">上一页</a></li>
                     {% endif %}
                     <li class="page-item disabled"><span class="page-link border-0 text-dark fw-bold">{{ page_obj.number }} / {{ page_obj.paginator.num_pages }}</span></li>
                     {% if page_obj.has_next %}
-                    <li class="page-item"><a class="page-link border-0" href="?page={{ page_obj.next_page_number }}{% if search_query %}&q={{ search_query }}{% endif %}">下一页</a></li>
-                    <li class="page-item"><a class="page-link border-0" href="?page={{ page_obj.paginator.num_pages }}{% if search_query %}&q={{ search_query }}{% endif %}">&raquo;</a></li>
-                    {% else %}
-                    <li class="page-item disabled"><span class="page-link border-0">下一页</span></li>
-                    <li class="page-item disabled"><span class="page-link border-0">&raquo;</span></li>
+                    <li class="page-item"><a class="page-link border-0" href="?page={{ page_obj.next_page_number }}{% if search_query %}&q={{ search_query }}{% endif %}{% if current_filter %}&filter={{ current_filter }}{% endif %}">下一页</a></li>
                     {% endif %}
                 </ul>
             </nav>
@@ -183,12 +180,10 @@
 
 <div class="d-md-none fixed-bottom p-2 text-center" style="background: rgba(255,255,255,0.85); backdrop-filter: blur(10px); border-top: 1px solid rgba(255,255,255,0.5);">
     <div class="d-flex gap-2 justify-content-center mb-2">
-        <a href="https://jimeng.jianying.com/" target="_blank" class="btn btn-sm btn-platform rounded-pill flex-fill"><i class="bi bi-palette me-1 text-danger"></i>即梦</a>
-        <a href="https://dreamina.capcut.com/ai-tool/home/" target="_blank" class="btn btn-sm btn-platform rounded-pill flex-fill"><i class="bi bi-magic me-1 text-warning"></i>Dreamina</a>
-        <a href="https://gemini.google.com/" target="_blank" class="btn btn-sm btn-platform rounded-pill flex-fill"><i class="bi bi-google me-1 text-primary"></i>Gemini</a>
+        <a href="{% url 'liked_images_gallery' %}" class="btn btn-sm btn-platform rounded-pill flex-fill"><i class="bi bi-images me-1 text-primary"></i>喜欢的单图</a>
     </div>
     <div class="d-flex gap-2">
-         <form action="{% url 'home' %}" method="get" class="d-flex flex-fill">
+         <form action="{% url 'home' %}" method="get" class="d-flex flex-fill" onsubmit="return this.q.value.trim() !== ''">
             <input type="text" name="q" class="form-control form-control-sm rounded-pill me-2" placeholder="搜索..." value="{{ search_query|default:'' }}">
             <button class="btn btn-primary btn-sm rounded-circle" type="submit"><i class="bi bi-search"></i></button>
         </form>
@@ -201,6 +196,8 @@
 <script src="https://cdn.jsdelivr.net/npm/imagesloaded@5.0.0/imagesloaded.pkgd.min.js"></script>
 
 <script>
+    const IS_LIKED_FILTER = {% if current_filter == 'liked' %}true{% else %}false{% endif %};
+
     function copyHomePrompt(event, text) {
         event.preventDefault(); event.stopPropagation();
         if (!text) { alert('提示词为空'); return; }
@@ -212,17 +209,68 @@
             Toast.fire({ icon: 'success', title: '提示词复制成功！' });
         });
     }
+    
+    function toggleGroupLike(event, pk, currentIsLiked) {
+        event.preventDefault(); event.stopPropagation();
+        const btn = event.currentTarget;
+        
+        if (IS_LIKED_FILTER && currentIsLiked) {
+            Swal.fire({
+                title: '移除喜欢?',
+                text: "确定要从喜欢的列表中移除这个作品吗？",
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#ff4757',
+                cancelButtonColor: '#6c757d',
+                confirmButtonText: '是的，移除',
+                cancelButtonText: '取消',
+                background: 'rgba(255, 255, 255, 0.95)',
+                customClass: { popup: 'rounded-4 shadow-lg border-0' }
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    performToggleLike(btn, pk);
+                    const card = document.getElementById(`group-card-${pk}`).closest('.grid-item');
+                    card.style.opacity = '0';
+                    setTimeout(() => { 
+                        card.remove(); 
+                        var msnry = Masonry.data(document.querySelector('#masonry-grid'));
+                        if(msnry) msnry.layout();
+                    }, 300);
+                }
+            });
+        } else {
+            performToggleLike(btn, pk);
+        }
+    }
+
+    function performToggleLike(btn, pk) {
+        const icon = btn.querySelector('i');
+        fetch(`/toggle-like-group/${pk}/`, {
+            method: 'POST',
+            headers: { 'X-CSRFToken': '{{ csrf_token }}', 'Content-Type': 'application/json' }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                if (data.is_liked) {
+                    btn.classList.add('active');
+                    icon.classList.remove('bi-heart'); icon.classList.add('bi-heart-fill');
+                    btn.setAttribute('onclick', `toggleGroupLike(event, ${pk}, true)`);
+                } else {
+                    btn.classList.remove('active');
+                    icon.classList.remove('bi-heart-fill'); icon.classList.add('bi-heart');
+                    btn.setAttribute('onclick', `toggleGroupLike(event, ${pk}, false)`);
+                }
+            }
+        });
+    }
 
     document.addEventListener('DOMContentLoaded', function() {
         var grid = document.querySelector('#masonry-grid');
         if (grid) {
             var msnry = new Masonry(grid, { itemSelector: '.grid-item', percentPosition: true });
-            
-            // 【特效】图片加载完，移除模糊，重排布局
             imagesLoaded(grid).on('progress', function(instance, image) {
-                if (image.isLoaded) {
-                    image.img.classList.add('loaded'); // 触发CSS模糊变清晰动画
-                }
+                if (image.isLoaded) { image.img.classList.add('loaded'); }
                 msnry.layout();
             });
         }

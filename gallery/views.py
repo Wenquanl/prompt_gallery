@@ -1,12 +1,20 @@
 from django.shortcuts import render, get_object_or_404, redirect
 from django.core.paginator import Paginator
 from django.db.models import Q
+from django.http import JsonResponse
+from django.views.decorators.http import require_POST
 from .models import PromptGroup, ImageItem, Tag, AIModel, ReferenceItem
 from .forms import PromptGroupForm
+# 引入 AI 工具
+from .ai_utils import generate_image_embedding, search_similar_images
 
 def home(request):
     queryset = PromptGroup.objects.all()
     query = request.GET.get('q')
+    filter_type = request.GET.get('filter')
+
+    if filter_type == 'liked':
+        queryset = queryset.filter(is_liked=True)
 
     if query:
         queryset = queryset.filter(
@@ -21,13 +29,48 @@ def home(request):
     
     return render(request, 'gallery/home.html', {
         'page_obj': page_obj,
-        'search_query': query 
+        'search_query': query,
+        'current_filter': filter_type
+    })
+
+def liked_images_gallery(request):
+    # 基础查询：所有喜欢的图片
+    queryset = ImageItem.objects.filter(is_liked=True).order_by('-id')
+    
+    search_mode = 'text' # text 或 image
+    query_text = request.GET.get('q')
+    
+    # 1. 处理以图搜图 (POST上传)
+    if request.method == 'POST' and request.FILES.get('image_query'):
+        uploaded_file = request.FILES['image_query']
+        # 使用 AI 搜索，返回的是已经排好序且带分数的 list
+        results = search_similar_images(uploaded_file, queryset)
+        
+        # 结果已经是 list，不能再用 .filter，直接分页
+        queryset = results 
+        search_mode = 'image'
+        query_text = "按图片搜索结果"
+
+    # 2. 处理文本搜索
+    elif query_text:
+        queryset = queryset.filter(
+            Q(group__title__icontains=query_text) |
+            Q(group__prompt_text__icontains=query_text) |
+            Q(group__tags__name__icontains=query_text)
+        ).distinct()
+
+    paginator = Paginator(queryset, 20)
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+    
+    return render(request, 'gallery/liked_images.html', {
+        'page_obj': page_obj,
+        'search_query': query_text,
+        'search_mode': search_mode
     })
 
 def detail(request, pk):
     group = get_object_or_404(PromptGroup, pk=pk)
-    
-    # 标签排序
     tags_list = list(group.tags.all())
     model_name = group.model_info
     if model_name:
@@ -43,15 +86,11 @@ def detail(request, pk):
         'related_groups': related_groups
     })
 
-# 【核心修改】上传视图：支持 next 参数实现“从哪来回哪去”
 def upload(request):
-    # 1. 获取来源地址 (优先级: POST参数 > GET参数 > HTTP_REFERER > 首页)
-    # 这样即使表单提交失败重新渲染，也能记住最开始是从哪来的
     next_url = request.POST.get('next') or request.GET.get('next') or request.META.get('HTTP_REFERER') or '/'
-    
-    # 防止 next_url 是 /upload/ 自身导致死循环
     if '/upload/' in next_url:
         next_url = '/'
+    existing_titles = PromptGroup.objects.values_list('title', flat=True).distinct().order_by('title')
 
     if request.method == 'POST':
         form = PromptGroupForm(request.POST, request.FILES)
@@ -67,25 +106,45 @@ def upload(request):
                 model_tag, created = Tag.objects.get_or_create(name=selected_model_obj.name)
                 group.tags.add(model_tag)
             
-            # 保存生成图
             files = request.FILES.getlist('upload_images')
             for f in files:
-                ImageItem.objects.create(group=group, image=f)
+                img_item = ImageItem.objects.create(group=group, image=f)
+                # 【关键】上传时自动生成向量
+                try:
+                    vec = generate_image_embedding(img_item.image.path)
+                    if vec:
+                        img_item.feature_vector = vec
+                        img_item.save()
+                except Exception as e:
+                    print(f"向量生成失败: {e}")
 
-            # 保存参考图
             ref_files = request.FILES.getlist('upload_references')
             for f in ref_files:
                 ReferenceItem.objects.create(group=group, image=f)
             
-            # 【核心】上传成功后，跳转回 next_url (比如刚才的详情页或列表页)
             return redirect(next_url)
     else:
         form = PromptGroupForm()
     
     return render(request, 'gallery/upload.html', {
         'form': form,
-        'next_url': next_url  # 把来源地址传给模板，用于"返回"按钮
+        'next_url': next_url,
+        'existing_titles': existing_titles 
     })
+
+@require_POST
+def toggle_like_group(request, pk):
+    group = get_object_or_404(PromptGroup, pk=pk)
+    group.is_liked = not group.is_liked
+    group.save()
+    return JsonResponse({'status': 'success', 'is_liked': group.is_liked})
+
+@require_POST
+def toggle_like_image(request, pk):
+    image = get_object_or_404(ImageItem, pk=pk)
+    image.is_liked = not image.is_liked
+    image.save()
+    return JsonResponse({'status': 'success', 'is_liked': image.is_liked})
 
 def add_images_to_group(request, pk):
     group = get_object_or_404(PromptGroup, pk=pk)
@@ -93,7 +152,14 @@ def add_images_to_group(request, pk):
         files = request.FILES.getlist('new_images')
         if files:
             for f in files:
-                ImageItem.objects.create(group=group, image=f)
+                img_item = ImageItem.objects.create(group=group, image=f)
+                # 【关键】追加图片时也生成向量
+                try:
+                    vec = generate_image_embedding(img_item.image.path)
+                    if vec:
+                        img_item.feature_vector = vec
+                        img_item.save()
+                except: pass
     return redirect('detail', pk=pk)
 
 def add_references_to_group(request, pk):

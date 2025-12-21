@@ -34,6 +34,13 @@
                     <div class="mb-4">
                         <label class="form-label">作品标题 <span class="text-danger">*</span></label>
                         {{ form.title }}
+                        
+                        <datalist id="title_list">
+                            {% for title in existing_titles %}
+                            <option value="{{ title }}">
+                            {% endfor %}
+                        </datalist>
+
                         {% if form.title.errors %}<div class="text-danger small mt-1">{{ form.title.errors.0 }}</div>{% endif %}
                     </div>
 

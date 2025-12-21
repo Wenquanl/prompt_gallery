@@ -25,12 +25,20 @@ class PromptGroupForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         model_names = AIModel.objects.values_list('name', flat=True)
         self.fields['tags'].queryset = Tag.objects.exclude(name__in=model_names)
+        
+        # 强制清空初始值，只显示placeholder
+        self.fields['title'].initial = None
 
     class Meta:
         model = PromptGroup
-        fields = ['title', 'prompt_text', 'negative_prompt', 'model_info', 'tags'] # 移除了 reference_image
+        fields = ['title', 'prompt_text', 'negative_prompt', 'model_info', 'tags']
         widgets = {
-            'title': forms.TextInput(attrs={'class': 'form-control', 'placeholder': '给这组作品起个标题'}),
+            'title': forms.TextInput(attrs={
+                'class': 'form-control', 
+                'placeholder': '给这组作品起个标题',
+                'list': 'title_list',  # 必须与 HTML 中的 datalist ID 一致
+                'autocomplete': 'off'
+            }),
             'prompt_text': forms.Textarea(attrs={'class': 'form-control', 'rows': 4, 'placeholder': '输入正向提示词...'}),
             'negative_prompt': forms.Textarea(attrs={'class': 'form-control', 'rows': 3, 'placeholder': '输入负向提示词 (可选)...'}),
         }
@@ -41,7 +49,7 @@ class PromptGroupForm(forms.ModelForm):
         label="批量上传生成图", required=True, help_text="支持批量选择 (必须)"
     )
 
-    # 【新增】参考图上传 (支持批量)
+    # 参考图上传
     upload_references = MultipleFileField(
         widget=MultipleFileInput(attrs={'multiple': True, 'class': 'form-control'}),
         label="批量上传参考图", required=False, help_text="支持批量选择 (可选)"
