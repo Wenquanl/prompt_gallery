@@ -5,6 +5,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>灵感图库 - AI Prompt Gallery</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=Poppins:wght@400;600;800&display=swap" rel="stylesheet">
+    <link rel="icon" type="image/svg+xml" href="{% static 'gallery/favicon.svg' %}">
+
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
@@ -30,6 +35,7 @@
                 <a href="https://jimeng.jianying.com/" target="_blank" class="btn btn-sm btn-platform rounded-pill px-3"><i class="bi bi-palette me-1 text-danger"></i>即梦</a>
                 <a href="https://dreamina.capcut.com/ai-tool/home/" target="_blank" class="btn btn-sm btn-platform rounded-pill px-3"><i class="bi bi-magic me-1 text-warning"></i>Dreamina</a>
                 <a href="https://gemini.google.com/" target="_blank" class="btn btn-sm btn-platform rounded-pill px-3"><i class="bi bi-google me-1 text-primary"></i>Gemini</a>
+                <a href="https://aistudio.google.com/" target="_blank" class="btn btn-sm btn-platform rounded-pill px-3"><i class="bi bi-code-square me-1 text-info"></i>AI Studio</a>
             </div>
             
             <a href="{% url 'upload' %}?next={{ request.get_full_path|urlencode }}" class="btn btn-sm rounded-pill px-4 py-2 btn-upload-nav shadow-sm d-flex align-items-center">
@@ -66,7 +72,9 @@
     <div id="masonry-grid">
         {% for group in page_obj %}
         <div class="grid-item">
-            <div class="gallery-card h-100 d-block position-relative group-card-container">
+            <div class="gallery-card masonry-entry h-100 d-block position-relative group-card-container"
+                 style="animation-delay: {{ forloop.counter0|stringformat:'d' }}00ms;">
+                 
                 <button class="btn btn-sm btn-light position-absolute top-0 end-0 m-2 rounded-circle shadow-sm z-3 d-flex align-items-center justify-content-center" 
                         style="width: 32px; height: 32px; opacity: 0.9;"
                         onclick="copyHomePrompt(event, '{{ group.prompt_text|escapejs }}')"
@@ -125,7 +133,8 @@
     </div>
 
     {% if page_obj.paginator.num_pages > 1 %}
-    <div class="row mt-5" style="clear: both;"> <div class="col-12 d-flex justify-content-center">
+    <div class="row mt-5" style="clear: both;">
+        <div class="col-12 d-flex justify-content-center">
             <nav aria-label="Page navigation">
                 <ul class="pagination shadow-sm">
                     {% if page_obj.has_previous %}
@@ -166,7 +175,6 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-
 <script src="https://cdn.jsdelivr.net/npm/masonry-layout@4.2.2/dist/masonry.pkgd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/imagesloaded@5.0.0/imagesloaded.pkgd.min.js"></script>
 
@@ -183,18 +191,16 @@
         });
     }
 
-    // 【关键】初始化脚本
     document.addEventListener('DOMContentLoaded', function() {
         var grid = document.querySelector('#masonry-grid');
         if (grid) {
-            // 先初始化 Masonry
-            var msnry = new Masonry(grid, {
-                itemSelector: '.grid-item',
-                percentPosition: true // 开启百分比布局
-            });
-
-            // 监听图片加载，每加载一张就重排一次
-            imagesLoaded(grid).on('progress', function() {
+            var msnry = new Masonry(grid, { itemSelector: '.grid-item', percentPosition: true });
+            
+            // 【特效】图片加载完，移除模糊，重排布局
+            imagesLoaded(grid).on('progress', function(instance, image) {
+                if (image.isLoaded) {
+                    image.img.classList.add('loaded'); // 触发CSS模糊变清晰动画
+                }
                 msnry.layout();
             });
         }
