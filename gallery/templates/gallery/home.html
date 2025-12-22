@@ -76,6 +76,24 @@
     </div>
     {% endif %}
 
+    {% if tags_bar %}
+    <div class="tags-bar-wrapper">
+        <div class="tags-scroll-container">
+            <a href="{% url 'home' %}" class="tag-pill {% if not search_query %}active{% endif %}">
+                全部
+            </a>
+
+            {% for tag in tags_bar %}
+            <a href="/?q={{ tag.name }}" 
+               class="tag-pill {% if tag.is_model == 1 %}model-tag{% endif %} {% if search_query == tag.name %}active{% endif %}">
+                {% if tag.is_model == 1 %}<i class="bi bi-robot me-1"></i>{% endif %}
+                {{ tag.name }}
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
     {% if search_query %}
     <div class="row justify-content-center mb-4">
         <div class="col-12 text-center">
@@ -94,14 +112,14 @@
             <div class="gallery-card masonry-entry h-100 d-block position-relative group-card-container" id="group-card-{{ group.pk }}"
                  style="animation-delay: {{ forloop.counter0|stringformat:'d' }}00ms;">
                  
-                <button class="btn btn-sm btn-light position-absolute top-0 end-0 m-2 rounded-circle shadow-sm z-3 d-flex align-items-center justify-content-center" 
-                        style="width: 32px; height: 32px; opacity: 0.9; right: 50px!important;"
+                <button class="btn-card-float position-absolute top-0 end-0 m-2 z-3" 
+                        style="right: 52px!important;" 
                         onclick="copyHomePrompt(event, '{{ group.prompt_text|escapejs }}')"
                         title="复制提示词">
                     <i class="bi bi-clipboard text-primary"></i>
                 </button>
                 
-                <button class="btn-like-card position-absolute top-0 end-0 m-2 {% if group.is_liked %}active{% endif %}"
+                <button class="btn-card-float position-absolute top-0 end-0 m-2 {% if group.is_liked %}active{% endif %}"
                         onclick="toggleGroupLike(event, {{ group.pk }}, {% if group.is_liked %}true{% else %}false{% endif %})">
                     <i class="bi {% if group.is_liked %}bi-heart-fill{% else %}bi-heart{% endif %}"></i>
                 </button>
@@ -118,6 +136,19 @@
                             {% endif %}
                         {% endwith %}
                         
+                        {% if group.references.all %}
+                        <div class="ref-stack-container">
+                            {% for ref in group.references.all|slice:":4" %}
+                            <div class="ref-item">
+                                <img src="{{ ref.thumbnail.url }}" alt="Ref">
+                            </div>
+                            {% endfor %}
+                            {% if group.references.count > 4 %}
+                            <div class="ref-more-badge">+{{ group.references.count|add:"-4" }}</div>
+                            {% endif %}
+                        </div>
+                        {% endif %}
+
                         {% if group.images.count > 1 %}
                         <div class="img-badge"><i class="bi bi-images me-1"></i>{{ group.images.count }}</div>
                         {% endif %}

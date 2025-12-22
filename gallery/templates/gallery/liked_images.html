@@ -119,6 +119,11 @@
                         <small class="d-block text-truncate fw-bold">{{ img.group.title }}</small>
                     </div>
                 </a>
+                
+                <a href="{{ img.image.url }}" download class="btn-download-abs" title="下载原图" onclick="event.stopPropagation()">
+                    <i class="bi bi-download"></i>
+                </a>
+
                 <button class="btn-unlike-abs" onclick="toggleLikeInGallery(this, {{ img.id }})" title="取消喜欢">
                     <i class="bi bi-heart-fill"></i>
                 </button>

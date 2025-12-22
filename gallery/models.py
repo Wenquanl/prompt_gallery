@@ -1,5 +1,6 @@
 import uuid
 import os
+import hashlib
 from django.db import models
 from django.utils import timezone
 from imagekit.models import ImageSpecField
@@ -61,13 +62,34 @@ class ImageItem(models.Model):
     
     is_liked = models.BooleanField("是否喜欢", default=False)
 
-    # 【新增】存储图像特征向量 (BinaryField 用于存 numpy array bytes)
+    # 存储图像特征向量
     feature_vector = models.BinaryField("特征向量", null=True, blank=True)
     
+    # 【新增】存储图片 MD5 哈希值，用于查重
+    image_hash = models.CharField("MD5哈希", max_length=32, blank=True, db_index=True)
+
     thumbnail = ImageSpecField(source='image',
                                processors=[ResizeToFit(width=600, upscale=False)],
                                format='JPEG',
                                options={'quality': 85})
+    
+    # 【新增】重写 save 方法，自动计算 Hash
+    def save(self, *args, **kwargs):
+        # 只有在 image_hash 为空且有图片文件时才计算
+        if not self.image_hash and self.image:
+            self.calculate_hash()
+        super().save(*args, **kwargs)
+
+    def calculate_hash(self):
+        md5 = hashlib.md5()
+        # 分块读取，防止大文件占满内存
+        if self.image:
+            # 确保指针在开始位置
+            if hasattr(self.image, 'seek'):
+                self.image.seek(0)
+            for chunk in self.image.chunks():
+                md5.update(chunk)
+            self.image_hash = md5.hexdigest()
     
     def __str__(self): return f"生成图 ID: {self.id}"
     class Meta: verbose_name = "生成图"; verbose_name_plural = "生成图集"

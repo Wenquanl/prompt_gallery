@@ -21,4 +21,6 @@ urlpatterns = [
     # 【新增】点赞接口 (API)
     path('toggle-like-group/<int:pk>/', views.toggle_like_group, name='toggle_like_group'),
     path('toggle-like-image/<int:pk>/', views.toggle_like_image, name='toggle_like_image'),
+    # 【新增】更新提示词接口
+    path('update-prompts/<int:pk>/', views.update_group_prompts, name='update_group_prompts'),
 ]

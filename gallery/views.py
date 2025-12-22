@@ -1,12 +1,21 @@
+import hashlib
+import json  # <--- 记得添加这个
 from django.shortcuts import render, get_object_or_404, redirect
 from django.core.paginator import Paginator
-from django.db.models import Q
+from django.db.models import Q, Count, Case, When, IntegerField
 from django.http import JsonResponse
 from django.views.decorators.http import require_POST
 from .models import PromptGroup, ImageItem, Tag, AIModel, ReferenceItem
 from .forms import PromptGroupForm
 # 引入 AI 工具
 from .ai_utils import generate_image_embedding, search_similar_images
+
+# === 【新增】计算上传文件 MD5 的工具函数 ===
+def calculate_file_hash(uploaded_file):
+    md5 = hashlib.md5()
+    for chunk in uploaded_file.chunks():
+        md5.update(chunk)
+    return md5.hexdigest()
 
 def home(request):
     queryset = PromptGroup.objects.all()
@@ -23,6 +32,17 @@ def home(request):
             Q(tags__name__icontains=query)
         ).distinct()
 
+    # 标签栏数据
+    ai_model_names = list(AIModel.objects.values_list('name', flat=True))
+    tags_bar = Tag.objects.filter(promptgroup__isnull=False).distinct().annotate(
+        use_count=Count('promptgroup'),
+        is_model=Case(
+            When(name__in=ai_model_names, then=1),
+            default=2,
+            output_field=IntegerField(),
+        )
+    ).order_by('is_model', '-use_count')
+
     paginator = Paginator(queryset, 12)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
@@ -30,28 +50,21 @@ def home(request):
     return render(request, 'gallery/home.html', {
         'page_obj': page_obj,
         'search_query': query,
-        'current_filter': filter_type
+        'current_filter': filter_type,
+        'tags_bar': tags_bar
     })
 
 def liked_images_gallery(request):
-    # 基础查询：所有喜欢的图片
     queryset = ImageItem.objects.filter(is_liked=True).order_by('-id')
-    
-    search_mode = 'text' # text 或 image
+    search_mode = 'text'
     query_text = request.GET.get('q')
     
-    # 1. 处理以图搜图 (POST上传)
     if request.method == 'POST' and request.FILES.get('image_query'):
         uploaded_file = request.FILES['image_query']
-        # 使用 AI 搜索，返回的是已经排好序且带分数的 list
         results = search_similar_images(uploaded_file, queryset)
-        
-        # 结果已经是 list，不能再用 .filter，直接分页
         queryset = results 
         search_mode = 'image'
         query_text = "按图片搜索结果"
-
-    # 2. 处理文本搜索
     elif query_text:
         queryset = queryset.filter(
             Q(group__title__icontains=query_text) |
@@ -95,6 +108,24 @@ def upload(request):
     if request.method == 'POST':
         form = PromptGroupForm(request.POST, request.FILES)
         if form.is_valid():
+            # 文本查重逻辑
+            prompt_content = form.cleaned_data.get('prompt_text', '').strip()
+            model_obj = form.cleaned_data.get('model_info')
+            model_name_str = model_obj.name if model_obj else ""
+
+            is_duplicate = PromptGroup.objects.filter(
+                prompt_text=prompt_content, 
+                model_info=model_name_str
+            ).exists()
+
+            if is_duplicate:
+                error_msg = f"重复提交拦截：该提示词与模型 '{model_name_str}' 的组合已存在！"
+                if not model_name_str: error_msg = "重复提交拦截：该提示词已存在！"
+                form.add_error(None, error_msg)
+                return render(request, 'gallery/upload.html', {
+                    'form': form, 'next_url': next_url, 'existing_titles': existing_titles 
+                })
+
             group = form.save(commit=False)
             selected_model_obj = form.cleaned_data.get('model_info')
             if selected_model_obj:
@@ -108,8 +139,9 @@ def upload(request):
             
             files = request.FILES.getlist('upload_images')
             for f in files:
-                img_item = ImageItem.objects.create(group=group, image=f)
-                # 【关键】上传时自动生成向量
+                # 初始上传时，即便有重复图也允许（因为是新组），但要计算hash
+                img_item = ImageItem(group=group, image=f)
+                img_item.save() # save时会自动计算hash
                 try:
                     vec = generate_image_embedding(img_item.image.path)
                     if vec:
@@ -146,20 +178,60 @@ def toggle_like_image(request, pk):
     image.save()
     return JsonResponse({'status': 'success', 'is_liked': image.is_liked})
 
+# === 【重点修改】添加图片到组，支持查重 ===
 def add_images_to_group(request, pk):
     group = get_object_or_404(PromptGroup, pk=pk)
+    
     if request.method == 'POST':
         files = request.FILES.getlist('new_images')
+        duplicates = []
+        uploaded_count = 0
+
         if files:
             for f in files:
-                img_item = ImageItem.objects.create(group=group, image=f)
-                # 【关键】追加图片时也生成向量
-                try:
-                    vec = generate_image_embedding(img_item.image.path)
-                    if vec:
-                        img_item.feature_vector = vec
-                        img_item.save()
-                except: pass
+                # 1. 计算上传文件的 Hash
+                file_hash = calculate_file_hash(f)
+                
+                # 2. 查询数据库是否已存在该 Hash 的图片 (全局查重)
+                existing_img = ImageItem.objects.filter(image_hash=file_hash).first()
+                
+                if existing_img:
+                    # 3. 发现重复，记录信息
+                    duplicates.append({
+                        'name': f.name,
+                        'existing_url': existing_img.thumbnail.url if existing_img.thumbnail else existing_img.image.url,
+                        'existing_group_title': existing_img.group.title,
+                        'existing_group_id': existing_img.group.id
+                    })
+                else:
+                    # 4. 无重复，正常保存
+                    img_item = ImageItem(group=group, image=f)
+                    img_item.image_hash = file_hash # 预先赋值避免重复计算
+                    img_item.save()
+                    uploaded_count += 1
+                    try:
+                        vec = generate_image_embedding(img_item.image.path)
+                        if vec:
+                            img_item.feature_vector = vec
+                            img_item.save()
+                    except: pass
+        
+        # 5. 根据结果返回 JSON
+        if duplicates:
+            return JsonResponse({
+                'status': 'warning',
+                'message': f'成功上传 {uploaded_count} 张，拦截 {len(duplicates)} 张重复图片',
+                'duplicates': duplicates,
+                'uploaded_count': uploaded_count
+            })
+        else:
+            return JsonResponse({
+                'status': 'success',
+                'message': f'成功添加 {uploaded_count} 张图片',
+                'uploaded_count': uploaded_count
+            })
+            
+    # 如果是非 POST 请求或没有文件，重定向回详情页
     return redirect('detail', pk=pk)
 
 def add_references_to_group(request, pk):
@@ -191,3 +263,20 @@ def delete_reference(request, pk):
     if request.method == 'POST':
         item.delete()
     return redirect('detail', pk=group_pk)
+@require_POST
+def update_group_prompts(request, pk):
+    """
+    更新提示词 (AJAX)
+    """
+    group = get_object_or_404(PromptGroup, pk=pk)
+    try:
+        data = json.loads(request.body)
+        if 'prompt_text' in data:
+            group.prompt_text = data['prompt_text']
+        if 'negative_prompt' in data:
+            group.negative_prompt = data['negative_prompt']
+        
+        group.save()
+        return JsonResponse({'status': 'success'})
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': str(e)}, status=400)

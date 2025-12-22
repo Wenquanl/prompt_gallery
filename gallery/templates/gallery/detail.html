@@ -94,8 +94,8 @@
 
             <div id="detail-masonry-grid" class="row">
                 {% for img in group.images.all %}
-                <div class="grid-item mb-3">
-                    <div class="detail-img-card shadow-sm position-relative">
+                <div class="grid-item mb-3" id="img-anchor-{{ img.pk }}">
+                    <div class="detail-img-card shadow-sm position-relative" id="img-card-{{ img.pk }}">
                         <div class="position-relative" role="button" onclick="showModal({{ forloop.counter0 }})">
                             <img src="{{ img.image.url }}" class="thumb-img" alt="AI Artwork">
                             <div class="hover-overlay"><i class="bi bi-zoom-in text-white fs-2"></i></div>
@@ -209,7 +209,22 @@
                 <div class="prompt-card p-4">
                     <div class="section-header">
                         <span class="section-label text-primary">Prompt (正向)</span>
-                        <button onclick="copyText('promptText', this)" class="btn btn-sm btn-outline-primary rounded-pill px-3" {% if not group.prompt_text %}disabled{% endif %}><i class="bi bi-clipboard me-1"></i>复制</button>
+                        <div class="d-flex align-items-center gap-2">
+                            <button onclick="enableEdit('promptText', this)" class="btn btn-sm btn-outline-secondary rounded-pill px-3 btn-edit-prompt">
+                                <i class="bi bi-pencil me-1"></i>编辑
+                            </button>
+                            <div class="edit-actions" style="display:none;">
+                                <button onclick="savePrompt('promptText', {{ group.pk }}, 'positive')" class="btn btn-sm btn-success rounded-pill px-3 me-1" title="保存">
+                                    <i class="bi bi-check-lg"></i>
+                                </button>
+                                <button onclick="cancelEdit('promptText')" class="btn btn-sm btn-outline-secondary rounded-pill px-3" title="取消">
+                                    <i class="bi bi-x-lg"></i>
+                                </button>
+                            </div>
+                            <button onclick="copyText('promptText', this)" class="btn btn-sm btn-outline-primary rounded-pill px-3" {% if not group.prompt_text %}disabled{% endif %}>
+                                <i class="bi bi-clipboard me-1"></i>复制
+                            </button>
+                        </div>
                     </div>
                     <div class="prompt-box" id="promptText">{% if group.prompt_text %}{{ group.prompt_text }}{% else %}<span class="empty-text">未填写</span>{% endif %}</div>
                 </div>
@@ -217,7 +232,22 @@
                 <div class="prompt-card p-4">
                     <div class="section-header">
                         <span class="section-label text-danger">Negative Prompt</span>
-                        <button onclick="copyText('negPrompt', this)" class="btn btn-sm btn-outline-danger rounded-pill px-3" {% if not group.negative_prompt %}disabled{% endif %}><i class="bi bi-clipboard me-1"></i>复制</button>
+                        <div class="d-flex align-items-center gap-2">
+                            <button onclick="enableEdit('negPrompt', this)" class="btn btn-sm btn-outline-secondary rounded-pill px-3 btn-edit-prompt">
+                                <i class="bi bi-pencil me-1"></i>编辑
+                            </button>
+                            <div class="edit-actions" style="display:none;">
+                                <button onclick="savePrompt('negPrompt', {{ group.pk }}, 'negative')" class="btn btn-sm btn-success rounded-pill px-3 me-1" title="保存">
+                                    <i class="bi bi-check-lg"></i>
+                                </button>
+                                <button onclick="cancelEdit('negPrompt')" class="btn btn-sm btn-outline-secondary rounded-pill px-3" title="取消">
+                                    <i class="bi bi-x-lg"></i>
+                                </button>
+                            </div>
+                            <button onclick="copyText('negPrompt', this)" class="btn btn-sm btn-outline-danger rounded-pill px-3" {% if not group.negative_prompt %}disabled{% endif %}>
+                                <i class="bi bi-clipboard me-1"></i>复制
+                            </button>
+                        </div>
                     </div>
                     <div class="prompt-box" id="negPrompt">{% if group.negative_prompt %}{{ group.negative_prompt }}{% else %}<span class="empty-text">未填写</span>{% endif %}</div>
                 </div>
@@ -239,10 +269,17 @@
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content border-0 shadow-lg rounded-4" style="background: rgba(255,255,255,0.95); backdrop-filter: blur(10px);">
             <div class="modal-header border-0 pb-0"><h5 class="modal-title fw-bold text-dark">添加生成图</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
-            <div class="modal-body pt-4"><form action="{% url 'add_images' group.pk %}" method="post" enctype="multipart/form-data">{% csrf_token %}<div class="mb-4"><label class="form-label small text-muted text-uppercase fw-bold ls-1">选择图片 (支持多选)</label><input type="file" name="new_images" class="form-control" multiple required accept="image/*"></div><div class="d-grid"><button type="submit" class="btn btn-primary rounded-pill fw-bold" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); border: none;"><i class="bi bi-cloud-upload me-2"></i>开始上传</button></div></form></div>
+            <div class="modal-body pt-4">
+                <form id="addImagesForm" action="{% url 'add_images' group.pk %}" method="post" enctype="multipart/form-data" onsubmit="handleImageUpload(event)">
+                    {% csrf_token %}
+                    <div class="mb-4"><label class="form-label small text-muted text-uppercase fw-bold ls-1">选择图片 (支持多选)</label><input type="file" name="new_images" class="form-control" multiple required accept="image/*"></div>
+                    <div class="d-grid"><button type="submit" class="btn btn-primary rounded-pill fw-bold" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); border: none;"><i class="bi bi-cloud-upload me-2"></i>开始上传</button></div>
+                </form>
+            </div>
         </div>
     </div>
 </div>
+
 <div class="modal fade" id="addReferenceModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content border-0 shadow-lg rounded-4" style="background: rgba(255,255,255,0.95); backdrop-filter: blur(10px);">
@@ -297,7 +334,26 @@ document.addEventListener('DOMContentLoaded', function() {
     var grid = document.querySelector('#detail-masonry-grid');
     if (grid) {
         var msnry = new Masonry(grid, { itemSelector: '.grid-item', percentPosition: true });
-        imagesLoaded(grid).on('progress', function(instance, image) { msnry.layout(); });
+        
+        imagesLoaded(grid).on('progress', function(instance, image) { 
+            msnry.layout(); 
+        }).on('done', function() {
+            // 定位高亮逻辑
+            const urlParams = new URLSearchParams(window.location.search);
+            const highlightId = urlParams.get('highlight');
+            
+            if (highlightId) {
+                const targetAnchor = document.getElementById(`img-anchor-${highlightId}`);
+                const targetCard = document.getElementById(`img-card-${highlightId}`);
+                
+                if (targetAnchor && targetCard) {
+                    setTimeout(() => {
+                        targetAnchor.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        targetCard.classList.add('highlight-pulse');
+                    }, 300);
+                }
+            }
+        });
     }
 
     var hScroll = document.querySelector('#horizontal-scroll');
@@ -313,6 +369,97 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 });
+
+// === 【重点修改】处理图片上传的 AJAX 逻辑 ===
+function handleImageUpload(event) {
+    event.preventDefault(); // 阻止默认表单提交
+    
+    const form = event.target;
+    const formData = new FormData(form);
+    const submitBtn = form.querySelector('button[type="submit"]');
+    
+    // UI 反馈：上传中
+    const originalBtnContent = submitBtn.innerHTML;
+    submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>上传并校验中...';
+    submitBtn.disabled = true;
+
+    fetch(form.action, {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-Requested-With': 'XMLHttpRequest'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        submitBtn.innerHTML = originalBtnContent;
+        submitBtn.disabled = false;
+
+        if (data.status === 'success') {
+            // 完全成功
+            window.location.reload();
+        } else if (data.status === 'warning') {
+            // 有重复图片被拦截
+            const uploadModalEl = document.getElementById('addImagesModal');
+            const uploadModal = bootstrap.Modal.getInstance(uploadModalEl);
+            uploadModal.hide();
+
+            // 1. 开始构建列表 HTML
+            let listItems = '';
+            data.duplicates.forEach(dup => {
+                listItems += `
+                    <div class="duplicate-item">
+                        <img src="${dup.existing_url}" class="duplicate-alert-img">
+                        <div class="duplicate-text-content">
+                            <div class="duplicate-filename" title="${dup.name}">${dup.name}</div>
+                            <div class="duplicate-source">
+                                已存在于：<strong>《${dup.existing_group_title}》</strong>
+                            </div>
+                            <div class="duplicate-badge"><i class="bi bi-shield-fill-x me-1"></i>已拦截重复上传</div>
+                        </div>
+                    </div>
+                `;
+            });
+
+            // 2. 将列表包裹在滚动容器中
+            const duplicateHtml = `
+                <div class="text-start mb-2 text-muted small">以下图片因重复而被系统自动拦截：</div>
+                <div class="duplicate-scroll-container">
+                    ${listItems}
+                </div>
+                <div class="text-end text-muted small mt-2">
+                    成功上传: <span class="text-success fw-bold">${data.uploaded_count}</span> 张 
+                    / 拦截: <span class="text-danger fw-bold">${data.duplicates.length}</span> 张
+                </div>
+            `;
+
+            Swal.fire({
+                title: `<span class="text-danger fw-bold"><i class="bi bi-exclamation-triangle-fill me-2"></i>重复拦截报告</span>`,
+                html: duplicateHtml,
+                icon: null, // 自定义 HTML
+                confirmButtonText: '知道了',
+                confirmButtonColor: '#2c3e50',
+                width: '600px', // 稍微加宽一点弹窗，体验更好
+                background: '#fff',
+                customClass: {
+                    popup: 'rounded-4 shadow-lg border-0'
+                }
+            }).then(() => {
+                if (data.uploaded_count > 0) {
+                    window.location.reload();
+                }
+            });
+        } else {
+            Swal.fire({ icon: 'error', title: '上传失败', text: '请重试' });
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        submitBtn.innerHTML = originalBtnContent;
+        submitBtn.disabled = false;
+        Swal.fire({ icon: 'error', title: '网络错误', text: '无法连接到服务器' });
+    });
+}
 
 function showModal(index) {
     currentIndex = index;
@@ -416,7 +563,119 @@ function confirmDelete(event) {
         background: 'rgba(255, 255, 255, 0.95)', backdrop: `rgba(0,0,0,0.4)`, customClass: { popup: 'rounded-4 shadow-lg border-0' }
     }).then((result) => { if (result.isConfirmed) form.submit(); })
 }
+// ================== 编辑提示词逻辑 ==================
 
+function enableEdit(elementId, editBtn) {
+    const box = document.getElementById(elementId);
+    
+    // 1. 处理占位符
+    if (box.querySelector('.empty-text')) {
+        box.dataset.wasEmpty = 'true';
+        box.innerText = ''; // 清空 "未填写" 字样
+    } else {
+        box.dataset.originalText = box.innerText; // 记录原始内容以便取消
+    }
+
+    // 2. 开启编辑
+    box.contentEditable = "true";
+    box.focus();
+
+    // 3. 切换按钮显示
+    editBtn.style.display = 'none';
+    const actionsDiv = editBtn.nextElementSibling; // 获取紧邻的 edit-actions div
+    if (actionsDiv && actionsDiv.classList.contains('edit-actions')) {
+        actionsDiv.style.display = 'block';
+    }
+}
+
+function cancelEdit(elementId) {
+    const box = document.getElementById(elementId);
+    
+    // 1. 恢复内容
+    if (box.dataset.wasEmpty === 'true') {
+        box.innerHTML = '<span class="empty-text">未填写</span>';
+    } else if (box.dataset.originalText !== undefined) {
+        box.innerText = box.dataset.originalText;
+    }
+    
+    // 2. 关闭编辑
+    box.contentEditable = "false";
+    delete box.dataset.originalText;
+    delete box.dataset.wasEmpty;
+
+    // 3. 恢复按钮显示
+    toggleEditButtons(box, false);
+}
+
+function savePrompt(elementId, pk, type) {
+    const box = document.getElementById(elementId);
+    const newText = box.innerText;
+    
+    // 构造数据
+    const data = {};
+    if (type === 'positive') {
+        data.prompt_text = newText;
+    } else {
+        data.negative_prompt = newText;
+    }
+
+    // 发送请求
+    fetch(`/update-prompts/${pk}/`, {
+        method: 'POST',
+        headers: { 
+            'Content-Type': 'application/json',
+            'X-CSRFToken': '{{ csrf_token }}' // Django 模板渲染的 token
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(res => {
+        if (res.status === 'success') {
+            // 保存成功逻辑
+            box.contentEditable = "false";
+            
+            // 更新“复制”按钮的状态（如果有内容则启用）
+            const copyBtn = box.parentElement.querySelector('.btn-outline-primary, .btn-outline-danger');
+            if (copyBtn) copyBtn.disabled = !newText.trim();
+
+            // 如果清空了，显示占位符
+            if (!newText.trim()) {
+                box.innerHTML = '<span class="empty-text">未填写</span>';
+            }
+
+            toggleEditButtons(box, false);
+            
+            // 提示成功
+            const Toast = Swal.mixin({
+                toast: true, position: 'top-end', showConfirmButton: false, timer: 1500,
+                background: 'rgba(255, 255, 255, 0.95)'
+            });
+            Toast.fire({ icon: 'success', title: '保存成功' });
+
+        } else {
+            alert('保存失败: ' + res.message);
+        }
+    })
+    .catch(err => {
+        console.error(err);
+        alert('网络错误，请重试');
+    });
+}
+
+// 辅助函数：切换按钮显隐
+function toggleEditButtons(boxElement, isEditing) {
+    const header = boxElement.parentElement.querySelector('.section-header');
+    const editBtn = header.querySelector('.btn-edit-prompt');
+    const actionsDiv = header.querySelector('.edit-actions');
+    
+    if (isEditing) {
+        editBtn.style.display = 'none';
+        actionsDiv.style.display = 'block';
+    } else {
+        editBtn.style.display = 'inline-block';
+        actionsDiv.style.display = 'none';
+    }
+}
 function copyText(elementId, btnElement) {
     const textElement = document.getElementById(elementId);
     if (textElement.querySelector('.empty-text')) return;
