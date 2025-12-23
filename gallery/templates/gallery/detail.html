@@ -61,13 +61,22 @@
 
 <div class="container my-5">
     <div class="mb-4">
-        {% with from_view=request.GET.from|default:'home' page_num=request.GET.page|default:'1' q_val=request.GET.q|default:'' filter_val=request.GET.filter|default:'' source_id=request.GET.source_img_id %}
-            {% if from_view == 'liked' %}
+        {% with from_view=request.GET.from|default:'home' page_num=request.GET.page|default:'1' q_val=request.GET.q|default:'' filter_val=request.GET.filter|default:'' source_id=request.GET.source_img_id back_to_id=request.GET.back_to_detail_id %}
+            
+            {% if back_to_id %}
+                <a href="{% url 'detail' back_to_id %}?from={{ from_view }}&page={{ page_num }}{% if q_val %}&q={{ q_val }}{% endif %}{% if filter_val %}&filter={{ filter_val }}{% endif %}{% if source_id %}&source_img_id={{ source_id }}{% endif %}" 
+                   class="btn btn-light rounded-pill px-3 shadow-sm text-secondary" 
+                   style="background: rgba(255,255,255,0.6); backdrop-filter: blur(5px); border: var(--glass-border);">
+                    <i class="bi bi-arrow-left me-2"></i>返回
+                </a>
+
+            {% elif from_view == 'liked' %}
                 <a href="{% url 'liked_images_gallery' %}?page={{ page_num }}{% if q_val %}&q={{ q_val }}{% endif %}{% if source_id %}#card-img-{{ source_id }}{% endif %}" 
                    class="btn btn-light rounded-pill px-3 shadow-sm text-secondary" 
                    style="background: rgba(255,255,255,0.6); backdrop-filter: blur(5px); border: var(--glass-border);">
-                    <i class="bi bi-arrow-left me-2"></i>返回图墙
+                    <i class="bi bi-arrow-left me-2"></i>返回
                 </a>
+
             {% else %}
                 <a href="{% url 'home' %}?page={{ page_num }}{% if q_val %}&q={{ q_val }}{% endif %}{% if filter_val %}&filter={{ filter_val }}{% endif %}#group-card-{{ group.pk }}" 
                    class="btn btn-light rounded-pill px-3 shadow-sm text-secondary" 
@@ -75,6 +84,7 @@
                     <i class="bi bi-arrow-left me-2"></i>返回
                 </a>
             {% endif %}
+
         {% endwith %}
     </div>
 
@@ -125,7 +135,7 @@
                 <div class="grid-item mb-3" id="img-anchor-{{ img.pk }}">
                     <div class="detail-img-card shadow-sm position-relative" id="img-card-{{ img.pk }}">
                         <div class="position-relative" role="button" onclick="showModal({{ forloop.counter0 }})">
-                            <img src="{{ img.thumbnail.url }}" class="thumb-img" alt="AI Artwork">
+                            <img src="{{ img.thumbnail.url }}" class="thumb-img" alt="AI Artwork" loading="lazy">
                             <div class="hover-overlay"><i class="bi bi-zoom-in text-white fs-2"></i></div>
                         </div>
                         <div class="img-action-bar">
@@ -154,11 +164,12 @@
                     {% for related in related_groups %}
                     <div class="horizontal-card-item">
                         <div class="gallery-card h-100 d-block position-relative group-card-container">
-                            <a href="{% url 'detail' related.pk %}" class="text-decoration-none text-dark">
+                            <a href="{% url 'detail' related.pk %}?back_to_detail_id={{ group.pk }}&from={{ request.GET.from|default:'home' }}&page={{ request.GET.page|default:'1' }}{% if request.GET.q %}&q={{ request.GET.q }}{% endif %}{% if request.GET.filter %}&filter={{ request.GET.filter }}{% endif %}{% if request.GET.source_img_id %}&source_img_id={{ request.GET.source_img_id }}{% endif %}" 
+                               class="text-decoration-none text-dark">
                                 <div class="horizontal-img-wrapper">
                                     {% with cover=related.images.first %}
                                         {% if cover %}
-                                            <img src="{{ cover.thumbnail.url }}" alt="{{ related.title }}">
+                                            <img src="{{ cover.thumbnail.url }}" alt="{{ related.title }}" loading="lazy">
                                         {% else %}
                                             <div class="d-flex align-items-center justify-content-center h-100 w-100 text-secondary bg-light bg-opacity-50">
                                                 <i class="bi bi-image fs-1 opacity-50"></i>
@@ -215,7 +226,7 @@
                         <div class="col position-relative">
                             <div class="ratio ratio-1x1 rounded overflow-hidden border bg-light">
                                 <a href="{{ ref.image.url }}" target="_blank">
-                                    <img src="{{ ref.thumbnail.url }}" alt="Ref" style="object-fit: contain; width: 100%; height: 100%;">
+                                    <img src="{{ ref.thumbnail.url }}" alt="Ref" style="object-fit: contain; width: 100%; height: 100%;" loading="lazy">
                                 </a>
                             </div>
                             <form action="{% url 'delete_reference' ref.pk %}" method="post" class="position-absolute top-0 end-0 m-1">
