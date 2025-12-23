@@ -66,13 +66,13 @@
                 <a href="{% url 'liked_images_gallery' %}?page={{ page_num }}{% if q_val %}&q={{ q_val }}{% endif %}{% if source_id %}#card-img-{{ source_id }}{% endif %}" 
                    class="btn btn-light rounded-pill px-3 shadow-sm text-secondary" 
                    style="background: rgba(255,255,255,0.6); backdrop-filter: blur(5px); border: var(--glass-border);">
-                    <i class="bi bi-arrow-left me-2"></i>返回图墙 {% if page_num != '1' %}(第{{ page_num }}页){% endif %}
+                    <i class="bi bi-arrow-left me-2"></i>返回图墙
                 </a>
             {% else %}
                 <a href="{% url 'home' %}?page={{ page_num }}{% if q_val %}&q={{ q_val }}{% endif %}{% if filter_val %}&filter={{ filter_val }}{% endif %}#group-card-{{ group.pk }}" 
                    class="btn btn-light rounded-pill px-3 shadow-sm text-secondary" 
                    style="background: rgba(255,255,255,0.6); backdrop-filter: blur(5px); border: var(--glass-border);">
-                    <i class="bi bi-arrow-left me-2"></i>返回 {% if page_num != '1' %}(第{{ page_num }}页){% endif %}
+                    <i class="bi bi-arrow-left me-2"></i>返回
                 </a>
             {% endif %}
         {% endwith %}
@@ -107,8 +107,16 @@
                     <i class="bi bi-plus-lg"></i>
                 </button>
                 
-                <div class="input-group input-group-sm" id="tagInputGroup" style="width: 150px; display: none;">
-                    <input type="text" class="form-control rounded-pill" id="newTagInput" placeholder="输入标签名..." onkeydown="handleTagKey(event, {{ group.pk }})">
+                <div class="input-group input-group-sm" id="tagInputGroup" style="width: 200px; display: none;">
+                    <input type="text" class="form-control" id="newTagInput" placeholder="输入或选择..." list="availableTags" onkeydown="handleTagKey(event, {{ group.pk }})">
+                    <button class="btn btn-success" type="button" onclick="addTag({{ group.pk }})"><i class="bi bi-check-lg"></i></button>
+                    <button class="btn btn-outline-secondary" type="button" onclick="resetTagInput()"><i class="bi bi-x-lg"></i></button>
+                    
+                    <datalist id="availableTags">
+                        {% for t in all_tags %}
+                            <option value="{{ t.name }}">
+                        {% endfor %}
+                    </datalist>
                 </div>
             </div>
 
@@ -117,7 +125,7 @@
                 <div class="grid-item mb-3" id="img-anchor-{{ img.pk }}">
                     <div class="detail-img-card shadow-sm position-relative" id="img-card-{{ img.pk }}">
                         <div class="position-relative" role="button" onclick="showModal({{ forloop.counter0 }})">
-                            <img src="{{ img.image.url }}" class="thumb-img" alt="AI Artwork">
+                            <img src="{{ img.thumbnail.url }}" class="thumb-img" alt="AI Artwork">
                             <div class="hover-overlay"><i class="bi bi-zoom-in text-white fs-2"></i></div>
                         </div>
                         <div class="img-action-bar">

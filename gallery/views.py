@@ -7,7 +7,6 @@ from django.http import JsonResponse
 from django.views.decorators.http import require_POST
 from .models import PromptGroup, ImageItem, Tag, AIModel, ReferenceItem
 from .forms import PromptGroupForm
-# 引入 AI 工具
 from .ai_utils import generate_image_embedding, search_similar_images
 
 # === 计算上传文件 MD5 的工具函数 ===
@@ -32,7 +31,6 @@ def home(request):
             Q(tags__name__icontains=query)
         ).distinct()
 
-    # 标签栏数据
     ai_model_names = list(AIModel.objects.values_list('name', flat=True))
     tags_bar = Tag.objects.filter(promptgroup__isnull=False).distinct().annotate(
         use_count=Count('promptgroup'),
@@ -83,19 +81,29 @@ def liked_images_gallery(request):
     })
 
 def detail(request, pk):
-    group = get_object_or_404(PromptGroup, pk=pk)
+    # 性能优化：使用 prefetch_related 一次性加载关联数据，避免模板循环时的 N+1 查询问题
+    group = get_object_or_404(
+        PromptGroup.objects.prefetch_related('tags', 'images', 'references'), 
+        pk=pk
+    )
+    
     tags_list = list(group.tags.all())
     model_name = group.model_info
     if model_name:
         tags_list.sort(key=lambda t: 0 if t.name == model_name else 1)
     
+    # 获取所有标签供前端 datalist 使用
+    all_tags = Tag.objects.all().order_by('name')
+
+    # 性能优化：相关推荐也预加载图片
     related_groups = PromptGroup.objects.filter(
         tags__in=group.tags.all()
-    ).exclude(pk=pk).distinct()[:4]
+    ).exclude(pk=pk).prefetch_related('images').distinct()[:4]
 
     return render(request, 'gallery/detail.html', {
         'group': group,
         'sorted_tags': tags_list,
+        'all_tags': all_tags,
         'related_groups': related_groups
     })
 
@@ -108,7 +116,6 @@ def upload(request):
     if request.method == 'POST':
         form = PromptGroupForm(request.POST, request.FILES)
         if form.is_valid():
-            # 文本查重逻辑
             prompt_content = form.cleaned_data.get('prompt_text', '').strip()
             model_obj = form.cleaned_data.get('model_info')
             model_name_str = model_obj.name if model_obj else ""
@@ -139,9 +146,8 @@ def upload(request):
             
             files = request.FILES.getlist('upload_images')
             for f in files:
-                # 初始上传时，即便有重复图也允许（因为是新组），但要计算hash
                 img_item = ImageItem(group=group, image=f)
-                img_item.save() # save时会自动计算hash
+                img_item.save()
                 try:
                     vec = generate_image_embedding(img_item.image.path)
                     if vec:
@@ -178,7 +184,6 @@ def toggle_like_image(request, pk):
     image.save()
     return JsonResponse({'status': 'success', 'is_liked': image.is_liked})
 
-# === 添加图片到组，支持组内查重 ===
 def add_images_to_group(request, pk):
     group = get_object_or_404(PromptGroup, pk=pk)
     
@@ -189,14 +194,10 @@ def add_images_to_group(request, pk):
 
         if files:
             for f in files:
-                # 1. 计算上传文件的 Hash
                 file_hash = calculate_file_hash(f)
-                
-                # 2. 查询数据库是否已存在该 Hash 的图片 (仅在当前组内查重)
                 existing_img = ImageItem.objects.filter(group=group, image_hash=file_hash).first()
                 
                 if existing_img:
-                    # 3. 发现重复，记录信息
                     duplicates.append({
                         'name': f.name,
                         'existing_url': existing_img.thumbnail.url if existing_img.thumbnail else existing_img.image.url,
@@ -204,9 +205,8 @@ def add_images_to_group(request, pk):
                         'existing_group_id': existing_img.group.id
                     })
                 else:
-                    # 4. 无重复，正常保存
                     img_item = ImageItem(group=group, image=f)
-                    img_item.image_hash = file_hash # 预先赋值避免重复计算
+                    img_item.image_hash = file_hash
                     img_item.save()
                     uploaded_count += 1
                     try:
@@ -216,7 +216,6 @@ def add_images_to_group(request, pk):
                             img_item.save()
                     except: pass
         
-        # 5. 根据结果返回 JSON
         if duplicates:
             return JsonResponse({
                 'status': 'warning',
@@ -265,9 +264,6 @@ def delete_reference(request, pk):
 
 @require_POST
 def update_group_prompts(request, pk):
-    """
-    更新提示词 (AJAX)
-    """
     group = get_object_or_404(PromptGroup, pk=pk)
     try:
         data = json.loads(request.body)
@@ -275,13 +271,11 @@ def update_group_prompts(request, pk):
             group.prompt_text = data['prompt_text']
         if 'negative_prompt' in data:
             group.negative_prompt = data['negative_prompt']
-        
         group.save()
         return JsonResponse({'status': 'success'})
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)}, status=400)
 
-# === 标签管理 API (新增) ===
 @require_POST
 def add_tag_to_group(request, pk):
     group = get_object_or_404(PromptGroup, pk=pk)
@@ -291,7 +285,6 @@ def add_tag_to_group(request, pk):
         if not tag_name:
             return JsonResponse({'status': 'error', 'message': '标签名不能为空'})
         
-        # 获取或创建标签
         tag, created = Tag.objects.get_or_create(name=tag_name)
         group.tags.add(tag)
         
