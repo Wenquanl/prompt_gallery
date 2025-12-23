@@ -14,6 +14,99 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <link rel="stylesheet" href="{% static 'gallery/style.css' %}">
+    
+    <style>
+        /* Bilibili 风格分页样式 */
+        .bili-pagination-wrapper {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-top: 50px;
+            font-size: 14px;
+            color: #666;
+            flex-wrap: wrap;
+            gap: 5px;
+            user-select: none;
+        }
+
+        .bili-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            height: 34px;
+            min-width: 34px;
+            padding: 0 12px;
+            margin: 0 2px;
+            border: 1px solid #e3e5e7;
+            border-radius: 4px;
+            background-color: #fff;
+            color: #61666d;
+            text-decoration: none;
+            transition: all 0.2s;
+            cursor: pointer;
+            font-family: inherit;
+        }
+
+        .bili-btn:hover:not(.disabled):not(.active) {
+            border-color: #00aeec; /* B站蓝 */
+            color: #00aeec;
+            text-decoration: none;
+        }
+
+        .bili-btn.active {
+            background-color: #00aeec;
+            border-color: #00aeec;
+            color: #fff;
+            cursor: default;
+        }
+
+        .bili-btn.disabled {
+            background-color: #f6f7f8;
+            color: #c0c4cc;
+            cursor: not-allowed;
+            border-color: #e3e5e7;
+            pointer-events: none;
+        }
+
+        .bili-ellipsis {
+            margin: 0 4px;
+            color: #999;
+            font-weight: bold;
+            letter-spacing: 2px;
+        }
+
+        .bili-jump-box {
+            display: inline-flex;
+            align-items: center;
+            margin-left: 15px;
+            color: #61666d;
+        }
+
+        .bili-input {
+            width: 50px;
+            height: 34px;
+            margin: 0 8px;
+            padding: 0 4px;
+            border: 1px solid #e3e5e7;
+            border-radius: 4px;
+            text-align: center;
+            outline: none;
+            transition: border-color 0.2s;
+            color: #61666d;
+            background: transparent;
+        }
+
+        .bili-input:focus {
+            border-color: #00aeec;
+        }
+        
+        /* 隐藏数字输入框的小箭头 */
+        .bili-input::-webkit-inner-spin-button, 
+        .bili-input::-webkit-outer-spin-button { 
+          -webkit-appearance: none; 
+          margin: 0; 
+        }
+    </style>
 </head>
 <body>
 
@@ -191,47 +284,60 @@
     </div>
 
     {% if page_obj.paginator.num_pages > 1 %}
-    <div class="row mt-5" style="clear: both;">
-        <div class="col-12 d-flex justify-content-center align-items-center flex-wrap gap-2">
-            <nav aria-label="Page navigation">
-                <ul class="pagination shadow-sm mb-0">
-                    <li class="page-item {% if not page_obj.has_previous %}disabled{% endif %}">
-                        <a class="page-link border-0" href="?page=1{% if search_query %}&q={{ search_query }}{% endif %}{% if current_filter %}&filter={{ current_filter }}{% endif %}" title="首页">
-                            <i class="bi bi-chevron-double-left"></i>
-                        </a>
-                    </li>
-                    <li class="page-item {% if not page_obj.has_previous %}disabled{% endif %}">
-                        <a class="page-link border-0" href="{% if page_obj.has_previous %}?page={{ page_obj.previous_page_number }}{% if search_query %}&q={{ search_query }}{% endif %}{% if current_filter %}&filter={{ current_filter }}{% endif %}{% else %}#{% endif %}">
-                            上一页
-                        </a>
-                    </li>
-                    <li class="page-item disabled">
-                        <span class="page-link border-0 text-dark fw-bold">{{ page_obj.number }} / {{ page_obj.paginator.num_pages }}</span>
-                    </li>
-                    <li class="page-item {% if not page_obj.has_next %}disabled{% endif %}">
-                        <a class="page-link border-0" href="{% if page_obj.has_next %}?page={{ page_obj.next_page_number }}{% if search_query %}&q={{ search_query }}{% endif %}{% if current_filter %}&filter={{ current_filter }}{% endif %}{% else %}#{% endif %}">
-                            下一页
-                        </a>
-                    </li>
-                    <li class="page-item {% if not page_obj.has_next %}disabled{% endif %}">
-                        <a class="page-link border-0" href="?page={{ page_obj.paginator.num_pages }}{% if search_query %}&q={{ search_query }}{% endif %}{% if current_filter %}&filter={{ current_filter }}{% endif %}" title="尾页">
-                            <i class="bi bi-chevron-double-right"></i>
-                        </a>
-                    </li>
-                </ul>
-            </nav>
+    <div class="bili-pagination-wrapper">
+        {% if page_obj.has_previous %}
+        <a href="?page={{ page_obj.previous_page_number }}{% if search_query %}&q={{ search_query }}{% endif %}{% if current_filter %}&filter={{ current_filter }}{% endif %}" class="bili-btn">上一页</a>
+        {% else %}
+        <span class="bili-btn disabled">上一页</span>
+        {% endif %}
 
-            <div class="d-flex align-items-center bg-white rounded-pill px-2 border shadow-sm" style="height: 38px;">
-                <input type="number" id="jumpPageInput" class="form-control border-0 bg-transparent p-0 text-center" 
-                       style="width: 50px; height: 30px; box-shadow: none;" min="1" max="{{ page_obj.paginator.num_pages }}" placeholder="页">
-                <button class="btn btn-sm btn-link text-decoration-none p-1 fw-bold" onclick="jumpToPage()">GO</button>
-            </div>
+        <a href="?page=1{% if search_query %}&q={{ search_query }}{% endif %}{% if current_filter %}&filter={{ current_filter }}{% endif %}" 
+           class="bili-btn {% if page_obj.number == 1 %}active{% endif %}">1</a>
+
+        {% if page_obj.number > 3 %}
+            <span class="bili-ellipsis">...</span>
+        {% endif %}
+
+        {% if page_obj.number > 2 %}
+            <a href="?page={{ page_obj.number|add:'-1' }}{% if search_query %}&q={{ search_query }}{% endif %}{% if current_filter %}&filter={{ current_filter }}{% endif %}" 
+               class="bili-btn">{{ page_obj.number|add:'-1' }}</a>
+        {% endif %}
+
+        {% if page_obj.number != 1 and page_obj.number != page_obj.paginator.num_pages %}
+            <span class="bili-btn active">{{ page_obj.number }}</span>
+        {% endif %}
+
+        {% if page_obj.number < page_obj.paginator.num_pages|add:'-1' %}
+            <a href="?page={{ page_obj.number|add:'1' }}{% if search_query %}&q={{ search_query }}{% endif %}{% if current_filter %}&filter={{ current_filter }}{% endif %}" 
+               class="bili-btn">{{ page_obj.number|add:'1' }}</a>
+        {% endif %}
+
+        {% if page_obj.number < page_obj.paginator.num_pages|add:'-2' %}
+            <span class="bili-ellipsis">...</span>
+        {% endif %}
+
+        <a href="?page={{ page_obj.paginator.num_pages }}{% if search_query %}&q={{ search_query }}{% endif %}{% if current_filter %}&filter={{ current_filter }}{% endif %}" 
+           class="bili-btn {% if page_obj.number == page_obj.paginator.num_pages %}active{% endif %}">{{ page_obj.paginator.num_pages }}</a>
+
+        {% if page_obj.has_next %}
+        <a href="?page={{ page_obj.next_page_number }}{% if search_query %}&q={{ search_query }}{% endif %}{% if current_filter %}&filter={{ current_filter }}{% endif %}" class="bili-btn">下一页</a>
+        {% else %}
+        <span class="bili-btn disabled">下一页</span>
+        {% endif %}
+
+        <div class="bili-jump-box">
+            共 {{ page_obj.paginator.num_pages }} 页，跳至
+            <input type="number" id="jumpPageInput" class="bili-input" min="1" max="{{ page_obj.paginator.num_pages }}" 
+                   onkeydown="if(event.key==='Enter') jumpToPage()">
+            页
         </div>
     </div>
+    
     <script>
     function jumpToPage() {
         const page = document.getElementById('jumpPageInput').value;
-        if (page >= 1 && page <= {{ page_obj.paginator.num_pages }}) {
+        const maxPage = {{ page_obj.paginator.num_pages }};
+        if (page >= 1 && page <= maxPage) {
             const urlParams = new URLSearchParams(window.location.search);
             urlParams.set('page', page);
             window.location.search = urlParams.toString();
@@ -333,20 +439,16 @@
         if (grid) {
             var msnry = new Masonry(grid, { itemSelector: '.grid-item', percentPosition: true });
             
-            // 使用 imagesLoaded 确保所有图片加载完毕后再布局和滚动
             imagesLoaded(grid).on('progress', function(instance, image) {
                 if (image.isLoaded) { image.img.classList.add('loaded'); }
                 msnry.layout();
             }).on('done', function() {
-                // 布局彻底完成后，检查 URL hash 并滚动
                 if (window.location.hash) {
-                    const targetId = window.location.hash.substring(1); // 去掉 #
+                    const targetId = window.location.hash.substring(1);
                     const targetEl = document.getElementById(targetId);
                     if (targetEl) {
-                        // 稍微延迟确保渲染稳定
                         setTimeout(() => {
                             targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                            // 简单的闪烁效果提示
                             targetEl.style.transition = "box-shadow 0.5s ease";
                             targetEl.style.boxShadow = "0 0 0 4px rgba(13, 110, 253, 0.25)";
                             setTimeout(() => { targetEl.style.boxShadow = ""; }, 1500);
