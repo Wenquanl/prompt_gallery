@@ -61,9 +61,21 @@
 
 <div class="container my-5">
     <div class="mb-4">
-        <a href="/" class="btn btn-light rounded-pill px-3 shadow-sm text-secondary" style="background: rgba(255,255,255,0.6); backdrop-filter: blur(5px); border: var(--glass-border);">
-            <i class="bi bi-arrow-left me-2"></i>返回首页
-        </a>
+        {% with from_view=request.GET.from|default:'home' page_num=request.GET.page|default:'1' q_val=request.GET.q|default:'' filter_val=request.GET.filter|default:'' source_id=request.GET.source_img_id %}
+            {% if from_view == 'liked' %}
+                <a href="{% url 'liked_images_gallery' %}?page={{ page_num }}{% if q_val %}&q={{ q_val }}{% endif %}{% if source_id %}#card-img-{{ source_id }}{% endif %}" 
+                   class="btn btn-light rounded-pill px-3 shadow-sm text-secondary" 
+                   style="background: rgba(255,255,255,0.6); backdrop-filter: blur(5px); border: var(--glass-border);">
+                    <i class="bi bi-arrow-left me-2"></i>返回图墙 {% if page_num != '1' %}(第{{ page_num }}页){% endif %}
+                </a>
+            {% else %}
+                <a href="{% url 'home' %}?page={{ page_num }}{% if q_val %}&q={{ q_val }}{% endif %}{% if filter_val %}&filter={{ filter_val }}{% endif %}#group-card-{{ group.pk }}" 
+                   class="btn btn-light rounded-pill px-3 shadow-sm text-secondary" 
+                   style="background: rgba(255,255,255,0.6); backdrop-filter: blur(5px); border: var(--glass-border);">
+                    <i class="bi bi-arrow-left me-2"></i>返回 {% if page_num != '1' %}(第{{ page_num }}页){% endif %}
+                </a>
+            {% endif %}
+        {% endwith %}
     </div>
 
     <div class="row gx-lg-5">
@@ -77,19 +89,27 @@
                 </button>
             </div>
             
-            <div class="mb-4">
+            <div class="mb-4 d-flex flex-wrap align-items-center gap-2" id="tagsContainer">
                 {% for tag in sorted_tags %}
-                    {% if tag.name == group.model_info %}
-                        <a href="/?q={{ tag.name }}" class="tag-badge fw-bold" 
-                           style="background: linear-gradient(120deg, #a18cd1 0%, #fbc2eb 100%); color: white; border: none;">
-                           <i class="bi bi-robot me-1"></i>{{ tag.name }}
-                        </a>
-                    {% else %}
-                        <a href="/?q={{ tag.name }}" class="tag-badge">{{ tag.name }}</a>
-                    {% endif %}
-                {% empty %}
-                    <span class="text-muted small">暂无标签</span>
+                    <span class="tag-badge position-relative pe-4 {% if tag.name == group.model_info %}fw-bold{% endif %}" 
+                          id="tag-pill-{{ tag.id }}"
+                          style="{% if tag.name == group.model_info %}background: linear-gradient(120deg, #a18cd1 0%, #fbc2eb 100%); color: white; border: none;{% endif %}">
+                        {% if tag.name == group.model_info %}<i class="bi bi-robot me-1"></i>{% endif %}
+                        <a href="/?q={{ tag.name }}" class="text-decoration-none text-inherit" style="color: inherit;">{{ tag.name }}</a>
+                        
+                        <i class="bi bi-x-circle-fill position-absolute top-50 end-0 translate-middle-y me-2 cursor-pointer tag-remove-btn" 
+                           onclick="removeTag({{ group.pk }}, {{ tag.id }})"
+                           style="cursor: pointer; opacity: 0.6; font-size: 0.8rem;" title="移除标签"></i>
+                    </span>
                 {% endfor %}
+                
+                <button class="btn btn-sm btn-outline-secondary rounded-pill px-3" id="btnAddTag" onclick="showTagInput()" title="添加标签">
+                    <i class="bi bi-plus-lg"></i>
+                </button>
+                
+                <div class="input-group input-group-sm" id="tagInputGroup" style="width: 150px; display: none;">
+                    <input type="text" class="form-control rounded-pill" id="newTagInput" placeholder="输入标签名..." onkeydown="handleTagKey(event, {{ group.pk }})">
+                </div>
             </div>
 
             <div id="detail-masonry-grid" class="row">
@@ -370,15 +390,13 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
-// === 【重点修改】处理图片上传的 AJAX 逻辑 ===
 function handleImageUpload(event) {
-    event.preventDefault(); // 阻止默认表单提交
+    event.preventDefault(); 
     
     const form = event.target;
     const formData = new FormData(form);
     const submitBtn = form.querySelector('button[type="submit"]');
     
-    // UI 反馈：上传中
     const originalBtnContent = submitBtn.innerHTML;
     submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>上传并校验中...';
     submitBtn.disabled = true;
@@ -396,15 +414,12 @@ function handleImageUpload(event) {
         submitBtn.disabled = false;
 
         if (data.status === 'success') {
-            // 完全成功
             window.location.reload();
         } else if (data.status === 'warning') {
-            // 有重复图片被拦截
             const uploadModalEl = document.getElementById('addImagesModal');
             const uploadModal = bootstrap.Modal.getInstance(uploadModalEl);
             uploadModal.hide();
 
-            // 1. 开始构建列表 HTML
             let listItems = '';
             data.duplicates.forEach(dup => {
                 listItems += `
@@ -421,7 +436,6 @@ function handleImageUpload(event) {
                 `;
             });
 
-            // 2. 将列表包裹在滚动容器中
             const duplicateHtml = `
                 <div class="text-start mb-2 text-muted small">以下图片因重复而被系统自动拦截：</div>
                 <div class="duplicate-scroll-container">
@@ -436,10 +450,10 @@ function handleImageUpload(event) {
             Swal.fire({
                 title: `<span class="text-danger fw-bold"><i class="bi bi-exclamation-triangle-fill me-2"></i>重复拦截报告</span>`,
                 html: duplicateHtml,
-                icon: null, // 自定义 HTML
+                icon: null,
                 confirmButtonText: '知道了',
                 confirmButtonColor: '#2c3e50',
-                width: '600px', // 稍微加宽一点弹窗，体验更好
+                width: '600px',
                 background: '#fff',
                 customClass: {
                     popup: 'rounded-4 shadow-lg border-0'
@@ -563,26 +577,19 @@ function confirmDelete(event) {
         background: 'rgba(255, 255, 255, 0.95)', backdrop: `rgba(0,0,0,0.4)`, customClass: { popup: 'rounded-4 shadow-lg border-0' }
     }).then((result) => { if (result.isConfirmed) form.submit(); })
 }
-// ================== 编辑提示词逻辑 ==================
 
 function enableEdit(elementId, editBtn) {
     const box = document.getElementById(elementId);
-    
-    // 1. 处理占位符
     if (box.querySelector('.empty-text')) {
         box.dataset.wasEmpty = 'true';
-        box.innerText = ''; // 清空 "未填写" 字样
+        box.innerText = ''; 
     } else {
-        box.dataset.originalText = box.innerText; // 记录原始内容以便取消
+        box.dataset.originalText = box.innerText; 
     }
-
-    // 2. 开启编辑
     box.contentEditable = "true";
     box.focus();
-
-    // 3. 切换按钮显示
     editBtn.style.display = 'none';
-    const actionsDiv = editBtn.nextElementSibling; // 获取紧邻的 edit-actions div
+    const actionsDiv = editBtn.nextElementSibling;
     if (actionsDiv && actionsDiv.classList.contains('edit-actions')) {
         actionsDiv.style.display = 'block';
     }
@@ -590,84 +597,52 @@ function enableEdit(elementId, editBtn) {
 
 function cancelEdit(elementId) {
     const box = document.getElementById(elementId);
-    
-    // 1. 恢复内容
     if (box.dataset.wasEmpty === 'true') {
         box.innerHTML = '<span class="empty-text">未填写</span>';
     } else if (box.dataset.originalText !== undefined) {
         box.innerText = box.dataset.originalText;
     }
-    
-    // 2. 关闭编辑
     box.contentEditable = "false";
     delete box.dataset.originalText;
     delete box.dataset.wasEmpty;
-
-    // 3. 恢复按钮显示
     toggleEditButtons(box, false);
 }
 
 function savePrompt(elementId, pk, type) {
     const box = document.getElementById(elementId);
     const newText = box.innerText;
-    
-    // 构造数据
     const data = {};
-    if (type === 'positive') {
-        data.prompt_text = newText;
-    } else {
-        data.negative_prompt = newText;
-    }
+    if (type === 'positive') { data.prompt_text = newText; } else { data.negative_prompt = newText; }
 
-    // 发送请求
     fetch(`/update-prompts/${pk}/`, {
         method: 'POST',
-        headers: { 
-            'Content-Type': 'application/json',
-            'X-CSRFToken': '{{ csrf_token }}' // Django 模板渲染的 token
-        },
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}' },
         body: JSON.stringify(data)
     })
     .then(response => response.json())
     .then(res => {
         if (res.status === 'success') {
-            // 保存成功逻辑
             box.contentEditable = "false";
-            
-            // 更新“复制”按钮的状态（如果有内容则启用）
             const copyBtn = box.parentElement.querySelector('.btn-outline-primary, .btn-outline-danger');
             if (copyBtn) copyBtn.disabled = !newText.trim();
-
-            // 如果清空了，显示占位符
-            if (!newText.trim()) {
-                box.innerHTML = '<span class="empty-text">未填写</span>';
-            }
-
+            if (!newText.trim()) { box.innerHTML = '<span class="empty-text">未填写</span>'; }
             toggleEditButtons(box, false);
-            
-            // 提示成功
             const Toast = Swal.mixin({
                 toast: true, position: 'top-end', showConfirmButton: false, timer: 1500,
                 background: 'rgba(255, 255, 255, 0.95)'
             });
             Toast.fire({ icon: 'success', title: '保存成功' });
-
         } else {
             alert('保存失败: ' + res.message);
         }
     })
-    .catch(err => {
-        console.error(err);
-        alert('网络错误，请重试');
-    });
+    .catch(err => { console.error(err); alert('网络错误，请重试'); });
 }
 
-// 辅助函数：切换按钮显隐
 function toggleEditButtons(boxElement, isEditing) {
     const header = boxElement.parentElement.querySelector('.section-header');
     const editBtn = header.querySelector('.btn-edit-prompt');
     const actionsDiv = header.querySelector('.edit-actions');
-    
     if (isEditing) {
         editBtn.style.display = 'none';
         actionsDiv.style.display = 'block';
@@ -676,6 +651,7 @@ function toggleEditButtons(boxElement, isEditing) {
         actionsDiv.style.display = 'none';
     }
 }
+
 function copyText(elementId, btnElement) {
     const textElement = document.getElementById(elementId);
     if (textElement.querySelector('.empty-text')) return;
@@ -689,6 +665,76 @@ function copyText(elementId, btnElement) {
             btnElement.innerHTML = originalHTML;
             btnElement.classList.remove('btn-success', 'text-white'); btnElement.classList.add(originalClass);
         }, 2000);
+    });
+}
+
+function showTagInput() {
+    document.getElementById('btnAddTag').style.display = 'none';
+    const inputGroup = document.getElementById('tagInputGroup');
+    inputGroup.style.display = 'flex';
+    document.getElementById('newTagInput').focus();
+}
+
+function handleTagKey(event, groupPk) {
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        addTag(groupPk);
+    } else if (event.key === 'Escape') {
+        resetTagInput();
+    }
+}
+
+function resetTagInput() {
+    document.getElementById('tagInputGroup').style.display = 'none';
+    document.getElementById('newTagInput').value = '';
+    document.getElementById('btnAddTag').style.display = 'inline-block';
+}
+
+function addTag(groupPk) {
+    const input = document.getElementById('newTagInput');
+    const tagName = input.value.trim();
+    if (!tagName) { resetTagInput(); return; }
+
+    fetch(`/add-tag/${groupPk}/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}' },
+        body: JSON.stringify({ tag_name: tagName })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.status === 'success') {
+            const newTagHtml = `
+                <span class="tag-badge position-relative pe-4" id="tag-pill-${data.tag_id}">
+                    <a href="/?q=${data.tag_name}" class="text-decoration-none text-inherit" style="color: inherit;">${data.tag_name}</a>
+                    <i class="bi bi-x-circle-fill position-absolute top-50 end-0 translate-middle-y me-2 cursor-pointer tag-remove-btn" 
+                       onclick="removeTag(${groupPk}, ${data.tag_id})"
+                       style="cursor: pointer; opacity: 0.6; font-size: 0.8rem;" title="移除标签"></i>
+                </span>
+            `;
+            document.getElementById('btnAddTag').insertAdjacentHTML('beforebegin', newTagHtml);
+            resetTagInput();
+        } else {
+            alert(data.message);
+        }
+    });
+}
+
+function removeTag(groupPk, tagId) {
+    if (!confirm('确定移除这个标签吗？')) return;
+    
+    fetch(`/remove-tag/${groupPk}/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}' },
+        body: JSON.stringify({ tag_id: tagId })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.status === 'success') {
+            const el = document.getElementById(`tag-pill-${tagId}`);
+            if (el) el.remove();
+        } else {
+            alert('移除失败: ' + data.message);
+        }
     });
 }
 </script>

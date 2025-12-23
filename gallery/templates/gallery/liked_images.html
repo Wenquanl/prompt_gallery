@@ -102,7 +102,7 @@
         {% for img in page_obj %}
         <div class="grid-item mb-3">
             <div class="liked-img-card" id="card-img-{{ img.id }}">
-                <a href="{% url 'detail' img.group.pk %}" class="text-white text-decoration-none">
+                <a href="{% url 'detail' img.group.pk %}?from=liked&page={{ page_obj.number }}{% if search_query %}&q={{ search_query }}{% endif %}&source_img_id={{ img.id }}" class="text-white text-decoration-none">
                     <img src="{{ img.thumbnail.url }}" alt="Liked Image">
                     
                     {% if search_mode == 'image' and img.similarity_score %}
@@ -143,20 +143,46 @@
 
     {% if page_obj.paginator.num_pages > 1 %}
     <div class="row mt-5">
-        <div class="col-12 d-flex justify-content-center">
+        <div class="col-12 d-flex justify-content-center align-items-center flex-wrap gap-2">
             <nav>
-                <ul class="pagination shadow-sm">
-                    {% if page_obj.has_previous %}
-                    <li class="page-item"><a class="page-link border-0" href="?page={{ page_obj.previous_page_number }}{% if search_query %}&q={{ search_query }}{% endif %}">上一页</a></li>
-                    {% endif %}
+                <ul class="pagination shadow-sm mb-0">
+                    <li class="page-item {% if not page_obj.has_previous %}disabled{% endif %}">
+                        <a class="page-link border-0" href="?page=1{% if search_query %}&q={{ search_query }}{% endif %}" title="首页">
+                            <i class="bi bi-chevron-double-left"></i>
+                        </a>
+                    </li>
+                    <li class="page-item {% if not page_obj.has_previous %}disabled{% endif %}">
+                        <a class="page-link border-0" href="{% if page_obj.has_previous %}?page={{ page_obj.previous_page_number }}{% if search_query %}&q={{ search_query }}{% endif %}{% else %}#{% endif %}">上一页</a>
+                    </li>
                     <li class="page-item disabled"><span class="page-link border-0 fw-bold">{{ page_obj.number }} / {{ page_obj.paginator.num_pages }}</span></li>
-                    {% if page_obj.has_next %}
-                    <li class="page-item"><a class="page-link border-0" href="?page={{ page_obj.next_page_number }}{% if search_query %}&q={{ search_query }}{% endif %}">下一页</a></li>
-                    {% endif %}
+                    <li class="page-item {% if not page_obj.has_next %}disabled{% endif %}">
+                        <a class="page-link border-0" href="{% if page_obj.has_next %}?page={{ page_obj.next_page_number }}{% if search_query %}&q={{ search_query }}{% endif %}{% else %}#{% endif %}">下一页</a>
+                    </li>
+                    <li class="page-item {% if not page_obj.has_next %}disabled{% endif %}">
+                        <a class="page-link border-0" href="?page={{ page_obj.paginator.num_pages }}{% if search_query %}&q={{ search_query }}{% endif %}" title="尾页">
+                            <i class="bi bi-chevron-double-right"></i>
+                        </a>
+                    </li>
                 </ul>
             </nav>
+
+            <div class="d-flex align-items-center bg-white rounded-pill px-2 border shadow-sm" style="height: 38px;">
+                <input type="number" id="jumpPageInput" class="form-control border-0 bg-transparent p-0 text-center" 
+                       style="width: 50px; height: 30px; box-shadow: none;" min="1" max="{{ page_obj.paginator.num_pages }}" placeholder="页">
+                <button class="btn btn-sm btn-link text-decoration-none p-1 fw-bold" onclick="jumpToPage()">GO</button>
+            </div>
         </div>
     </div>
+    <script>
+    function jumpToPage() {
+        const page = document.getElementById('jumpPageInput').value;
+        if (page >= 1 && page <= {{ page_obj.paginator.num_pages }}) {
+            const urlParams = new URLSearchParams(window.location.search);
+            urlParams.set('page', page);
+            window.location.search = urlParams.toString();
+        }
+    }
+    </script>
     {% endif %}
 </div>
 
@@ -169,7 +195,25 @@
         var grid = document.querySelector('#masonry-grid');
         if (grid) {
             var msnry = new Masonry(grid, { itemSelector: '.grid-item', percentPosition: true });
-            imagesLoaded(grid).on('progress', function(instance, image) { msnry.layout(); });
+            
+            imagesLoaded(grid).on('progress', function(instance, image) { 
+                msnry.layout(); 
+            }).on('done', function() {
+                // 布局完成后滚动
+                if (window.location.hash) {
+                    const targetId = window.location.hash.substring(1);
+                    const targetEl = document.getElementById(targetId);
+                    if (targetEl) {
+                        setTimeout(() => {
+                            targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                             // 简单的闪烁效果提示
+                            targetEl.style.transition = "transform 0.3s ease";
+                            targetEl.style.transform = "scale(1.02)";
+                            setTimeout(() => { targetEl.style.transform = "scale(1)"; }, 300);
+                        }, 200);
+                    }
+                }
+            });
         }
     });
 

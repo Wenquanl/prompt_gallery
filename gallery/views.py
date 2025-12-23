@@ -1,5 +1,5 @@
 import hashlib
-import json  # <--- 记得添加这个
+import json
 from django.shortcuts import render, get_object_or_404, redirect
 from django.core.paginator import Paginator
 from django.db.models import Q, Count, Case, When, IntegerField
@@ -10,7 +10,7 @@ from .forms import PromptGroupForm
 # 引入 AI 工具
 from .ai_utils import generate_image_embedding, search_similar_images
 
-# === 【新增】计算上传文件 MD5 的工具函数 ===
+# === 计算上传文件 MD5 的工具函数 ===
 def calculate_file_hash(uploaded_file):
     md5 = hashlib.md5()
     for chunk in uploaded_file.chunks():
@@ -178,7 +178,7 @@ def toggle_like_image(request, pk):
     image.save()
     return JsonResponse({'status': 'success', 'is_liked': image.is_liked})
 
-# === 【重点修改】添加图片到组，支持查重 ===
+# === 添加图片到组，支持组内查重 ===
 def add_images_to_group(request, pk):
     group = get_object_or_404(PromptGroup, pk=pk)
     
@@ -192,8 +192,8 @@ def add_images_to_group(request, pk):
                 # 1. 计算上传文件的 Hash
                 file_hash = calculate_file_hash(f)
                 
-                # 2. 查询数据库是否已存在该 Hash 的图片 (全局查重)
-                existing_img = ImageItem.objects.filter(image_hash=file_hash).first()
+                # 2. 查询数据库是否已存在该 Hash 的图片 (仅在当前组内查重)
+                existing_img = ImageItem.objects.filter(group=group, image_hash=file_hash).first()
                 
                 if existing_img:
                     # 3. 发现重复，记录信息
@@ -231,7 +231,6 @@ def add_images_to_group(request, pk):
                 'uploaded_count': uploaded_count
             })
             
-    # 如果是非 POST 请求或没有文件，重定向回详情页
     return redirect('detail', pk=pk)
 
 def add_references_to_group(request, pk):
@@ -263,6 +262,7 @@ def delete_reference(request, pk):
     if request.method == 'POST':
         item.delete()
     return redirect('detail', pk=group_pk)
+
 @require_POST
 def update_group_prompts(request, pk):
     """
@@ -280,3 +280,34 @@ def update_group_prompts(request, pk):
         return JsonResponse({'status': 'success'})
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)}, status=400)
+
+# === 标签管理 API (新增) ===
+@require_POST
+def add_tag_to_group(request, pk):
+    group = get_object_or_404(PromptGroup, pk=pk)
+    try:
+        data = json.loads(request.body)
+        tag_name = data.get('tag_name', '').strip()
+        if not tag_name:
+            return JsonResponse({'status': 'error', 'message': '标签名不能为空'})
+        
+        # 获取或创建标签
+        tag, created = Tag.objects.get_or_create(name=tag_name)
+        group.tags.add(tag)
+        
+        return JsonResponse({'status': 'success', 'tag_id': tag.id, 'tag_name': tag.name})
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': str(e)})
+
+@require_POST
+def remove_tag_from_group(request, pk):
+    group = get_object_or_404(PromptGroup, pk=pk)
+    try:
+        data = json.loads(request.body)
+        tag_id = data.get('tag_id')
+        tag = get_object_or_404(Tag, pk=tag_id)
+        
+        group.tags.remove(tag)
+        return JsonResponse({'status': 'success'})
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': str(e)})

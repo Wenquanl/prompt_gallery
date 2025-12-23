@@ -3,7 +3,7 @@ from . import views
 
 urlpatterns = [
     path('', views.home, name='home'),
-    # 【新增】单独的喜欢的图片墙页面
+    # 单独的喜欢的图片墙页面
     path('liked-images/', views.liked_images_gallery, name='liked_images_gallery'),
     
     path('image/<int:pk>/', views.detail, name='detail'),
@@ -18,9 +18,13 @@ urlpatterns = [
     path('add-images/<int:pk>/', views.add_images_to_group, name='add_images'),
     path('add-references/<int:pk>/', views.add_references_to_group, name='add_references'),
     
-    # 【新增】点赞接口 (API)
+    # 标签管理 (新增)
+    path('add-tag/<int:pk>/', views.add_tag_to_group, name='add_tag'),
+    path('remove-tag/<int:pk>/', views.remove_tag_from_group, name='remove_tag'),
+    
+    # 点赞接口 (API)
     path('toggle-like-group/<int:pk>/', views.toggle_like_group, name='toggle_like_group'),
     path('toggle-like-image/<int:pk>/', views.toggle_like_image, name='toggle_like_image'),
-    # 【新增】更新提示词接口
+    # 更新提示词接口
     path('update-prompts/<int:pk>/', views.update_group_prompts, name='update_group_prompts'),
 ]
