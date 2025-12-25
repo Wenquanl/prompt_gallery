@@ -28,6 +28,7 @@ def home(request):
         queryset = queryset.filter(
             Q(title__icontains=query) |
             Q(prompt_text__icontains=query) |
+            Q(prompt_text_zh__icontains=query) | # 支持搜索中文提示词
             Q(tags__name__icontains=query)
         ).distinct()
 
@@ -81,7 +82,6 @@ def liked_images_gallery(request):
     })
 
 def detail(request, pk):
-    # 性能优化 1: 使用 prefetch_related 一次性加载当前组的所有图片和标签
     group = get_object_or_404(
         PromptGroup.objects.prefetch_related('tags', 'images', 'references'), 
         pk=pk
@@ -92,17 +92,10 @@ def detail(request, pk):
     if model_name:
         tags_list.sort(key=lambda t: 0 if t.name == model_name else 1)
     
-    # 性能优化 2: 限制 datalist 的标签数量。
-    # 如果数据库中有几千个标签，全部查出来渲染会让页面加载变慢。
-    # 这里改为只取使用频率最高的 500 个标签。
     all_tags = Tag.objects.annotate(
         usage_count=Count('promptgroup')
     ).order_by('-usage_count', 'name')[:500]
 
-    # 性能优化 3: 这里的 related_groups 去掉了 .prefetch_related('images')
-    # 原因：我们只需要相关组的"第一张图(封面)"。
-    # 如果用 prefetch，Django 会把相关组的"所有图片"都查出来，如果每个组有100张图，4个组就是400个对象，极大浪费性能。
-    # 去掉后，模板里用 .first() 会触发 4 次极快的 Limit 1 查询，反而更快。
     related_groups = PromptGroup.objects.filter(
         tags__in=group.tags.all()
     ).exclude(pk=pk).distinct()[:4]
@@ -276,6 +269,9 @@ def update_group_prompts(request, pk):
         data = json.loads(request.body)
         if 'prompt_text' in data:
             group.prompt_text = data['prompt_text']
+        # 【新增】处理中文/辅助提示词的更新
+        if 'prompt_text_zh' in data:
+            group.prompt_text_zh = data['prompt_text_zh']
         if 'negative_prompt' in data:
             group.negative_prompt = data['negative_prompt']
         group.save()

@@ -42,6 +42,9 @@ class AIModel(models.Model):
 class PromptGroup(models.Model):
     title = models.CharField("主题/标题", max_length=200, default="未命名组")
     prompt_text = models.TextField("正向提示词 (Prompt)")
+    # 【新增】第二个正向提示词字段
+    prompt_text_zh = models.TextField("中文/辅助提示词", blank=True, null=True)
+    
     negative_prompt = models.TextField("负向提示词 (Negative Prompt)", blank=True, null=True)
     model_info = models.CharField("模型信息", max_length=200, blank=True)
     tags = models.ManyToManyField(Tag, blank=True, verbose_name="关联标签")
@@ -65,7 +68,7 @@ class ImageItem(models.Model):
     # 存储图像特征向量
     feature_vector = models.BinaryField("特征向量", null=True, blank=True)
     
-    # 【新增】存储图片 MD5 哈希值，用于查重
+    # 存储图片 MD5 哈希值，用于查重
     image_hash = models.CharField("MD5哈希", max_length=32, blank=True, db_index=True)
 
     thumbnail = ImageSpecField(source='image',
@@ -73,7 +76,6 @@ class ImageItem(models.Model):
                                format='JPEG',
                                options={'quality': 85})
     
-    # 【新增】重写 save 方法，自动计算 Hash
     def save(self, *args, **kwargs):
         # 只有在 image_hash 为空且有图片文件时才计算
         if not self.image_hash and self.image:

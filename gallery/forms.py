@@ -31,7 +31,8 @@ class PromptGroupForm(forms.ModelForm):
 
     class Meta:
         model = PromptGroup
-        fields = ['title', 'prompt_text', 'negative_prompt', 'model_info', 'tags']
+        # 【修改】添加了 prompt_text_zh 到 fields 列表
+        fields = ['title', 'prompt_text', 'prompt_text_zh', 'negative_prompt', 'model_info', 'tags']
         widgets = {
             'title': forms.TextInput(attrs={
                 'class': 'form-control', 
@@ -40,6 +41,8 @@ class PromptGroupForm(forms.ModelForm):
                 'autocomplete': 'off'
             }),
             'prompt_text': forms.Textarea(attrs={'class': 'form-control', 'rows': 4, 'placeholder': '输入正向提示词...'}),
+            # 【新增】中文/辅助提示词的控件配置
+            'prompt_text_zh': forms.Textarea(attrs={'class': 'form-control', 'rows': 3, 'placeholder': '输入中文或辅助提示词 (可选)...'}),
             'negative_prompt': forms.Textarea(attrs={'class': 'form-control', 'rows': 3, 'placeholder': '输入负向提示词 (可选)...'}),
         }
 

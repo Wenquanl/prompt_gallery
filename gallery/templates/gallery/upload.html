@@ -88,6 +88,12 @@
                         <label class="form-label">正向提示词 (Prompt)</label>
                         {{ form.prompt_text }}
                     </div>
+
+                    <div class="mb-4">
+                        <label class="form-label text-success">中文/辅助提示词 <span class="text-muted small fw-normal">(可选)</span></label>
+                        {{ form.prompt_text_zh }}
+                    </div>
+
                     <div class="mb-4">
                         <label class="form-label">负向提示词 (Negative Prompt)</label>
                         {{ form.negative_prompt }}
