@@ -269,11 +269,15 @@ def update_group_prompts(request, pk):
         data = json.loads(request.body)
         if 'prompt_text' in data:
             group.prompt_text = data['prompt_text']
-        # 【新增】处理中文/辅助提示词的更新
         if 'prompt_text_zh' in data:
             group.prompt_text_zh = data['prompt_text_zh']
         if 'negative_prompt' in data:
             group.negative_prompt = data['negative_prompt']
+            
+        # === 新增：处理模型信息更新 ===
+        if 'model_info' in data:
+            group.model_info = data['model_info']
+            
         group.save()
         return JsonResponse({'status': 'success'})
     except Exception as e:

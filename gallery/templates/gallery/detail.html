@@ -473,11 +473,36 @@
                 </div>
 
                 <div class="prompt-card p-4">
-                    <div class="section-header mb-3"><span class="section-label">Model Info</span></div>
-                    <ul class="list-unstyled mb-0 text-secondary small">
-                        <li class="mb-3 d-flex align-items-start"><i class="bi bi-cpu me-2 mt-1 text-primary"></i><div><strong class="d-block text-dark">模型/参数</strong><span class="text-muted">{{ group.model_info|default:"<span class='empty-text'>未填写</span>" }}</span></div></li>
-                        <li class="d-flex align-items-center"><i class="bi bi-calendar3 me-2 text-primary"></i><div><strong class="text-dark me-1">创建时间:</strong>{{ group.created_at|date:"Y-m-d H:i" }}</div></li>
-                    </ul>
+                    <div class="section-header">
+                        <span class="section-label text-primary">Model Info / 参数</span>
+                        <div class="d-flex align-items-center gap-2">
+                            <button onclick="enableEdit('modelInfo', this)" class="btn btn-sm btn-outline-secondary rounded-pill px-3 btn-edit-prompt">
+                                <i class="bi bi-pencil me-1"></i>编辑
+                            </button>
+                            <div class="edit-actions" style="display:none;">
+                                <button onclick="savePrompt('modelInfo', {{ group.pk }}, 'model')" class="btn btn-sm btn-success rounded-pill px-3 me-1" title="保存">
+                                    <i class="bi bi-check-lg"></i>
+                                </button>
+                                <button onclick="cancelEdit('modelInfo')" class="btn btn-sm btn-outline-secondary rounded-pill px-3" title="取消">
+                                    <i class="bi bi-x-lg"></i>
+                                </button>
+                            </div>
+                            <button onclick="copyText('modelInfo', this)" class="btn btn-sm btn-outline-primary rounded-pill px-3" {% if not group.model_info %}disabled{% endif %}>
+                                <i class="bi bi-clipboard me-1"></i>复制
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="prompt-box mb-3" id="modelInfo">{% if group.model_info %}{{ group.model_info }}{% else %}<span class="empty-text">未填写</span>{% endif %}</div>
+                    
+                    <div class="border-top pt-3">
+                        <ul class="list-unstyled mb-0 text-secondary small">
+                            <li class="d-flex align-items-center">
+                                <i class="bi bi-calendar3 me-2 text-primary"></i>
+                                <div><strong class="text-dark me-1">创建时间:</strong>{{ group.created_at|date:"Y-m-d H:i" }}</div>
+                            </li>
+                        </ul>
+                    </div>
                 </div>
 
             </div>
@@ -820,8 +845,11 @@ function savePrompt(elementId, pk, type) {
     const box = document.getElementById(elementId);
     const newText = box.innerText;
     const data = {};
+    
+    // === 修改：增加 model 类型判断 ===
     if (type === 'positive') { data.prompt_text = newText; }
-    else if (type === 'positive_zh') { data.prompt_text_zh = newText; } // 新增逻辑
+    else if (type === 'positive_zh') { data.prompt_text_zh = newText; }
+    else if (type === 'model') { data.model_info = newText; } // 新增：模型信息
     else { data.negative_prompt = newText; }
 
     fetch(`/update-prompts/${pk}/`, {
@@ -838,6 +866,7 @@ function savePrompt(elementId, pk, type) {
             if (copyBtn) copyBtn.disabled = !newText.trim();
             if (!newText.trim()) { box.innerHTML = '<span class="empty-text">未填写</span>'; }
             toggleEditButtons(box, false);
+            
             const Toast = Swal.mixin({
                 toast: true, position: 'top-end', showConfirmButton: false, timer: 1500,
                 background: 'rgba(255, 255, 255, 0.95)'
