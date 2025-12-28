@@ -8,12 +8,14 @@ from imagekit.processors import ResizeToFit
 
 # === 工具函数 ===
 def unique_file_path(instance, filename):
+    """生成唯一的图片存储路径 (yyyy/mm/dd/uuid.ext)"""
     ext = filename.split('.')[-1]
     filename = f"{uuid.uuid4().hex}.{ext}"
     today = timezone.localtime(timezone.now())
     return f"prompts/{today.year}/{today.month}/{today.day}/{filename}"
 
 def reference_file_path(instance, filename):
+    """生成参考图存储路径"""
     ext = filename.split('.')[-1]
     filename = f"ref_{uuid.uuid4().hex}.{ext}"
     today = timezone.localtime(timezone.now())
@@ -42,13 +44,14 @@ class AIModel(models.Model):
 class PromptGroup(models.Model):
     title = models.CharField("主题/标题", max_length=200, default="未命名组")
     prompt_text = models.TextField("正向提示词 (Prompt)")
-    # 【新增】第二个正向提示词字段
     prompt_text_zh = models.TextField("中文/辅助提示词", blank=True, null=True)
     
     negative_prompt = models.TextField("负向提示词 (Negative Prompt)", blank=True, null=True)
     model_info = models.CharField("模型信息", max_length=200, blank=True)
     tags = models.ManyToManyField(Tag, blank=True, verbose_name="关联标签")
-    created_at = models.DateTimeField("创建时间", auto_now_add=True)
+    
+    # 【优化点】添加 db_index=True，加速首页的时间倒序查询
+    created_at = models.DateTimeField("创建时间", auto_now_add=True, db_index=True)
     
     is_liked = models.BooleanField("是否喜欢", default=False)
 
@@ -65,10 +68,10 @@ class ImageItem(models.Model):
     
     is_liked = models.BooleanField("是否喜欢", default=False)
 
-    # 存储图像特征向量
+    # 存储图像特征向量 (用于以图搜图)
     feature_vector = models.BinaryField("特征向量", null=True, blank=True)
     
-    # 存储图片 MD5 哈希值，用于查重
+    # 存储图片 MD5 哈希值，用于查重，已加索引
     image_hash = models.CharField("MD5哈希", max_length=32, blank=True, db_index=True)
 
     thumbnail = ImageSpecField(source='image',
@@ -83,15 +86,25 @@ class ImageItem(models.Model):
         super().save(*args, **kwargs)
 
     def calculate_hash(self):
+        """
+        计算文件哈希，并确保文件指针复位，防止影响后续的图片保存操作
+        """
         md5 = hashlib.md5()
-        # 分块读取，防止大文件占满内存
         if self.image:
-            # 确保指针在开始位置
+            # 1. 确保指针在开始位置
             if hasattr(self.image, 'seek'):
                 self.image.seek(0)
+            
+            # 2. 读取内容计算哈希
             for chunk in self.image.chunks():
                 md5.update(chunk)
+            
             self.image_hash = md5.hexdigest()
+
+            # 3. 【关键】计算完成后，必须重置指针回 0
+            # 否则后续的 save() 方法读取到的将是空内容
+            if hasattr(self.image, 'seek'):
+                self.image.seek(0)
     
     def __str__(self): return f"生成图 ID: {self.id}"
     class Meta: verbose_name = "生成图"; verbose_name_plural = "生成图集"

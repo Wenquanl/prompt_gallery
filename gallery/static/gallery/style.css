@@ -168,8 +168,21 @@ a { text-decoration: none; }
 
 @keyframes fadeInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
 .masonry-entry { opacity: 0; animation: fadeInUp 0.6s ease-out forwards; }
+
 #masonry-grid, #detail-masonry-grid { margin: 0 auto; width: 100%; }
-.grid-item { float: left; padding: 0 10px 20px 10px; box-sizing: border-box; width: 100%; }
+
+/* === 性能优化关键 CSS === */
+.grid-item { 
+    float: left; 
+    padding: 0 10px 20px 10px; 
+    box-sizing: border-box; 
+    width: 100%; 
+    
+    /* 核心性能优化：允许浏览器跳过屏幕外元素的渲染 */
+    content-visibility: auto; 
+    contain-intrinsic-size: 1px 300px; /* 预估高度，防止滚动条大幅跳动 */
+}
+
 @media (min-width: 576px) { .grid-item { width: 50% !important; } }
 @media (min-width: 992px) { .grid-item { width: 33.333% !important; } }
 @media (min-width: 1400px) { .grid-item { width: 25% !important; } }

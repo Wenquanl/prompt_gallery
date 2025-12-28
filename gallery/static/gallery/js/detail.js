@@ -1,0 +1,475 @@
+/**
+ * detail.js
+ * 详情页交互：图片切换、提示词编辑、标签管理、点赞、删除
+ * 依赖: Bootstrap 5, SweetAlert2, galleryImages (全局变量), common.js (getCookie, copyToClipboard, initMasonry)
+ */
+
+let currentIndex = 0;
+let imageModal = null; 
+
+document.addEventListener('DOMContentLoaded', function() {
+    // 1. 初始化模态框
+    const modalEl = document.getElementById('imageModal');
+    if (modalEl) {
+        imageModal = new bootstrap.Modal(modalEl);
+    }
+    
+    // 2. 初始化 Masonry 布局 (图片卡片)
+    // 使用 common.js 中封装的防抖优化版初始化函数
+    if (window.initMasonry) {
+        initMasonry('#detail-masonry-grid', '.grid-item');
+    }
+
+    // 3. 键盘事件监听 (左右切换图片)
+    document.addEventListener('keydown', function(event) {
+        if (modalEl && modalEl.classList.contains('show')) {
+            if (event.key === 'ArrowLeft') changeImage(-1);
+            if (event.key === 'ArrowRight') changeImage(1);
+            if (event.key === 'Escape') imageModal.hide();
+        }
+    });
+
+    // 4. 点击外部收起标签输入框
+    document.addEventListener('click', function(event) {
+        const container = document.getElementById('tagInputContainer');
+        const addBtn = document.getElementById('btnAddTag');
+        if (container && container.classList.contains('show')) {
+            if (!container.contains(event.target) && !addBtn.contains(event.target)) {
+                // 仅当输入框为空时收起
+                if (!document.getElementById('newTagInput').value.trim()) {
+                    resetTagInput();
+                }
+            }
+        }
+    });
+});
+
+// ================= 图片模态框逻辑 =================
+
+function showModal(index) {
+    currentIndex = index;
+    updateModalImage();
+    imageModal.show();
+}
+
+function changeImage(direction) {
+    currentIndex += direction;
+    // 循环播放
+    if (currentIndex >= galleryImages.length) { currentIndex = 0; } 
+    else if (currentIndex < 0) { currentIndex = galleryImages.length - 1; }
+    updateModalImage();
+}
+
+function updateModalImage() {
+    const imgElement = document.getElementById('previewImage');
+    const downloadBtn = document.getElementById('modalDownloadBtn');
+    const deleteForm = document.getElementById('modalDeleteForm');
+    const counterElement = document.getElementById('imageCounter');
+    const likeBtn = document.getElementById('modalLikeBtn');
+
+    if (!galleryImages || galleryImages.length === 0) return;
+
+    const currentImgData = galleryImages[currentIndex];
+
+    // 图片切换动画效果
+    imgElement.style.opacity = '0.5';
+    imgElement.src = currentImgData.url;
+    imgElement.onload = function() { imgElement.style.opacity = '1'; };
+
+    if (downloadBtn) downloadBtn.href = currentImgData.url;
+    if (deleteForm) deleteForm.action = `/delete-image/${currentImgData.id}/`;
+    if (counterElement) counterElement.innerText = `${currentIndex + 1} / ${galleryImages.length}`;
+    
+    // 更新模态框内的点赞按钮状态
+    if (likeBtn) {
+        if (currentImgData.isLiked) {
+            likeBtn.classList.add('active');
+            likeBtn.innerHTML = '<i class="bi bi-heart-fill"></i> 已喜欢';
+        } else {
+            likeBtn.classList.remove('active');
+            likeBtn.innerHTML = '<i class="bi bi-heart"></i> 喜欢';
+        }
+    }
+}
+
+// 模态框内的点赞
+function toggleModalLike() {
+    const currentImgData = galleryImages[currentIndex];
+    // 使用 common.js 中的 getCookie
+    const csrftoken = getCookie('csrftoken');
+    
+    fetch(`/toggle-like-image/${currentImgData.id}/`, {
+        method: 'POST',
+        headers: { 'X-CSRFToken': csrftoken, 'Content-Type': 'application/json' }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            currentImgData.isLiked = data.is_liked;
+            updateModalImage(); 
+            // 同步更新列表中的点赞按钮状态
+            const listBtn = document.getElementById(`like-btn-${currentImgData.id}`);
+            if (listBtn) {
+                const icon = listBtn.querySelector('i');
+                if (data.is_liked) {
+                    listBtn.classList.add('active');
+                    icon.classList.remove('bi-heart'); icon.classList.add('bi-heart-fill');
+                } else {
+                    listBtn.classList.remove('active');
+                    icon.classList.remove('bi-heart-fill'); icon.classList.add('bi-heart');
+                }
+            }
+        }
+    });
+}
+
+// 列表中的点赞
+function toggleImageLike(event, pk) {
+    event.stopPropagation(); 
+    const btn = event.currentTarget;
+    const csrftoken = getCookie('csrftoken');
+    const icon = btn.querySelector('i');
+    
+    fetch(`/toggle-like-image/${pk}/`, {
+        method: 'POST',
+        headers: { 'X-CSRFToken': csrftoken, 'Content-Type': 'application/json' }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            if (data.is_liked) {
+                btn.classList.add('active');
+                icon.classList.remove('bi-heart'); icon.classList.add('bi-heart-fill');
+            } else {
+                btn.classList.remove('active');
+                icon.classList.remove('bi-heart-fill'); icon.classList.add('bi-heart');
+            }
+            // 同步全局数据
+            const imgData = galleryImages.find(img => img.id === pk);
+            if (imgData) { imgData.isLiked = data.is_liked; }
+        }
+    });
+}
+
+// 通用删除确认
+function confirmDelete(event) {
+    event.preventDefault(); 
+    const form = event.target.closest('form');
+    Swal.fire({
+        title: '确定要删除吗？',
+        text: "此操作无法撤销！文件将被永久删除。",
+        icon: 'warning', 
+        showCancelButton: true, 
+        confirmButtonColor: '#dc3545', 
+        cancelButtonColor: '#6c757d', 
+        confirmButtonText: '是的，彻底删除', 
+        cancelButtonText: '取消',
+        background: 'rgba(255, 255, 255, 0.95)', 
+        customClass: { popup: 'rounded-4 shadow-lg border-0' }
+    }).then((result) => { if (result.isConfirmed) form.submit(); })
+}
+
+// ================= 提示词编辑逻辑 =================
+
+function enableEdit(elementId, editBtn) {
+    const box = document.getElementById(elementId);
+    if (box.querySelector('.empty-text')) {
+        box.dataset.wasEmpty = 'true';
+        box.innerText = ''; 
+    } else {
+        box.dataset.originalText = box.innerText; 
+    }
+    box.contentEditable = "true";
+    box.focus();
+    toggleEditButtons(box, true);
+}
+
+function cancelEdit(elementId) {
+    const box = document.getElementById(elementId);
+    if (box.dataset.wasEmpty === 'true') {
+        box.innerHTML = '<span class="empty-text">未填写</span>';
+    } else if (box.dataset.originalText !== undefined) {
+        box.innerText = box.dataset.originalText;
+    }
+    box.contentEditable = "false";
+    delete box.dataset.originalText;
+    delete box.dataset.wasEmpty;
+    toggleEditButtons(box, false);
+}
+
+function savePrompt(elementId, pk, type) {
+    const box = document.getElementById(elementId);
+    const newText = box.innerText;
+    const data = {};
+    const csrftoken = getCookie('csrftoken');
+    
+    if (type === 'positive') { data.prompt_text = newText; }
+    else if (type === 'positive_zh') { data.prompt_text_zh = newText; }
+    else if (type === 'model') { data.model_info = newText; }
+    else { data.negative_prompt = newText; }
+
+    fetch(`/update-prompts/${pk}/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrftoken },
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(res => {
+        if (res.status === 'success') {
+            box.contentEditable = "false";
+            // 更新复制按钮状态
+            const copyBtn = box.parentElement.querySelector('.btn-outline-primary, .btn-outline-danger, .btn-outline-success');
+            if (copyBtn) copyBtn.disabled = !newText.trim();
+            if (!newText.trim()) { box.innerHTML = '<span class="empty-text">未填写</span>'; }
+            toggleEditButtons(box, false);
+            
+            Swal.fire({
+                icon: 'success', 
+                title: '保存成功',
+                toast: true,
+                position: 'top-end',
+                showConfirmButton: false,
+                timer: 1500
+            });
+        } else {
+            Swal.fire({ icon: 'error', title: '保存失败', text: res.message });
+        }
+    })
+    .catch(err => { console.error(err); Swal.fire({ icon: 'error', title: '错误', text: '网络错误，请重试' }); });
+}
+
+function toggleEditButtons(boxElement, isEditing) {
+    const header = boxElement.parentElement.querySelector('.section-header');
+    const editBtn = header.querySelector('.btn-edit-prompt');
+    const actionsDiv = header.querySelector('.edit-actions');
+    if (isEditing) {
+        editBtn.style.display = 'none';
+        actionsDiv.style.display = 'block';
+    } else {
+        editBtn.style.display = 'inline-block';
+        actionsDiv.style.display = 'none';
+    }
+}
+
+// 包装 common.js 的复制函数，处理按钮动画
+function copyTextHandler(elementId, btnElement) {
+    const textElement = document.getElementById(elementId);
+    if (textElement.querySelector('.empty-text')) return;
+
+    const text = textElement.innerText;
+    copyToClipboard(text); // 调用 common.js 的复制功能
+
+    // 按钮动画逻辑
+    const originalHTML = btnElement.innerHTML;
+    const isPrimary = btnElement.classList.contains('btn-outline-primary');
+    const isDanger = btnElement.classList.contains('btn-outline-danger');
+    let originalClass;
+    if (isPrimary) originalClass = 'btn-outline-primary';
+    else if (isDanger) originalClass = 'btn-outline-danger';
+    else originalClass = 'btn-outline-success';
+
+    btnElement.innerHTML = '<i class="bi bi-check-lg me-1"></i>已复制';
+    btnElement.classList.remove(originalClass); btnElement.classList.add('btn-success', 'text-white');
+    setTimeout(() => {
+        btnElement.innerHTML = originalHTML;
+        btnElement.classList.remove('btn-success', 'text-white'); btnElement.classList.add(originalClass);
+    }, 2000);
+}
+
+// ================= 标签交互逻辑 =================
+
+function showTagInput() {
+    const btn = document.getElementById('btnAddTag');
+    if(btn) btn.style.display = 'none';
+    
+    const container = document.getElementById('tagInputContainer');
+    if(container) container.classList.add('show');
+    
+    const input = document.getElementById('newTagInput');
+    if(input) setTimeout(() => input.focus(), 100);
+}
+
+function handleTagKey(event, groupPk) {
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        addTag(groupPk);
+    } else if (event.key === 'Escape') {
+        resetTagInput();
+    }
+}
+
+function resetTagInput() {
+    const container = document.getElementById('tagInputContainer');
+    if(container) {
+        container.classList.remove('show');
+        document.getElementById('newTagInput').value = '';
+        setTimeout(() => {
+            const btn = document.getElementById('btnAddTag');
+            if(btn) btn.style.display = 'inline-flex';
+        }, 300);
+    }
+}
+
+function addTag(groupPk) {
+    const input = document.getElementById('newTagInput');
+    const tagName = input.value.trim();
+    if (!tagName) { 
+        input.focus(); 
+        return; 
+    }
+
+    const csrftoken = getCookie('csrftoken');
+    fetch(`/add-tag/${groupPk}/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrftoken },
+        body: JSON.stringify({ tag_name: tagName })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.status === 'success') {
+            const newTagHtml = `
+                <span class="tag-interactive" id="tag-pill-${data.tag_id}">
+                    <a href="/?q=${data.tag_name}">${data.tag_name}</a>
+                    <span class="tag-remove-btn" onclick="removeTag(${groupPk}, ${data.tag_id}, '${data.tag_name}')" title="移除">
+                        <i class="bi bi-x-circle-fill"></i>
+                    </span>
+                </span>
+            `;
+            // 插入到添加按钮之前
+            document.getElementById('btnAddTag').parentNode.insertAdjacentHTML('beforebegin', newTagHtml);
+            input.value = '';
+            input.focus();
+        } else {
+            Swal.fire({ icon: 'error', title: '添加失败', text: data.message });
+        }
+    })
+    .catch(err => Swal.fire({ icon: 'error', title: '错误', text: '网络请求失败' }));
+}
+
+function removeTag(groupPk, tagId, tagName) {
+    Swal.fire({
+        title: '移除标签?',
+        text: `确定要移除 "${tagName}" 吗？`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#ff4757',
+        cancelButtonColor: '#6c757d',
+        confirmButtonText: '是的, 移除',
+        cancelButtonText: '取消',
+        background: 'rgba(255, 255, 255, 0.95)',
+        customClass: { popup: 'rounded-4 shadow-lg border-0' }
+    }).then((result) => {
+        if (result.isConfirmed) {
+            performRemoveTag(groupPk, tagId);
+        }
+    });
+}
+
+function performRemoveTag(groupPk, tagId) {
+    const csrftoken = getCookie('csrftoken');
+    fetch(`/remove-tag/${groupPk}/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrftoken },
+        body: JSON.stringify({ tag_id: tagId })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.status === 'success') {
+            const el = document.getElementById(`tag-pill-${tagId}`);
+            if (el) {
+                el.style.transform = 'scale(0.8)';
+                el.style.opacity = '0';
+                setTimeout(() => el.remove(), 300);
+            }
+        } else {
+            Swal.fire({ icon: 'error', title: '移除失败', text: data.message });
+        }
+    });
+}
+
+// ================= 图片上传处理 (添加图片到现有组) =================
+
+function handleImageUpload(event) {
+    event.preventDefault(); 
+    
+    const form = event.target;
+    const formData = new FormData(form);
+    const submitBtn = form.querySelector('button[type="submit"]');
+    
+    const originalBtnContent = submitBtn.innerHTML;
+    submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>上传并校验中...';
+    submitBtn.disabled = true;
+
+    fetch(form.action, {
+        method: 'POST',
+        body: formData,
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    })
+    .then(response => response.json())
+    .then(data => {
+        submitBtn.innerHTML = originalBtnContent;
+        submitBtn.disabled = false;
+
+        if (data.status === 'success') {
+            window.location.reload();
+        } else if (data.status === 'warning') {
+            // 隐藏上传弹窗
+            const uploadModalEl = document.getElementById('addImagesModal');
+            if (uploadModalEl) {
+                const uploadModal = bootstrap.Modal.getInstance(uploadModalEl);
+                if (uploadModal) uploadModal.hide();
+            }
+
+            // 构建重复图片列表
+            let listItems = '';
+            data.duplicates.forEach(dup => {
+                listItems += `
+                    <div class="duplicate-item">
+                        <img src="${dup.existing_url || ''}" class="duplicate-alert-img">
+                        <div class="duplicate-text-content">
+                            <div class="duplicate-filename" title="${dup.name}">${dup.name}</div>
+                            <div class="duplicate-source">
+                                已存在于：<strong>《${dup.existing_group_title}》</strong>
+                            </div>
+                            <div class="duplicate-badge"><i class="bi bi-shield-fill-x me-1"></i>已拦截重复上传</div>
+                        </div>
+                    </div>
+                `;
+            });
+
+            const duplicateHtml = `
+                <div class="text-start mb-2 text-muted small">以下图片因重复而被系统自动拦截：</div>
+                <div class="duplicate-scroll-container">
+                    ${listItems}
+                </div>
+                <div class="text-end text-muted small mt-2">
+                    成功上传: <span class="text-success fw-bold">${data.uploaded_count}</span> 张 
+                    / 拦截: <span class="text-danger fw-bold">${data.duplicates.length}</span> 张
+                </div>
+            `;
+
+            Swal.fire({
+                title: `<span class="text-danger fw-bold"><i class="bi bi-exclamation-triangle-fill me-2"></i>重复拦截报告</span>`,
+                html: duplicateHtml,
+                icon: null,
+                confirmButtonText: '知道了',
+                confirmButtonColor: '#2c3e50',
+                width: '600px',
+                background: '#fff',
+                customClass: { popup: 'rounded-4 shadow-lg border-0' }
+            }).then(() => {
+                if (data.uploaded_count > 0) {
+                    window.location.reload();
+                }
+            });
+        } else {
+            Swal.fire({ icon: 'error', title: '上传失败', text: '请重试' });
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        submitBtn.innerHTML = originalBtnContent;
+        submitBtn.disabled = false;
+        Swal.fire({ icon: 'error', title: '网络错误', text: '无法连接到服务器' });
+    });
+}
