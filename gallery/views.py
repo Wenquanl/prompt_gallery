@@ -8,6 +8,7 @@ from django.db.models import Q, Count, Case, When, IntegerField
 from django.contrib import messages
 from django.core.paginator import Paginator
 from django.views.decorators.http import require_POST
+from django.core.cache import cache
 
 from .models import ImageItem, PromptGroup, Tag, AIModel, ReferenceItem
 from .forms import PromptGroupForm
@@ -29,33 +30,77 @@ def home(request):
     queryset = PromptGroup.objects.all()
     query = request.GET.get('q')
     filter_type = request.GET.get('filter')
+    
+    # 获取 URL 中的 search_id (用于恢复以图搜图结果)
+    search_id = request.GET.get('search_id')
 
-    # === 核心修改：处理以图搜图 ===
+    # === 1. 处理以图搜图提交 (POST) -> 转为 GET ===
     if request.method == 'POST' and request.FILES.get('search_image'):
         try:
             search_file = request.FILES['search_image']
             
-            # 1. 搜索全库图片 (ImageItem)，不仅仅是 PromptGroup
-            # 注意：search_similar_images 返回的是 ImageItem 对象列表
+            # 搜索全库图片
             similar_images = search_similar_images(search_file, ImageItem.objects.all(), top_k=50)
             
             if not similar_images:
                 messages.info(request, "未找到相似图片")
-            else:
-                # 2. 直接复用 'liked_images.html' 模板来展示图片墙结果
-                # 不需要分页（通常 AI 搜索看前 50 张最相关的足矣）
-                return render(request, 'gallery/liked_images.html', {
-                    'page_obj': similar_images, # 直接传递列表，模板会当做可迭代对象处理
-                    'search_query': '全库以图搜图结果',
-                    'search_mode': 'image',
-                    'is_home_search': True, # 标记来源，用于调整 UI 细节
-                })
+                return redirect('home')
+            
+            # 生成唯一ID，将结果存入缓存
+            search_uuid = str(uuid.uuid4())
+            
+            # 仅缓存 ID 和 分数
+            cache_data = [
+                {'id': img.id, 'score': getattr(img, 'similarity_score', 0)} 
+                for img in similar_images
+            ]
+            
+            # 存入 Cache (有效期 1 小时)
+            cache_key = f"home_search_{search_uuid}"
+            cache.set(cache_key, cache_data, 3600)
+            
+            # 重定向到首页，带上 search_id
+            return redirect(f"/?search_id={search_uuid}")
                 
         except Exception as e:
             print(f"Search error: {e}")
             messages.error(request, "搜索过程中发生错误")
+            return redirect('home')
 
-    # === 下面是常规的文本搜索逻辑 (保持不变) ===
+    # === 2. 处理以图搜图结果展示 (GET) ===
+    if search_id:
+        cache_key = f"home_search_{search_id}"
+        cached_data = cache.get(cache_key)
+        
+        if cached_data:
+            # 从缓存恢复数据
+            ids = [item['id'] for item in cached_data]
+            id_score_map = {item['id']: item['score'] for item in cached_data}
+            
+            # 使用 filter 代替 in_bulk
+            images_list = list(ImageItem.objects.filter(id__in=ids))
+            objects_dict = {img.id: img for img in images_list}
+            
+            # 按缓存的顺序重组列表
+            restored_images = []
+            for img_id in ids:
+                if img_id in objects_dict:
+                    obj = objects_dict[img_id]
+                    obj.similarity_score = id_score_map.get(img_id, 0)
+                    restored_images.append(obj)
+            
+            if restored_images:
+                return render(request, 'gallery/liked_images.html', {
+                    'page_obj': restored_images,
+                    'search_query': '全库以图搜图结果',
+                    'search_mode': 'image',
+                    'is_home_search': True,
+                    'current_search_id': search_id 
+                })
+        else:
+            messages.warning(request, "搜索结果已过期，请重新搜索")
+
+    # === 常规文本搜索 ===
     if query:
         queryset = queryset.filter(
             Q(title__icontains=query) |
@@ -93,13 +138,54 @@ def liked_images_gallery(request):
     queryset = ImageItem.objects.filter(is_liked=True).order_by('-id')
     search_mode = 'text'
     query_text = request.GET.get('q')
+    search_id = request.GET.get('search_id') 
     
+    # === 1. 图墙以图搜图提交 ===
     if request.method == 'POST' and request.FILES.get('image_query'):
-        uploaded_file = request.FILES['image_query']
-        results = search_similar_images(uploaded_file, queryset)
-        queryset = results 
-        search_mode = 'image'
-        query_text = "按图片搜索结果"
+        try:
+            uploaded_file = request.FILES['image_query']
+            results = search_similar_images(uploaded_file, queryset) 
+            
+            search_uuid = str(uuid.uuid4())
+            cache_data = [
+                {'id': img.id, 'score': getattr(img, 'similarity_score', 0)} 
+                for img in results
+            ]
+            
+            cache_key = f"liked_search_{search_uuid}"
+            cache.set(cache_key, cache_data, 3600)
+            
+            # 【修复】：路径从 /liked/ 改为 /liked-images/ 以匹配 urls.py
+            return redirect(f"/liked-images/?search_id={search_uuid}")
+            
+        except Exception as e:
+            messages.error(request, "搜索失败")
+            return redirect('liked_images_gallery')
+
+    # === 2. 图墙以图搜图结果 ===
+    if search_id:
+        cache_key = f"liked_search_{search_id}"
+        cached_data = cache.get(cache_key)
+        
+        if cached_data:
+            ids = [item['id'] for item in cached_data]
+            id_score_map = {item['id']: item['score'] for item in cached_data}
+            
+            images_list = list(ImageItem.objects.filter(id__in=ids))
+            objects_dict = {img.id: img for img in images_list}
+            
+            queryset = []
+            for img_id in ids:
+                if img_id in objects_dict:
+                    obj = objects_dict[img_id]
+                    obj.similarity_score = id_score_map.get(img_id, 0)
+                    queryset.append(obj)
+            
+            search_mode = 'image'
+            query_text = "按图片搜索结果"
+        else:
+             messages.warning(request, "搜索已过期")
+    
     elif query_text:
         queryset = queryset.filter(
             Q(group__title__icontains=query_text) |
@@ -115,7 +201,8 @@ def liked_images_gallery(request):
         'page_obj': page_obj,
         'search_query': query_text,
         'search_mode': search_mode,
-        'is_home_search': False # 标记这是“喜欢”页面的常规功能
+        'is_home_search': False,
+        'current_search_id': search_id
     })
 
 
@@ -147,13 +234,11 @@ def detail(request, pk):
 
 
 def upload(request):
-    # 如果包含 confirmed 字段，说明是确认发布
     if request.method == 'POST' and 'confirmed' in request.POST:
         batch_id = request.POST.get('batch_id')
         if not batch_id:
             return redirect('upload')
         
-        # 1. 创建 PromptGroup
         prompt_text = request.POST.get('prompt_text', '')
         prompt_text_zh = request.POST.get('prompt_text_zh', '')
         negative_prompt = request.POST.get('negative_prompt', '')
@@ -187,23 +272,18 @@ def upload(request):
             m_tag, _ = Tag.objects.get_or_create(name=model_name_str)
             group.tags.add(m_tag)
 
-        # 2. 处理图片文件
         file_names = request.POST.getlist('selected_files')
-        
-        # 调用安全处理函数
         created_image_ids = confirm_upload_images(batch_id, file_names, group)
 
         if not created_image_ids:
             messages.warning(request, "未找到有效的图片文件，或上传会话已过期。")
         else:
-            # 3. 启动后台处理
             trigger_background_processing(created_image_ids)
             messages.success(request, f"成功发布！系统正在后台处理索引。")
             
         return redirect('home')
 
     else:
-        # 常规上传页面渲染
         batch_id = request.GET.get('batch_id')
         temp_files_preview = []
         

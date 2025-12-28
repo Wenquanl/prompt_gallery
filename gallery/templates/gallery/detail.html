@@ -16,8 +16,6 @@
     <link rel="stylesheet" href="{% static 'gallery/style.css' %}">
     
     <style>
-        /* ================== 详情页标签专属优化样式 ================== */
-        /* ... 保留原有 CSS 样式 ... */
         .tag-interactive {
             display: inline-flex; align-items: center; padding: 6px 16px;
             background: rgba(255, 255, 255, 0.65); backdrop-filter: blur(8px);
@@ -138,12 +136,22 @@
 
 <div class="container my-5">
     <div class="mb-4">
-        {% with from_view=request.GET.from|default:'home' page_num=request.GET.page|default:'1' q_val=request.GET.q|default:'' filter_val=request.GET.filter|default:'' source_id=request.GET.source_img_id back_to_id=request.GET.back_to_detail_id %}
+        {% with from_view=request.GET.from|default:'home' page_num=request.GET.page|default:'1' q_val=request.GET.q|default:'' filter_val=request.GET.filter|default:'' source_id=request.GET.source_img_id back_to_id=request.GET.back_to_detail_id search_id=request.GET.search_id %}
             {% if back_to_id %}
                 <a href="{% url 'detail' back_to_id %}?from={{ from_view }}&page={{ page_num }}{% if q_val %}&q={{ q_val }}{% endif %}{% if filter_val %}&filter={{ filter_val }}{% endif %}{% if source_id %}&source_img_id={{ source_id }}{% endif %}" 
                    class="btn rounded-pill px-3 shadow-sm btn-back-interactive">
                     <i class="bi bi-arrow-left me-2"></i>返回
                 </a>
+            {% elif search_id %}
+                {% if from_view == 'home_search' %}
+                    <a href="{% url 'home' %}?search_id={{ search_id }}" class="btn rounded-pill px-3 shadow-sm btn-back-interactive">
+                        <i class="bi bi-arrow-left me-2"></i>返回搜索结果
+                    </a>
+                {% else %}
+                    <a href="{% url 'liked_images_gallery' %}?search_id={{ search_id }}" class="btn rounded-pill px-3 shadow-sm btn-back-interactive">
+                        <i class="bi bi-arrow-left me-2"></i>返回搜索结果
+                    </a>
+                {% endif %}
             {% elif from_view == 'liked' %}
                 <a href="{% url 'liked_images_gallery' %}?page={{ page_num }}{% if q_val %}&q={{ q_val }}{% endif %}{% if source_id %}#card-img-{{ source_id }}{% endif %}" 
                    class="btn rounded-pill px-3 shadow-sm btn-back-interactive">

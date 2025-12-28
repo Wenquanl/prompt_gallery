@@ -12,7 +12,6 @@
     <link rel="stylesheet" href="{% static 'gallery/style.css' %}">
     
     <style>
-        /* 复用 Bilibili 风格 CSS */
         .bili-pagination-wrapper {
             display: flex;
             justify-content: center;
@@ -200,7 +199,7 @@
         {% for img in page_obj %}
         <div class="grid-item mb-3">
             <div class="liked-img-card" id="card-img-{{ img.id }}">
-                <a href="{% url 'detail' img.group.pk %}?from={% if is_home_search %}home_search{% else %}liked{% endif %}&page={{ page_obj.number|default:1 }}&source_img_id={{ img.id }}" class="text-white text-decoration-none">
+                <a href="{% url 'detail' img.group.pk %}?from={% if is_home_search %}home_search{% else %}liked{% endif %}&page={{ page_obj.number|default:1 }}&source_img_id={{ img.id }}{% if current_search_id %}&search_id={{ current_search_id }}{% endif %}" class="text-white text-decoration-none">
                     <img src="{{ img.thumbnail.url }}" alt="Image">
                     
                     {% if search_mode == 'image' and img.similarity_score %}
@@ -348,7 +347,6 @@
     }
 
     function toggleLikeInGallery(btn, pk) {
-        // 在全库搜图模式下，点击红心只是切换喜欢状态，不移除卡片
         const isHomeSearch = {% if is_home_search %}true{% else %}false{% endif %};
         
         fetch(`/toggle-like-image/${pk}/`, {
@@ -364,7 +362,6 @@
                     btn.style.opacity = '1';
                 } else {
                     icon.className = 'bi bi-heart';
-                    // 如果是在“喜欢图墙”页，取消喜欢需要移除卡片
                     if (!isHomeSearch) {
                         const card = document.getElementById(`card-img-${pk}`).closest('.grid-item');
                         card.style.opacity = '0';
