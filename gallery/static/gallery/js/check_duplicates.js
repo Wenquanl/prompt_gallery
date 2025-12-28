@@ -14,18 +14,23 @@ function openCheckModal() {
         checkModalInstance = new bootstrap.Modal(modalEl);
     }
     
-    // 重置输入和界面
-    document.getElementById('checkInput').value = '';
-    document.getElementById('checkResultsArea').style.display = 'none';
+    // 隐藏结果区域
+    const resultsArea = document.getElementById('checkResultsArea');
+    if (resultsArea) {
+        resultsArea.style.display = 'none';
+    }
     
+    // 重置上传区域（这里会重新生成一个空的 checkInput，所以不需要手动清空 value）
     const uploadArea = document.querySelector('.upload-area-dashed');
-    uploadArea.innerHTML = `
-        <i class="bi bi-cloud-upload display-4 text-muted mb-2"></i>
-        <p class="mb-0 text-muted">点击选择或拖拽图片到这里</p>
-        <small class="text-secondary">支持批量上传，系统将自动比对数据库哈希值</small>
-        <input type="file" id="checkInput" multiple accept="image/*" hidden onchange="handleCheckUpload(this)">
-    `;
-    uploadArea.style.pointerEvents = 'auto';
+    if (uploadArea) {
+        uploadArea.innerHTML = `
+            <i class="bi bi-cloud-upload display-4 text-muted mb-2"></i>
+            <p class="mb-0 text-muted">点击选择或拖拽图片到这里</p>
+            <small class="text-secondary">支持批量上传，系统将自动比对数据库哈希值</small>
+            <input type="file" id="checkInput" multiple accept="image/*" hidden onchange="handleCheckUpload(this)">
+        `;
+        uploadArea.style.pointerEvents = 'auto';
+    }
     
     checkModalInstance.show();
 }
@@ -54,8 +59,11 @@ document.addEventListener('DOMContentLoaded', function() {
             const files = dt.files;
             
             const input = document.getElementById('checkInput');
-            input.files = files; 
-            handleCheckUpload(input);
+            // 确保 input 存在后再赋值
+            if (input) {
+                input.files = files; 
+                handleCheckUpload(input);
+            }
         }
     }
 });
@@ -76,7 +84,8 @@ function handleCheckUpload(input) {
     uploadArea.style.pointerEvents = 'none';
 
     // 使用 common.js 中的 getCookie 获取 token
-    const csrftoken = getCookie('csrftoken'); 
+    // 确保 common.js 已被引入
+    const csrftoken = typeof getCookie === 'function' ? getCookie('csrftoken') : '';
 
     fetch('/check-duplicates/', {
         method: 'POST',
