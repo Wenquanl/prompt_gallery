@@ -23,6 +23,21 @@ from .services import (
 )
 
 # ==========================================
+# 辅助函数
+# ==========================================
+def get_tags_bar_data():
+    """获取侧边栏标签数据（复用逻辑）"""
+    ai_model_names = list(AIModel.objects.values_list('name', flat=True))
+    return Tag.objects.filter(promptgroup__isnull=False).distinct().annotate(
+        use_count=Count('promptgroup'),
+        is_model=Case(
+            When(name__in=ai_model_names, then=1),
+            default=2,
+            output_field=IntegerField(),
+        )
+    ).order_by('is_model', '-use_count')
+
+# ==========================================
 # 视图函数
 # ==========================================
 
@@ -89,13 +104,17 @@ def home(request):
                     obj.similarity_score = id_score_map.get(img_id, 0)
                     restored_images.append(obj)
             
+            # 【新增】以图搜图结果页也需要标签栏
+            tags_bar = get_tags_bar_data()
+
             if restored_images:
                 return render(request, 'gallery/liked_images.html', {
                     'page_obj': restored_images,
                     'search_query': '全库以图搜图结果',
                     'search_mode': 'image',
                     'is_home_search': True,
-                    'current_search_id': search_id 
+                    'current_search_id': search_id,
+                    'tags_bar': tags_bar  # 传递标签数据
                 })
         else:
             messages.warning(request, "搜索结果已过期，请重新搜索")
@@ -112,15 +131,8 @@ def home(request):
     if filter_type == 'liked':
         queryset = queryset.filter(is_liked=True)
 
-    ai_model_names = list(AIModel.objects.values_list('name', flat=True))
-    tags_bar = Tag.objects.filter(promptgroup__isnull=False).distinct().annotate(
-        use_count=Count('promptgroup'),
-        is_model=Case(
-            When(name__in=ai_model_names, then=1),
-            default=2,
-            output_field=IntegerField(),
-        )
-    ).order_by('is_model', '-use_count')
+    # 获取标签栏数据
+    tags_bar = get_tags_bar_data()
 
     paginator = Paginator(queryset, 12)
     page_number = request.GET.get('page')
@@ -192,6 +204,9 @@ def liked_images_gallery(request):
             Q(group__prompt_text__icontains=query_text) |
             Q(group__tags__name__icontains=query_text)
         ).distinct()
+    
+    # 【新增】获取标签栏数据
+    tags_bar = get_tags_bar_data()
 
     paginator = Paginator(queryset, 20)
     page_number = request.GET.get('page')
@@ -202,7 +217,8 @@ def liked_images_gallery(request):
         'search_query': query_text,
         'search_mode': search_mode,
         'is_home_search': False,
-        'current_search_id': search_id
+        'current_search_id': search_id,
+        'tags_bar': tags_bar # 传递标签数据
     })
 
 
@@ -217,6 +233,7 @@ def detail(request, pk):
     if model_name:
         tags_list.sort(key=lambda t: 0 if t.name == model_name else 1)
     
+    # 详情页原有的所有标签（用于自动补全）
     all_tags = Tag.objects.annotate(
         usage_count=Count('promptgroup')
     ).order_by('-usage_count', 'name')[:500]
@@ -224,12 +241,17 @@ def detail(request, pk):
     related_groups = PromptGroup.objects.filter(
         tags__in=group.tags.all()
     ).exclude(pk=pk).distinct()[:4]
+    
+    # 【新增】获取侧边栏标签数据
+    tags_bar = get_tags_bar_data()
 
     return render(request, 'gallery/detail.html', {
         'group': group,
         'sorted_tags': tags_list,
         'all_tags': all_tags,
-        'related_groups': related_groups
+        'related_groups': related_groups,
+        'tags_bar': tags_bar, # 传递标签数据
+        'search_query': request.GET.get('q') # 传递搜索词以便高亮标签
     })
 
 

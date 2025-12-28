@@ -105,6 +105,17 @@
           -webkit-appearance: none; 
           margin: 0; 
         }
+
+        /* 优化 Tooltip 样式以展示长文本 */
+        .tooltip-inner {
+            max-width: 350px !important; /* 增加宽度 */
+            text-align: left !important; /* 左对齐 */
+            padding: 10px 12px !important;
+            font-size: 0.85rem;
+            line-height: 1.4;
+            background-color: rgba(0, 0, 0, 0.9) !important;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
     </style>
 </head>
 <body>
@@ -274,7 +285,12 @@
                             {% endif %}
                         </div>
 
-                        <p class="card-text text-clamp">{{ group.prompt_text }}</p>
+                        <p class="card-text text-clamp" 
+                           data-bs-toggle="tooltip" 
+                           data-bs-placement="bottom" 
+                           title="{{ group.prompt_text }}">
+                           {{ group.prompt_text }}
+                        </p>
                         
                         <div class="d-flex justify-content-between align-items-center mt-3 border-top border-light pt-2 text-muted small">
                             <span><i class="bi bi-clock me-1"></i>{{ group.created_at|date:"m-d" }}</span>
@@ -447,6 +463,12 @@
 
     document.addEventListener('DOMContentLoaded', function() {
         initMasonry('#masonry-grid', '.grid-item');
+
+        // 修改处：初始化 Bootstrap Tooltip
+        var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
+        var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+          return new bootstrap.Tooltip(tooltipTriggerEl)
+        })
     });
 </script>
 </body>
