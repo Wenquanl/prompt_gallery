@@ -27,4 +27,6 @@ urlpatterns = [
     path('toggle-like-image/<int:pk>/', views.toggle_like_image, name='toggle_like_image'),
     # 更新提示词接口
     path('update-prompts/<int:pk>/', views.update_group_prompts, name='update_group_prompts'),
+    # 查重接口
+    path('check-duplicates/', views.check_duplicates, name='check_duplicates'),
 ]

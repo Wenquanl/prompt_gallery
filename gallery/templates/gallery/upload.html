@@ -31,6 +31,10 @@
                     
                     <input type="hidden" name="next" value="{{ next_url|default:'/' }}">
 
+                    {% if batch_id %}
+                    <input type="hidden" name="batch_id" value="{{ batch_id }}">
+                    {% endif %}
+
                     {% if form.non_field_errors %}
                     <div class="alert alert-danger d-flex align-items-center rounded-3 border-0 shadow-sm mb-4" role="alert" style="background-color: #ffe5e5; color: #d63031;">
                         <i class="bi bi-exclamation-triangle-fill flex-shrink-0 me-2 fs-5"></i>
@@ -41,6 +45,7 @@
                         </div>
                     </div>
                     {% endif %}
+                    
                     <div class="mb-4">
                         <label class="form-label">作品标题 <span class="text-danger">*</span></label>
                         {{ form.title }}
@@ -56,6 +61,24 @@
 
                     <div class="mb-4">
                         <label class="form-label">上传生成图 <span class="text-danger">*</span></label>
+                        
+                        {% if temp_files %}
+                        <div class="mb-3 p-3 bg-light rounded-3 border border-success border-opacity-25">
+                            <div class="d-flex align-items-center mb-2 text-success">
+                                <i class="bi bi-check2-circle me-2"></i>
+                                <span class="fw-bold small">已从查重工具加载 {{ temp_files|length }} 张图片</span>
+                            </div>
+                            <div class="d-flex gap-2 overflow-auto pb-2" style="scrollbar-width: thin;">
+                                {% for f in temp_files %}
+                                <div class="position-relative flex-shrink-0" style="width: 80px; height: 80px;">
+                                    <img src="{{ f.url }}" class="w-100 h-100 rounded border bg-white" style="object-fit: cover;">
+                                </div>
+                                {% endfor %}
+                            </div>
+                            <div class="form-text text-muted mt-1 small">这些图片已准备好，无需重新上传。你也可以在下方追加新图片。</div>
+                        </div>
+                        {% endif %}
+
                         {{ form.upload_images }}
                         <div class="form-text">支持批量选择 (JPG, PNG)</div>
                         {% if form.upload_images.errors %}<div class="text-danger small mt-1">{{ form.upload_images.errors.0 }}</div>{% endif %}

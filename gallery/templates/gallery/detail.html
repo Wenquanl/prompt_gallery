@@ -292,6 +292,7 @@
                 {% for img in group.images.all %}
                 <div class="grid-item mb-3" id="img-anchor-{{ img.pk }}">
                     <div class="detail-img-card shadow-sm position-relative" id="img-card-{{ img.pk }}">
+                        <span class="file-size-badge">{{ img.image.size|filesizeformat }}</span>
                         <div class="position-relative" role="button" onclick="showModal({{ forloop.counter0 }})">
                             <img src="{{ img.thumbnail.url }}" class="thumb-img" alt="AI Artwork" loading="lazy">
                             <div class="hover-overlay"><i class="bi bi-zoom-in text-white fs-2"></i></div>
