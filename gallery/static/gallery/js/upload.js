@@ -1,6 +1,6 @@
 /**
  * upload.js
- * 处理发布页面的拖拽上传、缩略图生成和预览管理
+ * 处理发布页面的拖拽上传、缩略图生成、预览管理以及【自动查重】
  */
 
 // 全局文件存储数组
@@ -62,25 +62,99 @@ function preventDefaults(e) {
 function handleFiles(newFiles, type, input, previewContainer) {
     const fileArray = (type === 'gen') ? genFiles : refFiles;
     let hasNew = false;
+    // 用于查重的临时数组
+    let filesToCheck = [];
 
     Array.from(newFiles).forEach(file => {
-        // 简单查重 (同名且同大小视为同一个文件)
+        // 简单去重 (同名且同大小视为同一个文件)
         const exists = fileArray.some(f => f.name === file.name && f.size === file.size);
         if (!exists) {
             fileArray.push(file);
             addPreviewItem(file, type, previewContainer);
             hasNew = true;
+            if (type === 'gen') {
+                filesToCheck.push(file);
+            }
         }
     });
 
     if (hasNew) {
         updateInputFiles(type, input);
+        
+        // 【新增】如果是生成图，触发后端查重
+        if (type === 'gen' && filesToCheck.length > 0) {
+            checkDuplicates(filesToCheck, previewContainer);
+        }
     }
 }
 
 /**
+ * 【核心新增】自动查重逻辑
+ */
+function checkDuplicates(files, container) {
+    // 构造 FormData
+    const formData = new FormData();
+    files.forEach(f => formData.append('images', f));
+    
+    // 获取 CSRF Token (依赖 common.js 或自行获取)
+    let csrftoken = document.querySelector('[name=csrfmiddlewaretoken]')?.value;
+    if (!csrftoken && window.getCookie) {
+        csrftoken = getCookie('csrftoken');
+    }
+
+    // 显示“正在检测”状态 (可选优化)
+    
+    fetch('/check-duplicates/', {
+        method: 'POST',
+        body: formData,
+        headers: { 'X-CSRFToken': csrftoken }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success' && data.results) {
+            data.results.forEach(res => {
+                if (res.status === 'duplicate') {
+                    markAsDuplicate(res.filename, container, res.existing_group_title);
+                }
+            });
+            
+            // 如果发现重复，提示用户
+            if (data.has_duplicate) {
+                // 可以使用 Swal 提示，也可以仅依赖红框
+                const toast = Swal.mixin({
+                    toast: true, position: 'top-end', showConfirmButton: false, timer: 3000
+                });
+                toast.fire({ icon: 'warning', title: '发现重复图片，已标红' });
+            }
+        }
+    })
+    .catch(err => console.error('Check duplicate failed:', err));
+}
+
+/**
+ * 【核心新增】标记重复图片 UI
+ */
+function markAsDuplicate(filename, container, groupTitle) {
+    // 遍历 DOM 找到对应的 preview-item
+    const items = container.querySelectorAll('.preview-item');
+    items.forEach(item => {
+        if (item.dataset.filename === filename) {
+            item.classList.add('duplicate');
+            
+            // 添加警告标签
+            if (!item.querySelector('.duplicate-badge')) {
+                const badge = document.createElement('div');
+                badge.className = 'duplicate-badge';
+                badge.innerHTML = '<i class="bi bi-exclamation-circle-fill me-1"></i>已存在';
+                badge.title = `系统中已存在该图 (位于: ${groupTitle})`;
+                item.appendChild(badge);
+            }
+        }
+    });
+}
+
+/**
  * 更新 input[type=file] 的值
- * 注意：由于浏览器的安全限制，这里使用 DataTransfer 模拟
  */
 function updateInputFiles(type, input) {
     const fileArray = (type === 'gen') ? genFiles : refFiles;
@@ -97,6 +171,8 @@ function updateInputFiles(type, input) {
 function addPreviewItem(file, type, container) {
     const div = document.createElement('div');
     div.className = 'preview-item';
+    // 绑定文件名，方便查重定位
+    div.dataset.filename = file.name; 
     
     // 1. Loading 占位
     div.innerHTML = '<div class="spinner-border text-secondary spinner-border-sm"></div>';
@@ -117,7 +193,6 @@ function addPreviewItem(file, type, container) {
 
     // 4. 异步生成高清缩略图
     createThumbnail(file).then(thumbnailUrl => {
-        // 移除 Loading
         const spinner = div.querySelector('.spinner-border');
         if(spinner) spinner.remove();
 
@@ -125,7 +200,6 @@ function addPreviewItem(file, type, container) {
             const img = document.createElement('img');
             img.src = thumbnailUrl;
             img.decoding = 'async';
-            // 简单的淡入效果
             setTimeout(() => img.classList.add('loaded'), 50);
             div.insertBefore(img, delBtn);
         } else {
@@ -159,11 +233,10 @@ function removeFileItem(target, type, container) {
 }
 
 /**
- * 生成高质量缩略图 (解决直接用 base64 导致页面卡顿的问题)
+ * 生成高质量缩略图
  */
 function createThumbnail(file) {
     return new Promise((resolve) => {
-        // 如果不是图片，直接返回 null
         if (!file.type.startsWith('image/')) {
             resolve(null);
             return;
@@ -176,7 +249,6 @@ function createThumbnail(file) {
                 const canvas = document.createElement('canvas');
                 const ctx = canvas.getContext('2d');
                 
-                // 限制最大尺寸为 320px (适配 Retina 屏幕的 80px 显示区域)
                 const maxSize = 320;
                 let width = img.width;
                 let height = img.height;
@@ -195,13 +267,10 @@ function createThumbnail(file) {
                 canvas.width = width;
                 canvas.height = height;
                 
-                // 开启高质量平滑
                 ctx.imageSmoothingEnabled = true;
                 ctx.imageSmoothingQuality = 'high';
                 
                 ctx.drawImage(img, 0, 0, width, height);
-                
-                // 导出为 JPEG, 质量 0.9
                 resolve(canvas.toDataURL('image/jpeg', 0.9)); 
             };
             img.onerror = () => resolve(null);
