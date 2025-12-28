@@ -177,10 +177,8 @@ a { text-decoration: none; }
     padding: 0 10px 20px 10px; 
     box-sizing: border-box; 
     width: 100%; 
-    
-    /* 核心性能优化：允许浏览器跳过屏幕外元素的渲染 */
     content-visibility: auto; 
-    contain-intrinsic-size: 1px 300px; /* 预估高度，防止滚动条大幅跳动 */
+    contain-intrinsic-size: 1px 300px; 
 }
 
 @media (min-width: 576px) { .grid-item { width: 50% !important; } }
@@ -776,4 +774,58 @@ a { text-decoration: none; }
     border-radius: 6px;
     margin-right: 15px;
     border: 1px solid #eee;
+}
+
+/* ================== 新增：侧边栏与悬浮标签按钮 ================== */
+.btn-float-tags {
+    position: fixed;
+    top: 50%;
+    left: 20px; /* 左侧 */
+    transform: translateY(-50%);
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.9);
+    border: 1px solid rgba(0,0,0,0.1);
+    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    z-index: 1040;
+    display: flex; align-items: center; justify-content: center;
+    color: #64748b;
+    transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    cursor: pointer;
+    backdrop-filter: blur(5px);
+}
+.btn-float-tags:hover {
+    transform: translateY(-50%) scale(1.15);
+    background: var(--accent-color);
+    color: white;
+    box-shadow: 0 8px 25px rgba(79, 172, 254, 0.3);
+}
+
+.drawer-tag {
+    display: inline-flex; align-items: center;
+    padding: 6px 14px;
+    background: #f1f5f9;
+    border-radius: 8px;
+    color: #64748b;
+    font-size: 0.85rem;
+    text-decoration: none;
+    transition: all 0.2s;
+    border: 1px solid transparent;
+}
+.drawer-tag:hover {
+    background: white;
+    color: var(--text-main);
+    border-color: #cbd5e1;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+}
+.drawer-tag.active {
+    background: var(--accent-color);
+    color: white;
+    box-shadow: 0 4px 10px rgba(79, 172, 254, 0.3);
+}
+.count-badge {
+    margin-left: 6px;
+    font-size: 0.75rem;
+    opacity: 0.6;
 }
