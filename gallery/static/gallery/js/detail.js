@@ -15,7 +15,6 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     // 2. 初始化 Masonry 布局 (图片卡片)
-    // 使用 common.js 中封装的防抖优化版初始化函数
     if (window.initMasonry) {
         initMasonry('#detail-masonry-grid', '.grid-item');
     }
@@ -35,7 +34,6 @@ document.addEventListener('DOMContentLoaded', function() {
         const addBtn = document.getElementById('btnAddTag');
         if (container && container.classList.contains('show')) {
             if (!container.contains(event.target) && !addBtn.contains(event.target)) {
-                // 仅当输入框为空时收起
                 if (!document.getElementById('newTagInput').value.trim()) {
                     resetTagInput();
                 }
@@ -80,7 +78,6 @@ function updateModalImage() {
     if (deleteForm) deleteForm.action = `/delete-image/${currentImgData.id}/`;
     if (counterElement) counterElement.innerText = `${currentIndex + 1} / ${galleryImages.length}`;
     
-    // 更新模态框内的点赞按钮状态
     if (likeBtn) {
         if (currentImgData.isLiked) {
             likeBtn.classList.add('active');
@@ -95,7 +92,6 @@ function updateModalImage() {
 // 模态框内的点赞
 function toggleModalLike() {
     const currentImgData = galleryImages[currentIndex];
-    // 使用 common.js 中的 getCookie
     const csrftoken = getCookie('csrftoken');
     
     fetch(`/toggle-like-image/${currentImgData.id}/`, {
@@ -107,7 +103,6 @@ function toggleModalLike() {
         if (data.status === 'success') {
             currentImgData.isLiked = data.is_liked;
             updateModalImage(); 
-            // 同步更新列表中的点赞按钮状态
             const listBtn = document.getElementById(`like-btn-${currentImgData.id}`);
             if (listBtn) {
                 const icon = listBtn.querySelector('i');
@@ -144,7 +139,6 @@ function toggleImageLike(event, pk) {
                 btn.classList.remove('active');
                 icon.classList.remove('bi-heart-fill'); icon.classList.add('bi-heart');
             }
-            // 同步全局数据
             const imgData = galleryImages.find(img => img.id === pk);
             if (imgData) { imgData.isLiked = data.is_liked; }
         }
@@ -217,7 +211,6 @@ function savePrompt(elementId, pk, type) {
     .then(res => {
         if (res.status === 'success') {
             box.contentEditable = "false";
-            // 更新复制按钮状态
             const copyBtn = box.parentElement.querySelector('.btn-outline-primary, .btn-outline-danger, .btn-outline-success');
             if (copyBtn) copyBtn.disabled = !newText.trim();
             if (!newText.trim()) { box.innerHTML = '<span class="empty-text">未填写</span>'; }
@@ -251,15 +244,13 @@ function toggleEditButtons(boxElement, isEditing) {
     }
 }
 
-// 包装 common.js 的复制函数，处理按钮动画
 function copyTextHandler(elementId, btnElement) {
     const textElement = document.getElementById(elementId);
     if (textElement.querySelector('.empty-text')) return;
 
     const text = textElement.innerText;
-    copyToClipboard(text); // 调用 common.js 的复制功能
+    copyToClipboard(text); 
 
-    // 按钮动画逻辑
     const originalHTML = btnElement.innerHTML;
     const isPrimary = btnElement.classList.contains('btn-outline-primary');
     const isDanger = btnElement.classList.contains('btn-outline-danger');
@@ -335,7 +326,6 @@ function addTag(groupPk) {
                     </span>
                 </span>
             `;
-            // 插入到添加按钮之前
             document.getElementById('btnAddTag').parentNode.insertAdjacentHTML('beforebegin', newTagHtml);
             input.value = '';
             input.focus();
@@ -400,10 +390,16 @@ function handleImageUpload(event) {
     submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>上传并校验中...';
     submitBtn.disabled = true;
 
+    // 获取 CSRF Token
+    const csrftoken = getCookie('csrftoken');
+
     fetch(form.action, {
         method: 'POST',
         body: formData,
-        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        headers: { 
+            'X-Requested-With': 'XMLHttpRequest',
+            'X-CSRFToken': csrftoken // 新增 CSRF 头部
+        }
     })
     .then(response => response.json())
     .then(data => {
@@ -470,6 +466,6 @@ function handleImageUpload(event) {
         console.error('Error:', error);
         submitBtn.innerHTML = originalBtnContent;
         submitBtn.disabled = false;
-        Swal.fire({ icon: 'error', title: '网络错误', text: '无法连接到服务器' });
+        Swal.fire({ icon: 'error', title: '网络错误', text: '无法连接到服务器或响应格式错误' });
     });
 }

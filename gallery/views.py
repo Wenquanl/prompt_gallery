@@ -18,7 +18,7 @@ from .services import (
     get_temp_dir, 
     calculate_file_hash, 
     trigger_background_processing,
-    confirm_upload_images  # 新增的安全处理函数
+    confirm_upload_images
 )
 
 # ==========================================
@@ -181,11 +181,10 @@ def upload(request):
             m_tag, _ = Tag.objects.get_or_create(name=model_name_str)
             group.tags.add(m_tag)
 
-        # 2. 处理图片文件 (使用 service 层的安全函数)
-        # 获取前端确认要提交的文件名列表
+        # 2. 处理图片文件
         file_names = request.POST.getlist('selected_files')
         
-        # 调用安全处理函数：移动文件、创建记录、清理临时目录
+        # 调用安全处理函数
         created_image_ids = confirm_upload_images(batch_id, file_names, group)
 
         if not created_image_ids:
@@ -203,7 +202,6 @@ def upload(request):
         temp_files_preview = []
         
         if batch_id:
-            # 获取目录时会进行 ID 校验
             temp_dir = get_temp_dir(batch_id)
             if os.path.exists(temp_dir):
                 file_names = os.listdir(temp_dir)
@@ -229,9 +227,6 @@ def upload(request):
 
 
 def check_duplicates(request):
-    """
-    全库查重接口
-    """
     if request.method == 'POST':
         files = request.FILES.getlist('images')
         results = []
@@ -244,9 +239,7 @@ def check_duplicates(request):
         for f in files:
             f_hash = calculate_file_hash(f)
             
-            # 暂存文件
             f.seek(0)
-            # 使用 os.path.basename 确保文件名安全
             safe_name = os.path.basename(f.name)
             file_path = os.path.join(temp_dir, safe_name)
             
@@ -254,7 +247,6 @@ def check_duplicates(request):
                 for chunk in f.chunks():
                     destination.write(chunk)
             
-            # 查重比对
             existing = ImageItem.objects.filter(image_hash=f_hash).select_related('group').first()
             
             if existing:
@@ -299,6 +291,9 @@ def toggle_like_image(request, pk):
 
 
 def add_images_to_group(request, pk):
+    """
+    向现有组添加图片，支持 AJAX 返回 JSON 以配合前端的重复检测 UI
+    """
     group = get_object_or_404(PromptGroup, pk=pk)
     
     if request.method == 'POST':
@@ -310,12 +305,25 @@ def add_images_to_group(request, pk):
         if files:
             for f in files:
                 file_hash = calculate_file_hash(f)
+                
+                # 检查是否在本组或其他组已存在 (这里我们仅检查本组以防止重复，或者根据需求检查全库)
+                # 依据原有逻辑，只检查是否已存在于本组。
+                # 但为了配合前端展示“已存在于：XXX”，我们也可以做全库检查。
+                # 此处保持与 upload 逻辑类似，做全库检查更安全，或者仅检查本组。
+                # 原代码逻辑是：existing_img = ImageItem.objects.filter(group=group, ...).first()
+                # 建议改为全库检查，防止同一张图在不同组出现（如果这是需求），
+                # 但通常向特定组加图，只关心该组。不过为了前端 `existing_group_title` 的显示，
+                # 如果发现已存在，我们可以提示它在哪里。
+                
+                # 这里我们保持原有的逻辑：检查本组。如果需要全库排重，去掉 group=group 即可。
                 existing_img = ImageItem.objects.filter(group=group, image_hash=file_hash).first()
                 
                 if existing_img:
                     duplicates.append({
                         'name': f.name,
-                        'existing_group_title': existing_img.group.title
+                        'existing_group_title': existing_img.group.title,
+                        # 前端 JS 需要 existing_url 来展示缩略图
+                        'existing_url': existing_img.thumbnail.url if existing_img.thumbnail else existing_img.image.url
                     })
                 else:
                     img_item = ImageItem(group=group, image=f)
@@ -326,6 +334,19 @@ def add_images_to_group(request, pk):
         
         trigger_background_processing(created_ids)
 
+        # === 核心修改：如果是 AJAX 请求，返回 JSON ===
+        if request.headers.get('x-requested-with') == 'XMLHttpRequest':
+            if duplicates:
+                return JsonResponse({
+                    'status': 'warning',
+                    'uploaded_count': uploaded_count,
+                    'duplicates': duplicates
+                })
+            else:
+                messages.success(request, f"成功添加 {uploaded_count} 张图片")
+                return JsonResponse({'status': 'success', 'uploaded_count': uploaded_count})
+
+        # 常规请求回退
         if duplicates:
             messages.warning(request, f"成功添加 {uploaded_count} 张，忽略 {len(duplicates)} 张重复图片")
         else:

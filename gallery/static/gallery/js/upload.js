@@ -1,16 +1,67 @@
 /**
  * upload.js
- * 处理发布页面的拖拽上传、缩略图生成、预览管理以及【自动查重】
+ * 处理发布页面的拖拽上传、缩略图生成、预览管理以及【自动查重】和【批量带入】
  */
 
-// 全局文件存储数组
+// 全局文件存储数组 (本地上传的文件)
 let genFiles = []; // 生成图
 let refFiles = []; // 参考图
 
 document.addEventListener('DOMContentLoaded', () => {
     setupDragDrop('zone-gen', 'upload_images', 'preview-gen', 'gen');
     setupDragDrop('zone-ref', 'upload_references', 'preview-ref', 'ref');
+
+    // 【新增】初始化从后端带入的临时文件 (查重后带入)
+    if (window.SERVER_TEMP_FILES && window.SERVER_TEMP_FILES.length > 0) {
+        initServerFiles(window.SERVER_TEMP_FILES);
+    }
 });
+
+/**
+ * 初始化服务器端带入的临时文件
+ * 为每个文件生成预览，并注入 hidden input 供表单提交
+ */
+function initServerFiles(files) {
+    const container = document.getElementById('preview-gen');
+    const form = document.getElementById('uploadForm');
+    
+    files.forEach(file => {
+        // 1. 创建预览 DOM
+        const div = document.createElement('div');
+        div.className = 'preview-item server-file'; // 标记为服务器文件
+        div.dataset.filename = file.name;
+        
+        // 图片 (直接使用 URL)
+        const img = document.createElement('img');
+        img.src = file.url;
+        img.className = 'loaded';
+        div.appendChild(img);
+        
+        // 删除按钮
+        const delBtn = document.createElement('div');
+        delBtn.className = 'btn-remove-preview';
+        delBtn.innerHTML = '<i class="bi bi-x-lg"></i>';
+        delBtn.title = '移除此图';
+        delBtn.onclick = (e) => {
+            e.stopPropagation();
+            // 移除 DOM
+            div.remove();
+            // 移除对应的 Hidden Input
+            const hiddenInput = form.querySelector(`input[name="selected_files"][value="${file.name}"]`);
+            if (hiddenInput) hiddenInput.remove();
+        };
+        div.appendChild(delBtn);
+        
+        container.appendChild(div);
+
+        // 2. 向表单注入隐藏域，告诉后端这个文件需要保存
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = 'selected_files';
+        input.value = file.name;
+        form.appendChild(input);
+    });
+}
 
 /**
  * 初始化拖拽区域
@@ -81,7 +132,7 @@ function handleFiles(newFiles, type, input, previewContainer) {
     if (hasNew) {
         updateInputFiles(type, input);
         
-        // 【新增】如果是生成图，触发后端查重
+        // 如果是生成图，触发后端查重
         if (type === 'gen' && filesToCheck.length > 0) {
             checkDuplicates(filesToCheck, previewContainer);
         }
@@ -89,21 +140,17 @@ function handleFiles(newFiles, type, input, previewContainer) {
 }
 
 /**
- * 【核心新增】自动查重逻辑
+ * 自动查重逻辑
  */
 function checkDuplicates(files, container) {
-    // 构造 FormData
     const formData = new FormData();
     files.forEach(f => formData.append('images', f));
     
-    // 获取 CSRF Token (依赖 common.js 或自行获取)
     let csrftoken = document.querySelector('[name=csrfmiddlewaretoken]')?.value;
     if (!csrftoken && window.getCookie) {
         csrftoken = getCookie('csrftoken');
     }
 
-    // 显示“正在检测”状态 (可选优化)
-    
     fetch('/check-duplicates/', {
         method: 'POST',
         body: formData,
@@ -118,9 +165,7 @@ function checkDuplicates(files, container) {
                 }
             });
             
-            // 如果发现重复，提示用户
             if (data.has_duplicate) {
-                // 可以使用 Swal 提示，也可以仅依赖红框
                 const toast = Swal.mixin({
                     toast: true, position: 'top-end', showConfirmButton: false, timer: 3000
                 });
@@ -132,16 +177,13 @@ function checkDuplicates(files, container) {
 }
 
 /**
- * 【核心新增】标记重复图片 UI
+ * 标记重复图片 UI
  */
 function markAsDuplicate(filename, container, groupTitle) {
-    // 遍历 DOM 找到对应的 preview-item
     const items = container.querySelectorAll('.preview-item');
     items.forEach(item => {
         if (item.dataset.filename === filename) {
             item.classList.add('duplicate');
-            
-            // 添加警告标签
             if (!item.querySelector('.duplicate-badge')) {
                 const badge = document.createElement('div');
                 badge.className = 'duplicate-badge';
@@ -166,18 +208,15 @@ function updateInputFiles(type, input) {
 }
 
 /**
- * 添加预览 DOM 元素
+ * 添加预览 DOM 元素 (本地文件)
  */
 function addPreviewItem(file, type, container) {
     const div = document.createElement('div');
     div.className = 'preview-item';
-    // 绑定文件名，方便查重定位
     div.dataset.filename = file.name; 
     
-    // 1. Loading 占位
     div.innerHTML = '<div class="spinner-border text-secondary spinner-border-sm"></div>';
     
-    // 2. 删除按钮
     const delBtn = document.createElement('div');
     delBtn.className = 'btn-remove-preview';
     delBtn.innerHTML = '<i class="bi bi-x-lg"></i>';
@@ -187,11 +226,8 @@ function addPreviewItem(file, type, container) {
         removeFileItem(e.target, type, container);
     };
     div.appendChild(delBtn);
-    
-    // 3. 插入 DOM
     container.appendChild(div);
 
-    // 4. 异步生成高清缩略图
     createThumbnail(file).then(thumbnailUrl => {
         const spinner = div.querySelector('.spinner-border');
         if(spinner) spinner.remove();
@@ -211,12 +247,22 @@ function addPreviewItem(file, type, container) {
 
 /**
  * 移除文件
+ * 【修改】增加了对 server-file 的过滤，防止索引错位
  */
 function removeFileItem(target, type, container) {
     const itemDiv = target.closest('.preview-item');
     if (!itemDiv) return;
 
-    const index = Array.from(container.children).indexOf(itemDiv);
+    // 如果是服务器端带入的文件，直接移除 DOM，不涉及 genFiles 数组的操作
+    // (实际上 server-file 的点击事件在 initServerFiles 中已经独立绑定了，这里是为了兼容性)
+    if (itemDiv.classList.contains('server-file')) {
+        itemDiv.remove();
+        return;
+    }
+
+    // 计算索引时，需要过滤掉 server-file，只计算本地文件的索引
+    const localItems = Array.from(container.querySelectorAll('.preview-item:not(.server-file)'));
+    const index = localItems.indexOf(itemDiv);
     
     if (index !== -1) {
         const fileArray = (type === 'gen') ? genFiles : refFiles;
@@ -248,11 +294,9 @@ function createThumbnail(file) {
             img.onload = () => {
                 const canvas = document.createElement('canvas');
                 const ctx = canvas.getContext('2d');
-                
                 const maxSize = 320;
                 let width = img.width;
                 let height = img.height;
-                
                 if (width > height) {
                     if (width > maxSize) {
                         height *= maxSize / width;
@@ -266,10 +310,8 @@ function createThumbnail(file) {
                 }
                 canvas.width = width;
                 canvas.height = height;
-                
                 ctx.imageSmoothingEnabled = true;
                 ctx.imageSmoothingQuality = 'high';
-                
                 ctx.drawImage(img, 0, 0, width, height);
                 resolve(canvas.toDataURL('image/jpeg', 0.9)); 
             };

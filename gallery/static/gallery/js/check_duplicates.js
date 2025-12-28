@@ -20,7 +20,7 @@ function openCheckModal() {
         resultsArea.style.display = 'none';
     }
     
-    // 重置上传区域（这里会重新生成一个空的 checkInput，所以不需要手动清空 value）
+    // 重置上传区域
     const uploadArea = document.querySelector('.upload-area-dashed');
     if (uploadArea) {
         uploadArea.innerHTML = `
@@ -30,15 +30,18 @@ function openCheckModal() {
             <input type="file" id="checkInput" multiple accept="image/*" hidden onchange="handleCheckUpload(this)">
         `;
         uploadArea.style.pointerEvents = 'auto';
+        // 显式设置鼠标指针为手型，提示可点击
+        uploadArea.style.cursor = 'pointer';
     }
     
     checkModalInstance.show();
 }
 
-// 初始化拖拽事件 (等待 DOM 加载)
+// 初始化事件 (等待 DOM 加载)
 document.addEventListener('DOMContentLoaded', function() {
     const dropZone = document.querySelector('.upload-area-dashed');
     if (dropZone) {
+        // 1. 拖拽事件绑定
         ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
             dropZone.addEventListener(eventName, preventDefaults, false);
         });
@@ -65,6 +68,18 @@ document.addEventListener('DOMContentLoaded', function() {
                 handleCheckUpload(input);
             }
         }
+
+        // === 新增：点击事件绑定 ===
+        // 修复：点击区域时触发隐藏 input 的点击
+        dropZone.addEventListener('click', function(e) {
+            // 防止如果用户直接点到了 input 元素（虽然它hidden）导致的循环调用
+            if (e.target.id === 'checkInput') return;
+
+            const input = document.getElementById('checkInput');
+            if (input) {
+                input.click();
+            }
+        });
     }
 });
 
@@ -80,11 +95,11 @@ function handleCheckUpload(input) {
     const uploadArea = document.querySelector('.upload-area-dashed');
     const originalContent = uploadArea.innerHTML;
     
+    // 上传中状态：禁用点击，防止重复提交
     uploadArea.innerHTML = '<div class="spinner-border text-primary mb-3"></div><p>正在上传并对比全库哈希值...</p>';
     uploadArea.style.pointerEvents = 'none';
+    uploadArea.style.cursor = 'default';
 
-    // 使用 common.js 中的 getCookie 获取 token
-    // 确保 common.js 已被引入
     const csrftoken = typeof getCookie === 'function' ? getCookie('csrftoken') : '';
 
     fetch('/check-duplicates/', {
@@ -94,8 +109,10 @@ function handleCheckUpload(input) {
     })
     .then(response => response.json())
     .then(data => {
+        // 恢复状态
         uploadArea.innerHTML = originalContent;
         uploadArea.style.pointerEvents = 'auto';
+        uploadArea.style.cursor = 'pointer';
 
         if (data.status === 'success') {
             currentBatchId = data.batch_id;
@@ -107,6 +124,7 @@ function handleCheckUpload(input) {
     .catch(err => {
         uploadArea.innerHTML = originalContent;
         uploadArea.style.pointerEvents = 'auto';
+        uploadArea.style.cursor = 'pointer';
         console.error(err);
         Swal.fire('错误', '网络请求错误', 'error');
     });
@@ -122,7 +140,7 @@ function renderCheckResults(results, hasDuplicate) {
     list.innerHTML = '';
     let duplicateCount = 0;
     
-    // 详情页 URL 前缀 (硬编码为 /image/，需与 urls.py 匹配)
+    // 详情页 URL 前缀
     const detailUrlPrefix = "/image/"; 
 
     results.forEach(item => {
