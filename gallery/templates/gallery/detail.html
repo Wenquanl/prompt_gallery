@@ -167,6 +167,36 @@
             opacity: 1; transform: scale(1); 
             transition-delay: 0.1s;
         }
+
+        /* === 新增：返回按钮交互样式 === */
+        .btn-back-interactive {
+            background: rgba(255, 255, 255, 0.6);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.8);
+            color: #64748b;
+            transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+            font-weight: 500;
+            padding-left: 20px !important;
+            padding-right: 24px !important;
+            display: inline-flex;
+            align-items: center;
+        }
+        .btn-back-interactive:hover {
+            background: #fff;
+            color: #2c3e50;
+            transform: translateX(-4px);
+            box-shadow: 0 8px 20px rgba(0,0,0,0.08) !important;
+            border-color: #fff;
+        }
+        .btn-back-interactive i {
+            transition: transform 0.3s ease;
+        }
+        .btn-back-interactive:hover i {
+            transform: translateX(-3px);
+        }
+        .btn-back-interactive:active {
+            transform: translateX(-4px) scale(0.96);
+        }
     </style>
 </head>
 <body>
@@ -219,22 +249,19 @@
             
             {% if back_to_id %}
                 <a href="{% url 'detail' back_to_id %}?from={{ from_view }}&page={{ page_num }}{% if q_val %}&q={{ q_val }}{% endif %}{% if filter_val %}&filter={{ filter_val }}{% endif %}{% if source_id %}&source_img_id={{ source_id }}{% endif %}" 
-                   class="btn btn-light rounded-pill px-3 shadow-sm text-secondary" 
-                   style="background: rgba(255,255,255,0.6); backdrop-filter: blur(5px); border: var(--glass-border);">
+                   class="btn rounded-pill px-3 shadow-sm btn-back-interactive">
                     <i class="bi bi-arrow-left me-2"></i>返回
                 </a>
 
             {% elif from_view == 'liked' %}
                 <a href="{% url 'liked_images_gallery' %}?page={{ page_num }}{% if q_val %}&q={{ q_val }}{% endif %}{% if source_id %}#card-img-{{ source_id }}{% endif %}" 
-                   class="btn btn-light rounded-pill px-3 shadow-sm text-secondary" 
-                   style="background: rgba(255,255,255,0.6); backdrop-filter: blur(5px); border: var(--glass-border);">
+                   class="btn rounded-pill px-3 shadow-sm btn-back-interactive">
                     <i class="bi bi-arrow-left me-2"></i>返回
                 </a>
 
             {% else %}
                 <a href="{% url 'home' %}?page={{ page_num }}{% if q_val %}&q={{ q_val }}{% endif %}{% if filter_val %}&filter={{ filter_val }}{% endif %}#group-card-{{ group.pk }}" 
-                   class="btn btn-light rounded-pill px-3 shadow-sm text-secondary" 
-                   style="background: rgba(255,255,255,0.6); backdrop-filter: blur(5px); border: var(--glass-border);">
+                   class="btn rounded-pill px-3 shadow-sm btn-back-interactive">
                     <i class="bi bi-arrow-left me-2"></i>返回
                 </a>
             {% endif %}
@@ -794,9 +821,9 @@ function toggleImageLike(event, pk) {
             } else {
                 btn.classList.remove('active');
                 icon.classList.remove('bi-heart-fill'); icon.classList.add('bi-heart');
+                const imgData = galleryImages.find(img => img.id === pk);
+                if (imgData) { imgData.isLiked = data.is_liked; }
             }
-            const imgData = galleryImages.find(img => img.id === pk);
-            if (imgData) { imgData.isLiked = data.is_liked; }
         }
     });
 }

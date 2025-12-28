@@ -32,19 +32,71 @@
         }
         .preview-list {
             display: flex;
-            gap: 10px;
+            gap: 12px;
             overflow-x: auto;
             margin-top: 15px;
-            padding-bottom: 5px;
+            padding: 5px 2px;
+            min-height: 85px; 
         }
         .preview-item {
-            width: 60px; height: 60px;
+            width: 80px; height: 80px;
             flex-shrink: 0;
-            border-radius: 6px;
-            overflow: hidden;
+            border-radius: 8px;
+            overflow: visible; 
             border: 1px solid #dee2e6;
+            position: relative; 
+            background: #fff;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
-        .preview-item img { width: 100%; height: 100%; object-fit: cover; }
+        .preview-item img { 
+            width: 100%; height: 100%; 
+            object-fit: cover; 
+            border-radius: 8px;
+            display: block;
+            opacity: 0; /* 默认透明，加载完后淡入 */
+            transition: opacity 0.3s ease; 
+        }
+        .preview-item img.loaded {
+            opacity: 1;
+        }
+        
+        /* 删除按钮样式 */
+        .btn-remove-preview {
+            position: absolute;
+            top: -3px;
+            right: -6px;
+            width: 20px;
+            height: 20px;
+            background: #e9ecef;
+            color: #6c757d;
+            border-radius: 50%;
+            border: 1px solid #dee2e6;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            z-index: 10;
+            transition: all 0.2s ease;
+        }
+        .btn-remove-preview:hover {
+            background: #ced4da; 
+            color: #495057;      
+            transform: scale(1.1);
+            border-color: #adb5bd;
+        }
+        .btn-remove-preview i {
+            font-size: 10px;
+            font-weight: bold;
+        }
+        .spinner-border-sm {
+            --bs-spinner-width: 1rem;
+            --bs-spinner-height: 1rem;
+            --bs-spinner-border-width: 0.15em;
+        }
     </style>
 </head>
 <body>
@@ -93,7 +145,9 @@
                             </div>
                             <div class="d-flex gap-2 overflow-auto">
                                 {% for f in temp_files %}
-                                <div class="preview-item"><img src="{{ f.url }}"></div>
+                                <div class="preview-item" style="border-color: #d1e7dd;">
+                                    <img src="{{ f.url }}" class="loaded">
+                                    </div>
                                 {% endfor %}
                             </div>
                         </div>
@@ -101,7 +155,7 @@
 
                         <div class="drag-drop-zone" id="zone-gen">
                             <i class="bi bi-images display-6 text-muted mb-2"></i>
-                            <div class="text-muted small">点击选择或拖拽图片到这里 (JPG, PNG)</div>
+                            <div class="text-muted small">点击多次选择或拖拽图片 (JPG, PNG)</div>
                             {{ form.upload_images }}
                         </div>
                         <div class="preview-list" id="preview-gen"></div>
@@ -113,7 +167,7 @@
                         <label class="form-label fw-bold">上传参考图 <span class="text-muted small fw-normal">(可选)</span></label>
                         <div class="drag-drop-zone" id="zone-ref">
                             <i class="bi bi-image display-6 text-muted mb-2"></i>
-                            <div class="text-muted small">点击选择或拖拽参考图 (垫图)</div>
+                            <div class="text-muted small">点击多次选择或拖拽参考图 (垫图)</div>
                             {{ form.upload_references }}
                         </div>
                         <div class="preview-list" id="preview-ref"></div>
@@ -173,61 +227,186 @@
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-    // 拖拽上传逻辑
-    function setupDragDrop(zoneId, inputName, previewId) {
+    // 使用数组暂存文件
+    let genFiles = [];
+    let refFiles = [];
+
+    function setupDragDrop(zoneId, inputName, previewId, type) {
         const zone = document.getElementById(zoneId);
         const input = zone.querySelector(`input[name="${inputName}"]`);
-        const preview = document.getElementById(previewId);
+        const previewContainer = document.getElementById(previewId);
 
-        // 样式高亮
-        ['dragenter', 'dragover'].forEach(evt => {
-            zone.addEventListener(evt, (e) => {
-                e.preventDefault();
-                zone.classList.add('drag-over');
-            });
-        });
-        ['dragleave', 'drop'].forEach(evt => {
-            zone.addEventListener(evt, (e) => {
-                e.preventDefault();
-                zone.classList.remove('drag-over');
-            });
+        // 阻止默认拖拽行为
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            zone.addEventListener(eventName, preventDefaults, false);
+            document.body.addEventListener(eventName, preventDefaults, false);
         });
 
-        // 监听 Input 变化 (点击上传或拖拽赋值后)
-        input.addEventListener('change', () => handleFiles(input.files, preview));
+        // 高亮样式
+        ['dragenter', 'dragover'].forEach(eventName => {
+            zone.addEventListener(eventName, () => zone.classList.add('drag-over'), false);
+        });
+        ['dragleave', 'drop'].forEach(eventName => {
+            zone.addEventListener(eventName, () => zone.classList.remove('drag-over'), false);
+        });
 
-        // 监听 Drop 事件
+        // 处理文件拖放
         zone.addEventListener('drop', (e) => {
-            const files = e.dataTransfer.files;
-            if (files.length > 0) {
-                // 将拖拽的文件赋值给 input
-                // 注意：现代浏览器支持此操作
-                input.files = files;
-                handleFiles(files, preview);
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            handleFiles(files, type, input, previewContainer);
+        }, false);
+
+        // 处理点击上传
+        input.addEventListener('change', (e) => {
+            if (input.files.length > 0) {
+                handleFiles(input.files, type, input, previewContainer);
             }
         });
     }
 
-    function handleFiles(files, previewContainer) {
-        previewContainer.innerHTML = ''; // 清空旧预览
-        Array.from(files).forEach(file => {
-            if (file.type.startsWith('image/')) {
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    const div = document.createElement('div');
-                    div.className = 'preview-item';
-                    div.innerHTML = `<img src="${e.target.result}">`;
-                    previewContainer.appendChild(div);
+    function preventDefaults(e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+
+    function handleFiles(newFiles, type, input, previewContainer) {
+        const fileArray = (type === 'gen') ? genFiles : refFiles;
+        let hasNew = false;
+
+        Array.from(newFiles).forEach(file => {
+            // 简单查重
+            const exists = fileArray.some(f => f.name === file.name && f.size === file.size);
+            if (!exists) {
+                fileArray.push(file);
+                addPreviewItem(file, type, previewContainer);
+                hasNew = true;
+            }
+        });
+
+        if (hasNew) {
+            updateInputFiles(type, input);
+        }
+    }
+
+    // === 优化：高清缩略图生成 ===
+    function createThumbnail(file) {
+        return new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const img = new Image();
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    
+                    // 提升分辨率：设置为 320px (适配高DPI屏幕，80px * 4)
+                    const maxSize = 320;
+                    let width = img.width;
+                    let height = img.height;
+                    
+                    if (width > height) {
+                        if (width > maxSize) {
+                            height *= maxSize / width;
+                            width = maxSize;
+                        }
+                    } else {
+                        if (height > maxSize) {
+                            width *= maxSize / height;
+                            height = maxSize;
+                        }
+                    }
+                    canvas.width = width;
+                    canvas.height = height;
+                    
+                    // 开启高质量平滑
+                    ctx.imageSmoothingEnabled = true;
+                    ctx.imageSmoothingQuality = 'high';
+                    
+                    ctx.drawImage(img, 0, 0, width, height);
+                    
+                    // 提升画质：JPEG 质量 0.9
+                    resolve(canvas.toDataURL('image/jpeg', 0.9)); 
                 };
-                reader.readAsDataURL(file);
+                img.onerror = () => resolve(null);
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        });
+    }
+
+    function addPreviewItem(file, type, container) {
+        const div = document.createElement('div');
+        div.className = 'preview-item';
+        
+        // 1. Loading 占位
+        div.innerHTML = '<div class="spinner-border text-secondary spinner-border-sm"></div>';
+        
+        // 2. 删除按钮
+        const delBtn = document.createElement('div');
+        delBtn.className = 'btn-remove-preview';
+        delBtn.innerHTML = '<i class="bi bi-x-lg"></i>';
+        delBtn.title = '移除此图';
+        delBtn.onclick = (e) => {
+            e.stopPropagation();
+            removeFileItem(e.target, type, container);
+        };
+        div.appendChild(delBtn);
+        
+        // 3. 插入 DOM
+        container.appendChild(div);
+
+        // 4. 异步生成高清缩略图
+        createThumbnail(file).then(thumbnailUrl => {
+            // 移除 Loading
+            const spinner = div.querySelector('.spinner-border');
+            if(spinner) spinner.remove();
+
+            if (thumbnailUrl) {
+                const img = document.createElement('img');
+                img.src = thumbnailUrl;
+                img.decoding = 'async';
+                // 添加淡入动画类
+                setTimeout(() => img.classList.add('loaded'), 50);
+                div.insertBefore(img, delBtn);
+            } else {
+                div.innerHTML = '<i class="bi bi-file-earmark-x text-danger"></i>';
+                div.appendChild(delBtn);
             }
         });
     }
 
-    // 初始化两个区域
+    function updateInputFiles(type, input) {
+        const fileArray = (type === 'gen') ? genFiles : refFiles;
+        const dataTransfer = new DataTransfer();
+        fileArray.forEach(file => {
+            dataTransfer.items.add(file);
+        });
+        input.files = dataTransfer.files;
+    }
+
+    function removeFileItem(target, type, container) {
+        const itemDiv = target.closest('.preview-item');
+        if (!itemDiv) return;
+
+        const index = Array.from(container.children).indexOf(itemDiv);
+        
+        if (index !== -1) {
+            const fileArray = (type === 'gen') ? genFiles : refFiles;
+            fileArray.splice(index, 1);
+            itemDiv.remove();
+            
+            const zoneId = (type === 'gen') ? 'zone-gen' : 'zone-ref';
+            const inputName = (type === 'gen') ? 'upload_images' : 'upload_references';
+            const zone = document.getElementById(zoneId);
+            const input = zone.querySelector(`input[name="${inputName}"]`);
+            
+            updateInputFiles(type, input);
+        }
+    }
+
     document.addEventListener('DOMContentLoaded', () => {
-        setupDragDrop('zone-gen', 'upload_images', 'preview-gen');
-        setupDragDrop('zone-ref', 'upload_references', 'preview-ref');
+        setupDragDrop('zone-gen', 'upload_images', 'preview-gen', 'gen');
+        setupDragDrop('zone-ref', 'upload_references', 'preview-ref', 'ref');
     });
 </script>
 </body>
