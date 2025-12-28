@@ -5,93 +5,122 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>发布作品 - AI 灵感图库</title>
-    <link rel="icon" type="image/svg+xml" href="{% static 'gallery/favicon.svg' %}">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <link rel="stylesheet" href="{% static 'gallery/style.css' %}">
+    <style>
+        /* 拖拽区域样式 */
+        .drag-drop-zone {
+            border: 2px dashed #dee2e6;
+            border-radius: 12px;
+            padding: 30px 20px;
+            text-align: center;
+            background: #f8f9fa;
+            transition: all 0.2s ease;
+            position: relative;
+            cursor: pointer;
+        }
+        .drag-drop-zone:hover, .drag-drop-zone.drag-over {
+            border-color: var(--bs-primary);
+            background: rgba(13, 110, 253, 0.05);
+        }
+        .drag-drop-zone input[type="file"] {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            opacity: 0;
+            cursor: pointer;
+        }
+        .preview-list {
+            display: flex;
+            gap: 10px;
+            overflow-x: auto;
+            margin-top: 15px;
+            padding-bottom: 5px;
+        }
+        .preview-item {
+            width: 60px; height: 60px;
+            flex-shrink: 0;
+            border-radius: 6px;
+            overflow: hidden;
+            border: 1px solid #dee2e6;
+        }
+        .preview-item img { width: 100%; height: 100%; object-fit: cover; }
+    </style>
 </head>
 <body>
 
 <div class="container my-5">
     <div class="mb-4">
-        <a href="{{ next_url|default:'/' }}" class="btn btn-light rounded-pill px-3 shadow-sm text-secondary" style="background: rgba(255,255,255,0.6); backdrop-filter: blur(5px); border: var(--glass-border);">
+        <a href="{{ next_url|default:'/' }}" class="btn btn-light rounded-pill px-3 shadow-sm text-secondary" style="transition: transform 0.2s;">
             <i class="bi bi-arrow-left me-2"></i>返回
         </a>
     </div>
 
     <div class="row justify-content-center">
         <div class="col-lg-8">
-            <div class="upload-card p-4 p-md-5">
-                <h2 class="text-center fw-bold mb-4" style="color: var(--text-main);">
+            <div class="upload-card p-4 p-md-5 shadow-sm bg-white rounded-4">
+                <h2 class="text-center fw-bold mb-4">
                     <i class="bi bi-cloud-upload text-primary me-2"></i>发布新创作
                 </h2>
                 
-                <form method="post" enctype="multipart/form-data">
+                <form method="post" enctype="multipart/form-data" id="uploadForm">
                     {% csrf_token %}
-                    
                     <input type="hidden" name="next" value="{{ next_url|default:'/' }}">
-
-                    {% if batch_id %}
-                    <input type="hidden" name="batch_id" value="{{ batch_id }}">
-                    {% endif %}
+                    {% if batch_id %}<input type="hidden" name="batch_id" value="{{ batch_id }}">{% endif %}
 
                     {% if form.non_field_errors %}
-                    <div class="alert alert-danger d-flex align-items-center rounded-3 border-0 shadow-sm mb-4" role="alert" style="background-color: #ffe5e5; color: #d63031;">
-                        <i class="bi bi-exclamation-triangle-fill flex-shrink-0 me-2 fs-5"></i>
-                        <div>
-                            {% for error in form.non_field_errors %}
-                                <div class="fw-bold">{{ error }}</div>
-                            {% endfor %}
-                        </div>
+                    <div class="alert alert-danger rounded-3 border-0 shadow-sm mb-4">
+                        {% for error in form.non_field_errors %}<div>{{ error }}</div>{% endfor %}
                     </div>
                     {% endif %}
-                    
-                    <div class="mb-4">
-                        <label class="form-label">作品标题 <span class="text-danger">*</span></label>
-                        {{ form.title }}
-                        
-                        <datalist id="title_list">
-                            {% for title in existing_titles %}
-                            <option value="{{ title }}">
-                            {% endfor %}
-                        </datalist>
 
+                    <div class="mb-4">
+                        <label class="form-label fw-bold">作品标题 <span class="text-danger">*</span></label>
+                        {{ form.title }}
+                        <datalist id="title_list">
+                            {% for title in existing_titles %}<option value="{{ title }}">{% endfor %}
+                        </datalist>
                         {% if form.title.errors %}<div class="text-danger small mt-1">{{ form.title.errors.0 }}</div>{% endif %}
                     </div>
 
                     <div class="mb-4">
-                        <label class="form-label">上传生成图 <span class="text-danger">*</span></label>
+                        <label class="form-label fw-bold">上传生成图 <span class="text-danger">*</span></label>
                         
                         {% if temp_files %}
                         <div class="mb-3 p-3 bg-light rounded-3 border border-success border-opacity-25">
-                            <div class="d-flex align-items-center mb-2 text-success">
-                                <i class="bi bi-check2-circle me-2"></i>
-                                <span class="fw-bold small">已从查重工具加载 {{ temp_files|length }} 张图片</span>
+                            <div class="d-flex align-items-center mb-2 text-success small fw-bold">
+                                <i class="bi bi-check2-circle me-2"></i>已加载 {{ temp_files|length }} 张查重通过的图片
                             </div>
-                            <div class="d-flex gap-2 overflow-auto pb-2" style="scrollbar-width: thin;">
+                            <div class="d-flex gap-2 overflow-auto">
                                 {% for f in temp_files %}
-                                <div class="position-relative flex-shrink-0" style="width: 80px; height: 80px;">
-                                    <img src="{{ f.url }}" class="w-100 h-100 rounded border bg-white" style="object-fit: cover;">
-                                </div>
+                                <div class="preview-item"><img src="{{ f.url }}"></div>
                                 {% endfor %}
                             </div>
-                            <div class="form-text text-muted mt-1 small">这些图片已准备好，无需重新上传。你也可以在下方追加新图片。</div>
                         </div>
                         {% endif %}
 
-                        {{ form.upload_images }}
-                        <div class="form-text">支持批量选择 (JPG, PNG)</div>
+                        <div class="drag-drop-zone" id="zone-gen">
+                            <i class="bi bi-images display-6 text-muted mb-2"></i>
+                            <div class="text-muted small">点击选择或拖拽图片到这里 (JPG, PNG)</div>
+                            {{ form.upload_images }}
+                        </div>
+                        <div class="preview-list" id="preview-gen"></div>
+                        
                         {% if form.upload_images.errors %}<div class="text-danger small mt-1">{{ form.upload_images.errors.0 }}</div>{% endif %}
                     </div>
                     
                     <div class="mb-4">
-                        <label class="form-label">上传参考图 <span class="text-muted small fw-normal">(可选)</span></label>
-                        {{ form.upload_references }}
-                        <div class="form-text">如果是图生图，可以上传原参考图。</div>
+                        <label class="form-label fw-bold">上传参考图 <span class="text-muted small fw-normal">(可选)</span></label>
+                        <div class="drag-drop-zone" id="zone-ref">
+                            <i class="bi bi-image display-6 text-muted mb-2"></i>
+                            <div class="text-muted small">点击选择或拖拽参考图 (垫图)</div>
+                            {{ form.upload_references }}
+                        </div>
+                        <div class="preview-list" id="preview-ref"></div>
                     </div>
 
                     <div class="mb-4">
-                        <label class="form-label d-block">选择生成模型 <span class="text-danger">*</span></label>
+                        <label class="form-label fw-bold">选择生成模型 <span class="text-danger">*</span></label>
                         <div class="model-selection-area">
                             {% for radio in form.model_info %}
                                 {{ radio.tag.as_widget|safe|cut:"class=" }} 
@@ -99,49 +128,40 @@
                                        class="model-radio-input" id="{{ radio.id_for_label }}"
                                        {% if radio.data.selected %}checked{% endif %}>
                                 <label class="model-radio-label" for="{{ radio.id_for_label }}">
-                                    {% if 'Midjourney' in radio.choice_label %}<i class="bi bi-robot me-1"></i>{% endif %}
                                     {{ radio.choice_label }}
                                 </label>
                             {% endfor %}
                         </div>
-                        {% if form.model_info.errors %}<div class="text-danger small mt-2"><i class="bi bi-info-circle me-1"></i>{{ form.model_info.errors.0 }}</div>{% endif %}
                     </div>
 
                     <div class="mb-4">
-                        <label class="form-label">正向提示词 (Prompt)</label>
+                        <label class="form-label fw-bold">正向提示词</label>
                         {{ form.prompt_text }}
                     </div>
-
                     <div class="mb-4">
-                        <label class="form-label text-success">中文/辅助提示词 <span class="text-muted small fw-normal">(可选)</span></label>
+                        <label class="form-label text-success fw-bold">中文/辅助提示词</label>
                         {{ form.prompt_text_zh }}
                     </div>
-
                     <div class="mb-4">
-                        <label class="form-label">负向提示词 (Negative Prompt)</label>
+                        <label class="form-label fw-bold">负向提示词</label>
                         {{ form.negative_prompt }}
                     </div>
 
                     <div class="mb-5">
-                        <label class="form-label d-block">关联标签</label>
+                        <label class="form-label fw-bold">关联标签</label>
                         <div class="tag-selection-area">
                             {% for checkbox in form.tags %}
                                 {{ checkbox.tag.as_widget|safe|cut:"class=" }} 
                                 <input type="checkbox" name="{{ checkbox.data.name }}" value="{{ checkbox.data.value }}" 
                                        class="tag-check-input" id="{{ checkbox.id_for_label }}"
                                        {% if checkbox.data.selected %}checked{% endif %}>
-                                <label class="tag-check-label" for="{{ checkbox.id_for_label }}">
-                                    {{ checkbox.choice_label }}
-                                </label>
-                            {% empty %}
-                                <p class="text-muted small">暂无可选标签，请先去后台添加。</p>
+                                <label class="tag-check-label" for="{{ checkbox.id_for_label }}">{{ checkbox.choice_label }}</label>
                             {% endfor %}
                         </div>
                     </div>
 
                     <div class="d-grid">
-                        <button type="submit" class="btn btn-primary btn-lg rounded-pill shadow-sm py-3 fw-bold" 
-                                style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); border: none;">
+                        <button type="submit" class="btn btn-primary btn-lg rounded-pill shadow-sm py-3 fw-bold bg-gradient-primary">
                             <i class="bi bi-send-fill me-2"></i>立即发布
                         </button>
                     </div>
@@ -152,5 +172,63 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    // 拖拽上传逻辑
+    function setupDragDrop(zoneId, inputName, previewId) {
+        const zone = document.getElementById(zoneId);
+        const input = zone.querySelector(`input[name="${inputName}"]`);
+        const preview = document.getElementById(previewId);
+
+        // 样式高亮
+        ['dragenter', 'dragover'].forEach(evt => {
+            zone.addEventListener(evt, (e) => {
+                e.preventDefault();
+                zone.classList.add('drag-over');
+            });
+        });
+        ['dragleave', 'drop'].forEach(evt => {
+            zone.addEventListener(evt, (e) => {
+                e.preventDefault();
+                zone.classList.remove('drag-over');
+            });
+        });
+
+        // 监听 Input 变化 (点击上传或拖拽赋值后)
+        input.addEventListener('change', () => handleFiles(input.files, preview));
+
+        // 监听 Drop 事件
+        zone.addEventListener('drop', (e) => {
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                // 将拖拽的文件赋值给 input
+                // 注意：现代浏览器支持此操作
+                input.files = files;
+                handleFiles(files, preview);
+            }
+        });
+    }
+
+    function handleFiles(files, previewContainer) {
+        previewContainer.innerHTML = ''; // 清空旧预览
+        Array.from(files).forEach(file => {
+            if (file.type.startsWith('image/')) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const div = document.createElement('div');
+                    div.className = 'preview-item';
+                    div.innerHTML = `<img src="${e.target.result}">`;
+                    previewContainer.appendChild(div);
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+    }
+
+    // 初始化两个区域
+    document.addEventListener('DOMContentLoaded', () => {
+        setupDragDrop('zone-gen', 'upload_images', 'preview-gen');
+        setupDragDrop('zone-ref', 'upload_references', 'preview-ref');
+    });
+</script>
 </body>
 </html>

@@ -621,12 +621,9 @@
                     </div>
                 `;
             } else {
-                // ... (原有代码保持不变) ...
                 html = `
                     <div class="check-item">
-                        <div class="check-thumb d-flex align-items-center justify-content-center bg-light text-success h2 mb-0">
-                            <i class="bi bi-check-lg"></i>
-                        </div>
+                        <img src="${item.thumbnail_url}" class="check-thumb" style="object-fit: cover; border-color: #198754;">
                         <div class="flex-grow-1">
                             <div class="text-success small fw-bold"><i class="bi bi-check-circle-fill me-1"></i>通过检测</div>
                             <div class="text-truncate small text-muted mt-1">${item.filename}</div>

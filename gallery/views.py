@@ -286,9 +286,12 @@ def check_duplicates(request):
                     'thumbnail_url': existing.thumbnail.url if existing.thumbnail else existing.image.url
                 })
             else:
+                # [修改点] 查重通过时，构建临时文件的 URL
                 results.append({
                     'status': 'pass',
-                    'filename': f.name
+                    'filename': f.name,
+                    # 注意：确保 settings.MEDIA_URL 已配置，通常是 /media/
+                    'thumbnail_url': f"{settings.MEDIA_URL}temp_uploads/{batch_id}/{f.name}" 
                 })
         
         return JsonResponse({
