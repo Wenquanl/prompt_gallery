@@ -205,13 +205,15 @@ def upload(request):
             temp_dir = get_temp_dir(batch_id)
             if os.path.exists(temp_dir):
                 file_names = os.listdir(temp_dir)
-                temp_files_preview = [
-                    {
-                        'name': name, 
-                        'url': f"{settings.MEDIA_URL}temp_uploads/{batch_id}/{name}"
-                    } 
-                    for name in file_names
-                ]
+                # 修改：构造数据时增加 file size，用于前端去重对比
+                for name in file_names:
+                    full_path = os.path.join(temp_dir, name)
+                    if os.path.isfile(full_path):
+                        temp_files_preview.append({
+                            'name': name, 
+                            'url': f"{settings.MEDIA_URL}temp_uploads/{batch_id}/{name}",
+                            'size': os.path.getsize(full_path) 
+                        })
         
         form = PromptGroupForm()
         existing_titles = PromptGroup.objects.values_list('title', flat=True).distinct().order_by('title')
@@ -306,23 +308,12 @@ def add_images_to_group(request, pk):
             for f in files:
                 file_hash = calculate_file_hash(f)
                 
-                # 检查是否在本组或其他组已存在 (这里我们仅检查本组以防止重复，或者根据需求检查全库)
-                # 依据原有逻辑，只检查是否已存在于本组。
-                # 但为了配合前端展示“已存在于：XXX”，我们也可以做全库检查。
-                # 此处保持与 upload 逻辑类似，做全库检查更安全，或者仅检查本组。
-                # 原代码逻辑是：existing_img = ImageItem.objects.filter(group=group, ...).first()
-                # 建议改为全库检查，防止同一张图在不同组出现（如果这是需求），
-                # 但通常向特定组加图，只关心该组。不过为了前端 `existing_group_title` 的显示，
-                # 如果发现已存在，我们可以提示它在哪里。
-                
-                # 这里我们保持原有的逻辑：检查本组。如果需要全库排重，去掉 group=group 即可。
                 existing_img = ImageItem.objects.filter(group=group, image_hash=file_hash).first()
                 
                 if existing_img:
                     duplicates.append({
                         'name': f.name,
                         'existing_group_title': existing_img.group.title,
-                        # 前端 JS 需要 existing_url 来展示缩略图
                         'existing_url': existing_img.thumbnail.url if existing_img.thumbnail else existing_img.image.url
                     })
                 else:
@@ -334,7 +325,6 @@ def add_images_to_group(request, pk):
         
         trigger_background_processing(created_ids)
 
-        # === 核心修改：如果是 AJAX 请求，返回 JSON ===
         if request.headers.get('x-requested-with') == 'XMLHttpRequest':
             if duplicates:
                 return JsonResponse({
@@ -346,7 +336,6 @@ def add_images_to_group(request, pk):
                 messages.success(request, f"成功添加 {uploaded_count} 张图片")
                 return JsonResponse({'status': 'success', 'uploaded_count': uploaded_count})
 
-        # 常规请求回退
         if duplicates:
             messages.warning(request, f"成功添加 {uploaded_count} 张，忽略 {len(duplicates)} 张重复图片")
         else:

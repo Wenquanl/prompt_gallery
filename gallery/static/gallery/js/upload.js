@@ -7,11 +7,14 @@
 let genFiles = []; // 生成图
 let refFiles = []; // 参考图
 
+// 专门存储从服务器带入的生成图信息，用于前端去重
+let serverGenFiles = []; 
+
 document.addEventListener('DOMContentLoaded', () => {
     setupDragDrop('zone-gen', 'upload_images', 'preview-gen', 'gen');
     setupDragDrop('zone-ref', 'upload_references', 'preview-ref', 'ref');
 
-    // 【新增】初始化从后端带入的临时文件 (查重后带入)
+    // 初始化从后端带入的临时文件 (查重后带入)
     if (window.SERVER_TEMP_FILES && window.SERVER_TEMP_FILES.length > 0) {
         initServerFiles(window.SERVER_TEMP_FILES);
     }
@@ -26,12 +29,18 @@ function initServerFiles(files) {
     const form = document.getElementById('uploadForm');
     
     files.forEach(file => {
+        // 存入全局数组，用于后续重复上传检查
+        serverGenFiles.push({
+            name: file.name,
+            size: file.size
+        });
+
         // 1. 创建预览 DOM
         const div = document.createElement('div');
         div.className = 'preview-item server-file'; // 标记为服务器文件
         div.dataset.filename = file.name;
         
-        // 图片 (直接使用 URL)
+        // 图片
         const img = document.createElement('img');
         img.src = file.url;
         img.className = 'loaded';
@@ -46,6 +55,10 @@ function initServerFiles(files) {
             e.stopPropagation();
             // 移除 DOM
             div.remove();
+            
+            // 从 serverGenFiles 移除，允许用户再次上传
+            serverGenFiles = serverGenFiles.filter(f => f.name !== file.name);
+
             // 移除对应的 Hidden Input
             const hiddenInput = form.querySelector(`input[name="selected_files"][value="${file.name}"]`);
             if (hiddenInput) hiddenInput.remove();
@@ -73,13 +86,11 @@ function setupDragDrop(zoneId, inputName, previewId, type) {
     const input = zone.querySelector(`input[name="${inputName}"]`);
     const previewContainer = document.getElementById(previewId);
 
-    // 阻止默认拖拽行为
     ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
         zone.addEventListener(eventName, preventDefaults, false);
         document.body.addEventListener(eventName, preventDefaults, false);
     });
 
-    // 高亮样式
     ['dragenter', 'dragover'].forEach(eventName => {
         zone.addEventListener(eventName, () => zone.classList.add('drag-over'), false);
     });
@@ -87,14 +98,12 @@ function setupDragDrop(zoneId, inputName, previewId, type) {
         zone.addEventListener(eventName, () => zone.classList.remove('drag-over'), false);
     });
 
-    // 处理文件拖放
     zone.addEventListener('drop', (e) => {
         const dt = e.dataTransfer;
         const files = dt.files;
         handleFiles(files, type, input, previewContainer);
     }, false);
 
-    // 处理点击上传
     input.addEventListener('change', (e) => {
         if (input.files.length > 0) {
             handleFiles(input.files, type, input, previewContainer);
@@ -109,33 +118,59 @@ function preventDefaults(e) {
 
 /**
  * 处理文件添加逻辑
+ * 【修改】增加了 ignoredCount 统计和 Toast 提示
  */
 function handleFiles(newFiles, type, input, previewContainer) {
     const fileArray = (type === 'gen') ? genFiles : refFiles;
     let hasNew = false;
-    // 用于查重的临时数组
     let filesToCheck = [];
+    let ignoredCount = 0; // 统计被忽略的重复文件
 
     Array.from(newFiles).forEach(file => {
-        // 简单去重 (同名且同大小视为同一个文件)
-        const exists = fileArray.some(f => f.name === file.name && f.size === file.size);
-        if (!exists) {
+        // 1. 检查本地已上传的文件
+        const existsLocal = fileArray.some(f => f.name === file.name && f.size === file.size);
+        
+        // 2. 如果是生成图，还要检查服务器带入的文件
+        let existsServer = false;
+        if (type === 'gen') {
+            existsServer = serverGenFiles.some(f => f.name === file.name && f.size === file.size);
+        }
+
+        // 只有两边都不存在时，才允许添加
+        if (!existsLocal && !existsServer) {
             fileArray.push(file);
             addPreviewItem(file, type, previewContainer);
             hasNew = true;
             if (type === 'gen') {
                 filesToCheck.push(file);
             }
+        } else {
+            ignoredCount++;
         }
     });
 
     if (hasNew) {
         updateInputFiles(type, input);
         
-        // 如果是生成图，触发后端查重
+        // 如果是生成图，触发后端查重 (仅查新加入的)
         if (type === 'gen' && filesToCheck.length > 0) {
             checkDuplicates(filesToCheck, previewContainer);
         }
+    }
+
+    // 【新增】如果有重复文件被过滤，显示轻量级提示
+    if (ignoredCount > 0) {
+        const toast = Swal.mixin({
+            toast: true,
+            position: 'top',
+            showConfirmButton: false,
+            timer: 3000,
+            timerProgressBar: true,
+        });
+        toast.fire({
+            icon: 'info',
+            title: `已自动过滤 ${ignoredCount} 张重复图片`
+        });
     }
 }
 
@@ -247,20 +282,18 @@ function addPreviewItem(file, type, container) {
 
 /**
  * 移除文件
- * 【修改】增加了对 server-file 的过滤，防止索引错位
  */
 function removeFileItem(target, type, container) {
     const itemDiv = target.closest('.preview-item');
     if (!itemDiv) return;
 
-    // 如果是服务器端带入的文件，直接移除 DOM，不涉及 genFiles 数组的操作
-    // (实际上 server-file 的点击事件在 initServerFiles 中已经独立绑定了，这里是为了兼容性)
+    // server-file 在 initServerFiles 中已经独立绑定了点击事件，
+    // 这里为了防止意外的事件冒泡导致逻辑错误，再次拦截
     if (itemDiv.classList.contains('server-file')) {
         itemDiv.remove();
         return;
     }
 
-    // 计算索引时，需要过滤掉 server-file，只计算本地文件的索引
     const localItems = Array.from(container.querySelectorAll('.preview-item:not(.server-file)'));
     const index = localItems.indexOf(itemDiv);
     
