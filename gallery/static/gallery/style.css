@@ -86,6 +86,26 @@ a { text-decoration: none; }
     margin-left: auto;
 }
 
+/* 新增：搜索框内的相机按钮样式 */
+.nav-img-search-btn {
+    width: 0; height: 32px; 
+    border: none; background: transparent; color: #94a3b8;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden; opacity: 0;
+    transition: all 0.3s ease;
+    cursor: pointer; margin-right: 0; padding: 0;
+    border-radius: 50%;
+}
+.nav-img-search-btn:hover {
+    background: rgba(79, 172, 254, 0.1);
+    color: var(--accent-color);
+}
+.nav-search-wrapper:hover .nav-img-search-btn, 
+.nav-search-wrapper:focus-within .nav-img-search-btn {
+    width: 32px; opacity: 1; margin-right: 4px;
+}
+
+
 /* Tab 栏 */
 .nav-tabs-custom {
     display: flex; gap: 4px; 

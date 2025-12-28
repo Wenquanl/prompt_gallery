@@ -100,7 +100,6 @@
             border-color: #00aeec;
         }
         
-        /* 隐藏数字输入框的小箭头 */
         .bili-input::-webkit-inner-spin-button, 
         .bili-input::-webkit-outer-spin-button { 
           -webkit-appearance: none; 
@@ -110,6 +109,11 @@
 </head>
 <body>
 
+<form id="homeImageSearchForm" action="{% url 'home' %}" method="post" enctype="multipart/form-data" style="display:none;">
+    {% csrf_token %}
+    <input type="file" name="search_image" id="hiddenHomeImageInput" accept="image/*" onchange="document.getElementById('homeImageSearchForm').submit();">
+</form>
+
 <nav class="navbar navbar-expand-lg navbar-light navbar-glass">
     <div class="container navbar-container">
         <a class="navbar-brand fw-bold text-dark" href="/">
@@ -118,7 +122,7 @@
 
         <div class="navbar-center d-none d-md-flex">
             <div class="nav-tabs-custom">
-                <a href="{% url 'home' %}" class="nav-link-custom {% if not current_filter %}active{% endif %}">全部</a>
+                <a href="{% url 'home' %}" class="nav-link-custom {% if not current_filter and not image_search_active %}active{% endif %}">全部</a>
                 <a href="{% url 'home' %}?filter=liked" class="nav-link-custom {% if current_filter == 'liked' %}active{% endif %}">
                     <i class="bi bi-heart-fill me-1 text-danger"></i>喜欢
                 </a>
@@ -132,6 +136,11 @@
             <div class="me-2">
                 <form action="{% url 'home' %}" method="get" class="nav-search-wrapper" onsubmit="return this.q.value.trim() !== ''">
                     <input type="text" name="q" class="nav-search-input" placeholder="搜索提示词..." autocomplete="off" value="{{ search_query|default:'' }}">
+                    
+                    <button type="button" class="nav-img-search-btn" onclick="document.getElementById('hiddenHomeImageInput').click()" title="以图搜图">
+                         <i class="bi bi-camera-fill"></i>
+                    </button>
+
                     <button class="nav-search-btn" type="submit"><i class="bi bi-search" style="font-size: 0.8rem;"></i></button>
                 </form>
             </div>
@@ -160,7 +169,7 @@
 </nav>
 
 <div class="container py-5">
-    {% if not search_query and not current_filter %}
+    {% if not search_query and not current_filter and not image_search_active %}
     <div class="row justify-content-center hero-section">
         <div class="col-lg-8">
             <h1 class="hero-title">探索创意图片与提示词</h1>
@@ -172,7 +181,7 @@
     {% if tags_bar %}
     <div class="tags-bar-wrapper">
         <div class="tags-scroll-container">
-            <a href="{% url 'home' %}" class="tag-pill {% if not search_query %}active{% endif %}">
+            <a href="{% url 'home' %}" class="tag-pill {% if not search_query and not image_search_active %}active{% endif %}">
                 全部
             </a>
 
@@ -189,12 +198,16 @@
     </div>
     {% endif %}
 
-    {% if search_query %}
+    {% if search_query or image_search_active %}
     <div class="row justify-content-center mb-4">
         <div class="col-12 text-center">
             <span class="badge bg-white text-primary shadow-sm px-3 py-2 rounded-pill fw-normal" 
                   style="backdrop-filter: blur(5px); background: rgba(255,255,255,0.6)!important;">
-                正在显示 "{{ search_query }}" 的搜索结果
+                {% if image_search_active %}
+                    <i class="bi bi-camera-fill me-2"></i>正在显示“以图搜图”结果
+                {% else %}
+                    正在显示 "{{ search_query }}" 的搜索结果
+                {% endif %}
                 <a href="/" class="ms-2 text-danger text-decoration-none fw-bold"><i class="bi bi-x-circle-fill"></i></a>
             </span>
         </div>
@@ -285,6 +298,7 @@
         {% endfor %}
     </div>
 
+    {% if not image_search_active %}
     {% if page_obj.paginator.num_pages > 1 %}
     <div class="bili-pagination-wrapper">
         {% if page_obj.has_previous %}
@@ -335,6 +349,7 @@
         </div>
     </div>
     {% endif %}
+    {% endif %}
 </div>
 
 <div class="d-md-none fixed-bottom p-2 text-center" style="background: rgba(255,255,255,0.85); backdrop-filter: blur(10px); border-top: 1px solid rgba(255,255,255,0.5);">
@@ -346,6 +361,7 @@
             <input type="text" name="q" class="form-control form-control-sm rounded-pill me-2" placeholder="搜索..." value="{{ search_query|default:'' }}">
             <button class="btn btn-primary btn-sm rounded-circle" type="submit"><i class="bi bi-search"></i></button>
         </form>
+         <button type="button" class="btn btn-outline-primary btn-sm rounded-circle d-flex align-items-center justify-content-center me-2" onclick="document.getElementById('hiddenHomeImageInput').click()" style="width:32px; height:32px;" title="以图搜图"><i class="bi bi-camera-fill"></i></button>
          <a href="{% url 'upload' %}?next={{ request.get_full_path|urlencode }}" class="btn btn-primary btn-sm rounded-circle d-flex align-items-center justify-content-center" style="width:32px; height:32px;"><i class="bi bi-plus-lg"></i></a>
     </div>
 </div>
@@ -365,7 +381,8 @@
         <p class="text-muted small mb-3">按标签筛选图片：</p>
         <div class="d-flex flex-wrap gap-2">
             {% for tag in tags_bar %}
-                {% if tag.is_model != 1 %} <a href="/?q={{ tag.name }}" 
+                {% if tag.is_model != 1 %} 
+                <a href="/?q={{ tag.name }}" 
                    class="drawer-tag {% if search_query == tag.name %}active{% endif %}">
                     {{ tag.name }}
                     <span class="count-badge">{{ tag.use_count }}</span>
@@ -416,10 +433,8 @@
 <script src="{% static 'gallery/js/check_duplicates.js' %}"></script>
 
 <script>
-    // 页面特定常量与初始化
     const IS_LIKED_FILTER = {% if current_filter == 'liked' %}true{% else %}false{% endif %};
 
-    // 绑定具体的事件函数，以便 HTML onclick 调用 common.js 中的逻辑
     function copyHomePrompt(event, text) {
         event.preventDefault(); event.stopPropagation();
         copyToClipboard(text, '提示词复制成功！');
@@ -430,7 +445,6 @@
         toggleLikeCommon(pk, 'group', currentIsLiked, event.currentTarget, IS_LIKED_FILTER);
     }
 
-    // Masonry 初始化 - 调用 common.js 中的优化版本
     document.addEventListener('DOMContentLoaded', function() {
         initMasonry('#masonry-grid', '.grid-item');
     });

@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>图墙 - AI 灵感图库</title>
+    <title>{% if is_home_search %}以图搜图结果{% else %}图墙{% endif %} - AI 灵感图库</title>
     <link rel="icon" type="image/svg+xml" href="{% static 'gallery/favicon.svg' %}">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
@@ -113,24 +113,17 @@
 
         <div class="navbar-center d-none d-md-flex">
             <div class="nav-tabs-custom">
-                <a href="{% url 'home' %}" class="nav-link-custom">全部</a>
+                <a href="{% url 'home' %}" class="nav-link-custom {% if is_home_search %}active{% endif %}">全部</a>
                 <a href="{% url 'home' %}?filter=liked" class="nav-link-custom">
                     <i class="bi bi-heart-fill me-1 text-danger"></i>喜欢
                 </a>
-                <a href="{% url 'liked_images_gallery' %}" class="nav-link-custom active">
+                <a href="{% url 'liked_images_gallery' %}" class="nav-link-custom {% if not is_home_search %}active{% endif %}">
                     <i class="bi bi-images me-1 text-primary"></i>图墙
                 </a>
             </div>
         </div>
         
         <div class="navbar-right d-none d-lg-flex">
-            <div class="me-2" style="visibility: hidden; pointer-events: none;">
-                <form class="nav-search-wrapper">
-                    <input type="text" class="nav-search-input">
-                    <button class="nav-search-btn" type="button"><i class="bi bi-search"></i></button>
-                </form>
-            </div>
-
             <div class="dropdown">
                 <button class="btn btn-sm rounded-pill nav-toolbox-btn dropdown-toggle" 
                         type="button" data-bs-toggle="dropdown" aria-expanded="false">
@@ -154,6 +147,7 @@
     </div>
 </nav>
 
+{% if not is_home_search %}
 <div class="wall-search-section">
     <div class="container text-center">
         <form id="searchForm" action="{% url 'liked_images_gallery' %}" method="get" class="wall-search-container" enctype="multipart/form-data">
@@ -173,6 +167,9 @@
         </form>
     </div>
 </div>
+{% else %}
+<div style="height: 30px;"></div>
+{% endif %}
 
 <div class="container py-4">
     {% if search_query %}
@@ -180,11 +177,20 @@
         <div class="col-12 text-center">
             <span class="badge bg-white text-primary shadow-sm px-3 py-2 rounded-pill fw-normal" style="backdrop-filter: blur(5px); background: rgba(255,255,255,0.6)!important;">
                 {% if search_mode == 'image' %}
-                <i class="bi bi-image me-1"></i> 以图搜图结果 (匹配度 > 45%)
+                    {% if is_home_search %}
+                    <i class="bi bi-globe me-1"></i> 全库以图搜图结果 (匹配度 > 45%)
+                    {% else %}
+                    <i class="bi bi-image me-1"></i> 喜欢列表搜图结果 (匹配度 > 45%)
+                    {% endif %}
                 {% else %}
                 <i class="bi bi-search me-1"></i> 图墙搜索: "{{ search_query }}"
                 {% endif %}
-                <a href="{% url 'liked_images_gallery' %}" class="ms-2 text-danger text-decoration-none fw-bold"><i class="bi bi-x-circle-fill"></i></a>
+                
+                <a href="{% if is_home_search %}/{% else %}{% url 'liked_images_gallery' %}{% endif %}" 
+                   class="ms-2 text-danger text-decoration-none fw-bold" 
+                   title="清除搜索">
+                   <i class="bi bi-x-circle-fill"></i>
+                </a>
             </span>
         </div>
     </div>
@@ -194,8 +200,8 @@
         {% for img in page_obj %}
         <div class="grid-item mb-3">
             <div class="liked-img-card" id="card-img-{{ img.id }}">
-                <a href="{% url 'detail' img.group.pk %}?from=liked&page={{ page_obj.number }}{% if search_query %}&q={{ search_query }}{% endif %}&source_img_id={{ img.id }}" class="text-white text-decoration-none">
-                    <img src="{{ img.thumbnail.url }}" alt="Liked Image">
+                <a href="{% url 'detail' img.group.pk %}?from={% if is_home_search %}home_search{% else %}liked{% endif %}&page={{ page_obj.number|default:1 }}&source_img_id={{ img.id }}" class="text-white text-decoration-none">
+                    <img src="{{ img.thumbnail.url }}" alt="Image">
                     
                     {% if search_mode == 'image' and img.similarity_score %}
                         {% if img.similarity_score >= 80 %}
@@ -216,8 +222,8 @@
                     <i class="bi bi-download"></i>
                 </a>
 
-                <button class="btn-unlike-abs" onclick="toggleLikeInGallery(this, {{ img.id }})" title="取消喜欢">
-                    <i class="bi bi-heart-fill"></i>
+                <button class="btn-unlike-abs" onclick="toggleLikeInGallery(this, {{ img.id }})" title="{% if img.is_liked %}取消喜欢{% else %}添加喜欢{% endif %}" style="opacity: {% if img.is_liked %}1{% else %}0.3{% endif %};">
+                    <i class="bi {% if img.is_liked %}bi-heart-fill{% else %}bi-heart{% endif %}"></i>
                 </button>
             </div>
         </div>
@@ -233,67 +239,69 @@
         {% endfor %}
     </div>
 
-    {% if page_obj.paginator.num_pages > 1 %}
-    <div class="bili-pagination-wrapper">
-        {% if page_obj.has_previous %}
-        <a href="?page={{ page_obj.previous_page_number }}{% if search_query %}&q={{ search_query }}{% endif %}" class="bili-btn">上一页</a>
-        {% else %}
-        <span class="bili-btn disabled">上一页</span>
-        {% endif %}
+    {% if not is_home_search and search_mode != 'image' %}
+        {% if page_obj.paginator.num_pages > 1 %}
+        <div class="bili-pagination-wrapper">
+            {% if page_obj.has_previous %}
+            <a href="?page={{ page_obj.previous_page_number }}{% if search_query %}&q={{ search_query }}{% endif %}" class="bili-btn">上一页</a>
+            {% else %}
+            <span class="bili-btn disabled">上一页</span>
+            {% endif %}
 
-        <a href="?page=1{% if search_query %}&q={{ search_query }}{% endif %}" 
-           class="bili-btn {% if page_obj.number == 1 %}active{% endif %}">1</a>
+            <a href="?page=1{% if search_query %}&q={{ search_query }}{% endif %}" 
+            class="bili-btn {% if page_obj.number == 1 %}active{% endif %}">1</a>
 
-        {% if page_obj.number > 3 %}
-            <span class="bili-ellipsis">...</span>
-        {% endif %}
+            {% if page_obj.number > 3 %}
+                <span class="bili-ellipsis">...</span>
+            {% endif %}
 
-        {% if page_obj.number > 2 %}
-            <a href="?page={{ page_obj.number|add:'-1' }}{% if search_query %}&q={{ search_query }}{% endif %}" 
-               class="bili-btn">{{ page_obj.number|add:'-1' }}</a>
-        {% endif %}
+            {% if page_obj.number > 2 %}
+                <a href="?page={{ page_obj.number|add:'-1' }}{% if search_query %}&q={{ search_query }}{% endif %}" 
+                class="bili-btn">{{ page_obj.number|add:'-1' }}</a>
+            {% endif %}
 
-        {% if page_obj.number != 1 and page_obj.number != page_obj.paginator.num_pages %}
-            <span class="bili-btn active">{{ page_obj.number }}</span>
-        {% endif %}
+            {% if page_obj.number != 1 and page_obj.number != page_obj.paginator.num_pages %}
+                <span class="bili-btn active">{{ page_obj.number }}</span>
+            {% endif %}
 
-        {% if page_obj.number < page_obj.paginator.num_pages|add:'-1' %}
-            <a href="?page={{ page_obj.number|add:'1' }}{% if search_query %}&q={{ search_query }}{% endif %}" 
-               class="bili-btn">{{ page_obj.number|add:'1' }}</a>
-        {% endif %}
+            {% if page_obj.number < page_obj.paginator.num_pages|add:'-1' %}
+                <a href="?page={{ page_obj.number|add:'1' }}{% if search_query %}&q={{ search_query }}{% endif %}" 
+                class="bili-btn">{{ page_obj.number|add:'1' }}</a>
+            {% endif %}
 
-        {% if page_obj.number < page_obj.paginator.num_pages|add:'-2' %}
-            <span class="bili-ellipsis">...</span>
-        {% endif %}
+            {% if page_obj.number < page_obj.paginator.num_pages|add:'-2' %}
+                <span class="bili-ellipsis">...</span>
+            {% endif %}
 
-        <a href="?page={{ page_obj.paginator.num_pages }}{% if search_query %}&q={{ search_query }}{% endif %}" 
-           class="bili-btn {% if page_obj.number == page_obj.paginator.num_pages %}active{% endif %}">{{ page_obj.paginator.num_pages }}</a>
+            <a href="?page={{ page_obj.paginator.num_pages }}{% if search_query %}&q={{ search_query }}{% endif %}" 
+            class="bili-btn {% if page_obj.number == page_obj.paginator.num_pages %}active{% endif %}">{{ page_obj.paginator.num_pages }}</a>
 
-        {% if page_obj.has_next %}
-        <a href="?page={{ page_obj.next_page_number }}{% if search_query %}&q={{ search_query }}{% endif %}" class="bili-btn">下一页</a>
-        {% else %}
-        <span class="bili-btn disabled">下一页</span>
-        {% endif %}
+            {% if page_obj.has_next %}
+            <a href="?page={{ page_obj.next_page_number }}{% if search_query %}&q={{ search_query }}{% endif %}" class="bili-btn">下一页</a>
+            {% else %}
+            <span class="bili-btn disabled">下一页</span>
+            {% endif %}
 
-        <div class="bili-jump-box">
-            共 {{ page_obj.paginator.num_pages }} 页，跳至
-            <input type="number" id="jumpPageInput" class="bili-input" min="1" max="{{ page_obj.paginator.num_pages }}" 
-                   onkeydown="if(event.key==='Enter') jumpToPage()">
-            页
+            <div class="bili-jump-box">
+                共 {{ page_obj.paginator.num_pages }} 页，跳至
+                <input type="number" id="jumpPageInput" class="bili-input" min="1" max="{{ page_obj.paginator.num_pages }}" 
+                    onkeydown="if(event.key==='Enter') jumpToPage()">
+                页
+            </div>
         </div>
-    </div>
 
-    <script>
-    function jumpToPage() {
-        const page = document.getElementById('jumpPageInput').value;
-        const maxPage = {{ page_obj.paginator.num_pages }};
-        if (page >= 1 && page <= maxPage) {
-            const urlParams = new URLSearchParams(window.location.search);
-            urlParams.set('page', page);
-            window.location.search = urlParams.toString();
+        <script>
+        function jumpToPage() {
+            const page = document.getElementById('jumpPageInput').value;
+            const maxPage = {{ page_obj.paginator.num_pages }};
+            if (page >= 1 && page <= maxPage) {
+                const urlParams = new URLSearchParams(window.location.search);
+                urlParams.set('page', page);
+                window.location.search = urlParams.toString();
+            }
         }
-    }
-    </script>
+        </script>
+        {% endif %}
     {% endif %}
 </div>
 
@@ -340,26 +348,24 @@
     }
 
     function toggleLikeInGallery(btn, pk) {
-        Swal.fire({
-            title: '取消喜欢?',
-            text: "这张图片将从图墙中移除。",
-            icon: 'warning',
-            showCancelButton: true,
-            confirmButtonColor: '#ff4757',
-            cancelButtonColor: '#6c757d',
-            confirmButtonText: '是的，移除',
-            cancelButtonText: '取消',
-            background: 'rgba(255, 255, 255, 0.95)',
-            customClass: { popup: 'rounded-4 shadow-lg border-0' }
-        }).then((result) => {
-            if (result.isConfirmed) {
-                fetch(`/toggle-like-image/${pk}/`, {
-                    method: 'POST',
-                    headers: { 'X-CSRFToken': '{{ csrf_token }}', 'Content-Type': 'application/json' }
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'success' && !data.is_liked) {
+        // 在全库搜图模式下，点击红心只是切换喜欢状态，不移除卡片
+        const isHomeSearch = {% if is_home_search %}true{% else %}false{% endif %};
+        
+        fetch(`/toggle-like-image/${pk}/`, {
+            method: 'POST',
+            headers: { 'X-CSRFToken': '{{ csrf_token }}', 'Content-Type': 'application/json' }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                const icon = btn.querySelector('i');
+                if (data.is_liked) {
+                    icon.className = 'bi bi-heart-fill';
+                    btn.style.opacity = '1';
+                } else {
+                    icon.className = 'bi bi-heart';
+                    // 如果是在“喜欢图墙”页，取消喜欢需要移除卡片
+                    if (!isHomeSearch) {
                         const card = document.getElementById(`card-img-${pk}`).closest('.grid-item');
                         card.style.opacity = '0';
                         setTimeout(() => {
@@ -367,8 +373,10 @@
                             var msnry = Masonry.data(document.querySelector('#masonry-grid'));
                             if(msnry) msnry.layout();
                         }, 300);
+                    } else {
+                        btn.style.opacity = '0.3';
                     }
-                });
+                }
             }
         });
     }

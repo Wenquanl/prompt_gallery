@@ -30,27 +30,32 @@ def home(request):
     query = request.GET.get('q')
     filter_type = request.GET.get('filter')
 
+    # === 核心修改：处理以图搜图 ===
     if request.method == 'POST' and request.FILES.get('search_image'):
         try:
             search_file = request.FILES['search_image']
-            similar_items = search_similar_images(search_file, ImageItem.objects.all(), top_k=50)
             
-            if not similar_items:
+            # 1. 搜索全库图片 (ImageItem)，不仅仅是 PromptGroup
+            # 注意：search_similar_images 返回的是 ImageItem 对象列表
+            similar_images = search_similar_images(search_file, ImageItem.objects.all(), top_k=50)
+            
+            if not similar_images:
                 messages.info(request, "未找到相似图片")
             else:
-                group_ids = []
-                seen = set()
-                for item in similar_items:
-                    if item.group_id not in seen:
-                        group_ids.append(item.group_id)
-                        seen.add(item.group_id)
-                
-                queryset = queryset.filter(id__in=group_ids)
+                # 2. 直接复用 'liked_images.html' 模板来展示图片墙结果
+                # 不需要分页（通常 AI 搜索看前 50 张最相关的足矣）
+                return render(request, 'gallery/liked_images.html', {
+                    'page_obj': similar_images, # 直接传递列表，模板会当做可迭代对象处理
+                    'search_query': '全库以图搜图结果',
+                    'search_mode': 'image',
+                    'is_home_search': True, # 标记来源，用于调整 UI 细节
+                })
                 
         except Exception as e:
             print(f"Search error: {e}")
             messages.error(request, "搜索过程中发生错误")
 
+    # === 下面是常规的文本搜索逻辑 (保持不变) ===
     if query:
         queryset = queryset.filter(
             Q(title__icontains=query) |
@@ -109,7 +114,8 @@ def liked_images_gallery(request):
     return render(request, 'gallery/liked_images.html', {
         'page_obj': page_obj,
         'search_query': query_text,
-        'search_mode': search_mode
+        'search_mode': search_mode,
+        'is_home_search': False # 标记这是“喜欢”页面的常规功能
     })
 
 
@@ -205,7 +211,6 @@ def upload(request):
             temp_dir = get_temp_dir(batch_id)
             if os.path.exists(temp_dir):
                 file_names = os.listdir(temp_dir)
-                # 修改：构造数据时增加 file size，用于前端去重对比
                 for name in file_names:
                     full_path = os.path.join(temp_dir, name)
                     if os.path.isfile(full_path):
@@ -293,9 +298,6 @@ def toggle_like_image(request, pk):
 
 
 def add_images_to_group(request, pk):
-    """
-    向现有组添加图片，支持 AJAX 返回 JSON 以配合前端的重复检测 UI
-    """
     group = get_object_or_404(PromptGroup, pk=pk)
     
     if request.method == 'POST':
