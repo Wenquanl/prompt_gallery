@@ -256,10 +256,9 @@ def detail(request, pk):
 
 
 def upload(request):
-    if request.method == 'POST' and 'confirmed' in request.POST:
-        batch_id = request.POST.get('batch_id')
-        if not batch_id:
-            return redirect('upload')
+    if request.method == 'POST':
+        # 判断是否确认提交 (表单中有 hidden input name="confirmed" value="1")
+        # 如果是直接上传，该字段也存在。
         
         prompt_text = request.POST.get('prompt_text', '')
         prompt_text_zh = request.POST.get('prompt_text_zh', '')
@@ -267,6 +266,7 @@ def upload(request):
         title = request.POST.get('title', '') or '未命名组'
         model_id = request.POST.get('model_info')
         
+        # 1. 处理模型
         model_name_str = ""
         if model_id:
             try:
@@ -275,6 +275,7 @@ def upload(request):
             except AIModel.DoesNotExist:
                 pass
 
+        # 2. 创建 PromptGroup
         group = PromptGroup.objects.create(
             title=title,
             prompt_text=prompt_text,
@@ -283,44 +284,82 @@ def upload(request):
             model_info=model_name_str,
         )
         
-        tags_str = request.POST.get('tags', '')
-        if tags_str:
-            tag_names = [t.strip() for t in tags_str.split(',') if t.strip()]
-            for name in tag_names:
-                tag, _ = Tag.objects.get_or_create(name=name)
+        # 3. 处理标签 (支持 checkbox 选中的 ID 和 可能的文本输入)
+        selected_tags = request.POST.getlist('tags')
+        
+        for tag_val in selected_tags:
+            tag_val = tag_val.strip()
+            if not tag_val: continue
+            
+            # 如果是纯数字，尝试按 ID 查找；否则按名称查找
+            if tag_val.isdigit():
+                try:
+                    group.tags.add(Tag.objects.get(id=int(tag_val)))
+                except Tag.DoesNotExist:
+                    pass
+            else:
+                tag, _ = Tag.objects.get_or_create(name=tag_val)
                 group.tags.add(tag)
         
+        # 自动将模型也作为一个标签
         if model_name_str:
             m_tag, _ = Tag.objects.get_or_create(name=model_name_str)
             group.tags.add(m_tag)
 
-        file_names = request.POST.getlist('selected_files')
-        created_image_ids = confirm_upload_images(batch_id, file_names, group)
+        created_image_ids = []
+
+        # 4. 图片处理逻辑 (关键修复)
+        # ----------------------------------------------------------
+        # 场景 A: 本地直接上传的文件 (存在于 request.FILES 中)
+        direct_files = request.FILES.getlist('upload_images')
+        for f in direct_files:
+            img_item = ImageItem(group=group, image=f)
+            img_item.save() # 保存触发哈希计算
+            created_image_ids.append(img_item.id)
+
+        # 场景 B: 经过查重的服务器暂存文件 (存在于 temp_uploads 目录中)
+        batch_id = request.POST.get('batch_id')
+        server_file_names = request.POST.getlist('selected_files')
+        
+        if batch_id and server_file_names:
+            # 移动暂存文件并创建记录
+            temp_ids = confirm_upload_images(batch_id, server_file_names, group)
+            created_image_ids.extend(temp_ids)
+            
+        # 场景 C: 参考图直接上传
+        ref_files = request.FILES.getlist('upload_references')
+        for rf in ref_files:
+            ReferenceItem.objects.create(group=group, image=rf)
+        # ----------------------------------------------------------
 
         if not created_image_ids:
-            messages.warning(request, "未找到有效的图片文件，或上传会话已过期。")
+            messages.warning(request, "虽然发布了作品，但未上传任何生成图。")
         else:
             trigger_background_processing(created_image_ids)
-            messages.success(request, f"成功发布！系统正在后台处理索引。")
+            messages.success(request, f"成功发布！包含 {len(created_image_ids)} 张图片，系统正在后台处理索引。")
             
         return redirect('home')
 
     else:
+        # GET 请求：渲染上传页面
         batch_id = request.GET.get('batch_id')
         temp_files_preview = []
         
         if batch_id:
             temp_dir = get_temp_dir(batch_id)
             if os.path.exists(temp_dir):
-                file_names = os.listdir(temp_dir)
-                for name in file_names:
-                    full_path = os.path.join(temp_dir, name)
-                    if os.path.isfile(full_path):
-                        temp_files_preview.append({
-                            'name': name, 
-                            'url': f"{settings.MEDIA_URL}temp_uploads/{batch_id}/{name}",
-                            'size': os.path.getsize(full_path) 
-                        })
+                try:
+                    file_names = os.listdir(temp_dir)
+                    for name in file_names:
+                        full_path = os.path.join(temp_dir, name)
+                        if os.path.isfile(full_path):
+                            temp_files_preview.append({
+                                'name': name, 
+                                'url': f"{settings.MEDIA_URL}temp_uploads/{batch_id}/{name}",
+                                'size': os.path.getsize(full_path) 
+                            })
+                except Exception:
+                    pass
         
         form = PromptGroupForm()
         existing_titles = PromptGroup.objects.values_list('title', flat=True).distinct().order_by('title')
