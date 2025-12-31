@@ -146,8 +146,18 @@
         <div class="navbar-right d-none d-lg-flex">
             <div class="me-2">
                 <form action="{% url 'home' %}" method="get" class="nav-search-wrapper" onsubmit="return this.q.value.trim() !== ''">
-                    <input type="text" name="q" class="nav-search-input" placeholder="搜索提示词..." autocomplete="off" value="{{ search_query|default:'' }}">
+                    <input type="text" name="q" id="navSearchInput" class="nav-search-input" 
+                            placeholder="搜索提示词..." autocomplete="off" 
+                            value="{{ search_query|default:'' }}" 
+                            oninput="toggleSearchClearBtn()" 
+                            onfocus="toggleSearchClearBtn()"
+                            onblur="hideSearchClearBtn()">
                     
+                    <i class="bi bi-x-circle-fill text-secondary me-2 opacity-50" id="navSearchClearBtn" 
+                            style="cursor: pointer; display: none; font-size: 0.9rem;" 
+                            onmousedown="event.preventDefault(); clearNavSearch();" 
+                            title="清除内容"></i>
+
                     <button type="button" class="nav-img-search-btn" onclick="document.getElementById('hiddenHomeImageInput').click()" title="以图搜图">
                          <i class="bi bi-camera-fill"></i>
                     </button>
@@ -167,6 +177,7 @@
                     <li><a class="dropdown-item toolbox-item" href="https://dreamina.capcut.com/ai-tool/home/" target="_blank"><i class="bi bi-magic text-warning"></i>Dreamina</a></li>
                     <li><hr class="toolbox-divider"></li>
                     <li><h6 class="toolbox-header">大语言模型</h6></li>
+                    <li><a class="dropdown-item toolbox-item" href="https://www.doubao.com/" target="_blank"><i class="bi bi-chat-quote-fill text-success"></i>豆包 (Doubao)</a></li>
                     <li><a class="dropdown-item toolbox-item" href="https://gemini.google.com/" target="_blank"><i class="bi bi-google text-primary"></i>Google Gemini</a></li>
                     <li><a class="dropdown-item toolbox-item" href="https://aistudio.google.com/" target="_blank"><i class="bi bi-code-square text-info"></i>AI Studio</a></li>
                 </ul>
@@ -460,8 +471,43 @@
         event.preventDefault(); event.stopPropagation();
         toggleLikeCommon(pk, 'group', currentIsLiked, event.currentTarget, IS_LIKED_FILTER);
     }
+    // 1. 检查显示状态：只有当“有内容”且“输入框被聚焦”时才显示
+    function toggleSearchClearBtn() {
+        const input = document.getElementById('navSearchInput');
+        const btn = document.getElementById('navSearchClearBtn');
+        if (input && btn) {
+            // 如果输入框有值，且当前是聚焦状态，则显示
+            if (input.value.length > 0 && document.activeElement === input) {
+                btn.style.display = 'block';
+            } else {
+                btn.style.display = 'none';
+            }
+        }
+    }
 
+    // 2. 隐藏按钮：当输入框失去焦点（收回）时强制隐藏，不管有没有内容
+    function hideSearchClearBtn() {
+        const btn = document.getElementById('navSearchClearBtn');
+        if (btn) {
+            btn.style.display = 'none';
+        }
+    }
+
+    // 3. 执行清除：因为使用了 onmousedown + preventDefault，输入框不会失去焦点
+    function clearNavSearch() {
+        const input = document.getElementById('navSearchInput');
+        const btn = document.getElementById('navSearchClearBtn');
+        if (input) {
+            input.value = '';
+            input.focus(); // 确保焦点依然在输入框内
+            btn.style.display = 'none'; //以此隐藏按钮
+        }
+    }
     document.addEventListener('DOMContentLoaded', function() {
+        const input = document.getElementById('navSearchInput');
+        if (input && input.value.length > 0) {
+            toggleSearchClearBtn(input);
+        }
         initMasonry('#masonry-grid', '.grid-item');
 
         // 修改处：初始化 Bootstrap Tooltip

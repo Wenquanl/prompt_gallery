@@ -91,7 +91,10 @@
     </style>
 </head>
 <body>
-
+<form id="homeImageSearchForm" action="{% url 'home' %}" method="post" enctype="multipart/form-data" style="display:none;">
+    {% csrf_token %}
+    <input type="file" name="search_image" id="hiddenHomeImageInput" accept="image/*" onchange="document.getElementById('homeImageSearchForm').submit();">
+</form>
 <nav class="navbar navbar-expand-lg navbar-light navbar-glass">
     <div class="container position-relative">
         <a class="navbar-brand fw-bold text-dark" href="/">
@@ -110,9 +113,30 @@
             </div>
         </div>
         
-        <div class="d-flex align-items-center gap-2 ms-auto">
-            <div class="dropdown d-none d-lg-block">
-                <button class="btn btn-sm rounded-pill nav-toolbox-btn d-flex align-items-center dropdown-toggle" 
+        <div class="navbar-right d-none d-lg-flex ms-auto align-items-center">
+            <div class="me-2">
+                <form action="{% url 'home' %}" method="get" class="nav-search-wrapper" onsubmit="return this.q.value.trim() !== ''">
+                    <input type="text" name="q" id="navSearchInput" class="nav-search-input" 
+                        placeholder="搜索提示词..." autocomplete="off" value="" 
+                        oninput="toggleSearchClearBtn()" 
+                        onfocus="toggleSearchClearBtn()"
+                        onblur="hideSearchClearBtn()">
+                    
+                    <i class="bi bi-x-circle-fill text-secondary me-2 opacity-50" id="navSearchClearBtn" 
+                    style="cursor: pointer; display: none; font-size: 0.9rem;" 
+                    onmousedown="event.preventDefault(); clearNavSearch();" 
+                    title="清除内容"></i>
+                    
+                    <button type="button" class="nav-img-search-btn" onclick="document.getElementById('hiddenHomeImageInput').click()" title="以图搜图">
+                        <i class="bi bi-camera-fill"></i>
+                    </button>
+
+                    <button class="nav-search-btn" type="submit"><i class="bi bi-search" style="font-size: 0.8rem;"></i></button>
+                </form>
+            </div>
+
+            <div class="dropdown">
+                <button class="btn btn-sm rounded-pill nav-toolbox-btn dropdown-toggle" 
                         type="button" data-bs-toggle="dropdown" aria-expanded="false">
                     <i class="bi bi-cpu-fill me-2"></i>AI 工具箱
                 </button>
@@ -122,12 +146,13 @@
                     <li><a class="dropdown-item toolbox-item" href="https://dreamina.capcut.com/ai-tool/home/" target="_blank"><i class="bi bi-magic text-warning"></i>Dreamina</a></li>
                     <li><hr class="toolbox-divider"></li>
                     <li><h6 class="toolbox-header">大语言模型</h6></li>
+                    <li><a class="dropdown-item toolbox-item" href="https://www.doubao.com/" target="_blank"><i class="bi bi-chat-quote-fill text-success"></i>豆包 (Doubao)</a></li>
                     <li><a class="dropdown-item toolbox-item" href="https://gemini.google.com/" target="_blank"><i class="bi bi-google text-primary"></i>Google Gemini</a></li>
                     <li><a class="dropdown-item toolbox-item" href="https://aistudio.google.com/" target="_blank"><i class="bi bi-code-square text-info"></i>AI Studio</a></li>
                 </ul>
             </div>
             
-            <a href="{% url 'upload' %}?next={{ request.get_full_path|urlencode }}" class="btn btn-sm rounded-pill px-4 py-2 btn-upload-nav shadow-sm d-flex align-items-center ms-1">
+            <a href="{% url 'upload' %}?next={{ request.get_full_path|urlencode }}" class="btn btn-sm rounded-pill px-4 btn-upload-nav ms-1">
                 <i class="bi bi-plus-lg me-1"></i>发布
             </a>
         </div>
@@ -290,6 +315,7 @@
                    <div class="platform-links d-grid gap-2">
                        <a href="https://jimeng.jianying.com/" target="_blank" class="btn btn-platform rounded-pill"><i class="bi bi-palette me-2 text-danger"></i>前往 即梦AI</a>
                        <a href="https://dreamina.capcut.com/ai-tool/home/" target="_blank" class="btn btn-platform rounded-pill"><i class="bi bi-magic me-2 text-warning"></i>前往 Dreamina</a>
+                       <a href="https://www.doubao.com/" target="_blank" class="btn btn-platform rounded-pill"><i class="bi bi-chat-quote-fill me-2 text-success"></i>前往 豆包 (Doubao)</a>
                        <a href="https://gemini.google.com/" target="_blank" class="btn btn-platform rounded-pill"><i class="bi bi-google me-2 text-primary"></i>前往 Gemini</a>
                        <a href="https://aistudio.google.com/" target="_blank" class="btn btn-platform rounded-pill"><i class="bi bi-code-square me-2 text-info"></i>前往 AI Studio</a>
                    </div>
@@ -486,6 +512,35 @@
         { url: "{{ img.image.url }}", id: {{ img.pk }}, isLiked: {% if img.is_liked %}true{% else %}false{% endif %} },
         {% endfor %}
     ];
+    /* 定位：gallery/templates/gallery/detail.html 底部 script */
+
+    // 搜索框清除按钮逻辑
+    function toggleSearchClearBtn() {
+        const input = document.getElementById('navSearchInput');
+        const btn = document.getElementById('navSearchClearBtn');
+        if (input && btn) {
+            if (input.value.length > 0 && document.activeElement === input) {
+                btn.style.display = 'block';
+            } else {
+                btn.style.display = 'none';
+            }
+        }
+    }
+
+    function hideSearchClearBtn() {
+        const btn = document.getElementById('navSearchClearBtn');
+        if (btn) btn.style.display = 'none';
+    }
+
+    function clearNavSearch() {
+        const input = document.getElementById('navSearchInput');
+        const btn = document.getElementById('navSearchClearBtn');
+        if (input) {
+            input.value = '';
+            input.focus();
+            btn.style.display = 'none';
+        }
+    }
 </script>
 
 <script src="{% static 'gallery/js/common.js' %}"></script>
