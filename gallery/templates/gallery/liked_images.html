@@ -104,48 +104,7 @@
 </head>
 <body>
 
-<nav class="navbar navbar-expand-lg navbar-light navbar-glass">
-    <div class="container navbar-container">
-        <a class="navbar-brand fw-bold text-dark" href="/">
-            <i class="bi bi-stars text-primary me-2"></i>灵感图库
-        </a>
-
-        <div class="navbar-center d-none d-md-flex">
-            <div class="nav-tabs-custom">
-                <a href="{% url 'home' %}" class="nav-link-custom {% if is_home_search %}active{% endif %}">全部</a>
-                <a href="{% url 'home' %}?filter=liked" class="nav-link-custom">
-                    <i class="bi bi-heart-fill me-1 text-danger"></i>喜欢
-                </a>
-                <a href="{% url 'liked_images_gallery' %}" class="nav-link-custom {% if not is_home_search %}active{% endif %}">
-                    <i class="bi bi-images me-1 text-primary"></i>图墙
-                </a>
-            </div>
-        </div>
-        
-        <div class="navbar-right d-none d-lg-flex">
-            <div class="dropdown">
-                <button class="btn btn-sm rounded-pill nav-toolbox-btn dropdown-toggle" 
-                        type="button" data-bs-toggle="dropdown" aria-expanded="false">
-                    <i class="bi bi-cpu-fill me-2"></i>AI 工具箱
-                </button>
-                <ul class="dropdown-menu toolbox-dropdown-menu">
-                    <li><h6 class="toolbox-header">图像生成</h6></li>
-                    <li><a class="dropdown-item toolbox-item" href="https://jimeng.jianying.com/" target="_blank"><i class="bi bi-palette2 text-danger"></i>即梦 AI</a></li>
-                    <li><a class="dropdown-item toolbox-item" href="https://dreamina.capcut.com/ai-tool/home/" target="_blank"><i class="bi bi-magic text-warning"></i>Dreamina</a></li>
-                    <li><hr class="toolbox-divider"></li>
-                    <li><h6 class="toolbox-header">大语言模型</h6></li>
-                    <li><a class="dropdown-item toolbox-item" href="https://gemini.google.com/" target="_blank"><i class="bi bi-google text-primary"></i>Google Gemini</a></li>
-                    <li><a class="dropdown-item toolbox-item" href="https://aistudio.google.com/" target="_blank"><i class="bi bi-code-square text-info"></i>AI Studio</a></li>
-                </ul>
-            </div>
-            
-            <a href="{% url 'upload' %}?next={{ request.get_full_path|urlencode }}" class="btn btn-sm rounded-pill px-4 btn-upload-nav ms-1">
-                <i class="bi bi-plus-lg me-1"></i>发布
-            </a>
-        </div>
-    </div>
-</nav>
-
+{% include 'gallery/components/navbar.html' with hide_search=True %}
 {% if not is_home_search %}
 <div class="wall-search-section">
     <div class="container text-center">
