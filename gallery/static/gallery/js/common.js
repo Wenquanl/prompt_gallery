@@ -156,13 +156,8 @@ function initMasonry(gridSelector, itemSelector = '.grid-item') {
 
     let layoutPending = false;
 
-    imagesLoaded(grid).on('progress', function(instance, image) {
-        // 图片淡入效果
-        if (image.isLoaded) {
-            image.img.classList.add('loaded');
-        }
-        
-        // 核心优化：使用 requestAnimationFrame 节流 Layout 更新
+    // 封装 layout 调用，方便多次复用
+    function triggerLayout() {
         if (!layoutPending) {
             layoutPending = true;
             requestAnimationFrame(() => {
@@ -170,9 +165,25 @@ function initMasonry(gridSelector, itemSelector = '.grid-item') {
                 layoutPending = false;
             });
         }
+    }
+
+    imagesLoaded(grid).on('progress', function(instance, image) {
+        // 图片淡入效果
+        if (image.isLoaded) {
+            image.img.classList.add('loaded');
+        }
+        // 核心优化：使用 requestAnimationFrame 节流 Layout 更新
+        triggerLayout();
     }).on('done', function() {
         // 确保所有图片加载完成后，执行最后一次完美的布局
-        msnry.layout();
+        triggerLayout();
+        
+        // 【新增】监听字体加载：防止字体加载滞后导致文字换行、高度变化从而重叠
+        if (document.fonts) {
+            document.fonts.ready.then(() => {
+                triggerLayout();
+            });
+        }
         
         // 处理 URL hash 跳转 (高亮特定卡片)
         if (window.location.hash) {
@@ -181,12 +192,16 @@ function initMasonry(gridSelector, itemSelector = '.grid-item') {
             if (targetEl) {
                 setTimeout(() => {
                     targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    // 添加高亮动画类 (CSS需支持)
                     const card = targetEl.querySelector('.gallery-card') || targetEl.querySelector('.detail-img-card');
                     if(card) card.classList.add('highlight-pulse');
                 }, 500);
             }
         }
+    });
+    
+    // 【新增】窗口大小改变时强制刷新一次（防止 Resize 偶尔计算失误）
+    window.addEventListener('resize', () => {
+        triggerLayout();
     });
 
     return msnry;

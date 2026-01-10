@@ -196,9 +196,7 @@ a { text-decoration: none; }
     float: left; 
     padding: 0 10px 20px 10px; 
     box-sizing: border-box; 
-    width: 100%; 
-    content-visibility: auto; 
-    contain-intrinsic-size: 1px 300px; 
+    width: 100%;
 }
 
 @media (min-width: 576px) { .grid-item { width: 50% !important; } }
@@ -848,4 +846,449 @@ a { text-decoration: none; }
     margin-left: 6px;
     font-size: 0.75rem;
     opacity: 0.6;
+}
+/* ================== 新增：悬浮返回按钮 ================== */
+.btn-float-back {
+    position: fixed;
+    top: 74px; /* 位于导航栏(72px)下方 */
+    left: 30px;
+    z-index: 900; /* 略低于模态框 */
+    
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.9);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
+    
+    color: #64748b;
+    font-weight: 600;
+    font-size: 0.9rem;
+    text-decoration: none;
+    
+    padding: 8px 20px;
+    border-radius: 50px;
+    transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.btn-float-back:hover {
+    transform: translateX(-5px); /* 悬停时向左微动，暗示返回 */
+    background: white;
+    color: var(--text-main);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.12);
+}
+
+.btn-float-back i {
+    font-size: 1.1rem;
+    margin-right: 8px;
+    transition: transform 0.3s;
+}
+
+.btn-float-back:hover i {
+    transform: translateX(-3px);
+}
+
+/* === 移动端响应式优化 === */
+/* 在小屏幕上，变成左下角的圆形按钮，避免遮挡顶部内容 */
+@media (max-width: 991px) {
+    .btn-float-back {
+        top: auto;
+        bottom: 30px; /* 移到底部 */
+        left: 30px;   /* 左侧 */
+        width: 50px;
+        height: 50px;
+        padding: 0;
+        border-radius: 50%;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+    }
+    
+    /* 隐藏文字，只显示图标 */
+    .btn-float-back span {
+        display: none;
+    }
+    
+    .btn-float-back i {
+        margin-right: 0;
+        font-size: 1.3rem;
+    }
+}
+/* ================== 10. 详情页双栏独立滚动 (PC端) ================== */
+@media (min-width: 992px) {
+    /* 禁用页面主滚动条，完全交给内部左右两栏 */
+    body.detail-page {
+        overflow: hidden; 
+    }
+
+    /* 【关键修改】详情页导航栏强制悬浮，覆盖在内容之上 */
+    body.detail-page .navbar-glass {
+        position: fixed !important;
+        top: 0;
+        left: 0;
+        width: 100%;
+        z-index: 1000;
+        transition: all 0.3s ease; /* 让背景切换更丝滑 */
+    }
+
+    /* 左右分栏容器 */
+    .detail-split-view {
+        height: 100vh; /* 直接占满屏幕 */
+        margin-top: 0 !important;
+        overflow: hidden;
+    }
+
+    /* 左侧图片区独立滚动 */
+    .detail-scroll-left {
+        height: 100%;
+        overflow-y: auto;
+        padding-right: 15px; 
+        padding-bottom: 80px; 
+        
+        /* 【关键】顶部留出大片空白，给导航栏(72px)和悬浮按钮腾位置 */
+        /* 72px(Nav) + 50px(Button区) = 122px */
+        padding-top: 122px; 
+        
+        /* 滚动条样式保持不变 */
+        scrollbar-color: transparent transparent; 
+        scrollbar-width: thin;
+        transition: scrollbar-color 0.3s ease;
+    }
+
+    /* 右侧信息区独立滚动 */
+    .detail-scroll-right {
+        height: 100%;
+        overflow-y: auto;
+        padding-left: 20px !important; 
+        padding-right: 5px;
+        padding-bottom: 80px;
+        
+        /* 【关键】同上，保持对齐 */
+        padding-top: 122px; 
+        
+        border-left: 1px solid rgba(0,0,0,0.03); 
+        
+        /* 滚动条样式保持不变 */
+        scrollbar-color: transparent transparent; 
+        scrollbar-width: thin;
+        transition: scrollbar-color 0.3s ease;
+    }
+
+    /* 覆盖 sticky 属性 */
+    /* 在独立滚动容器中，sticky 效果不再需要，让内容自然流式排列即可 */
+    .detail-scroll-right .sticky-sidebar {
+        position: static;
+        top: auto;
+    }
+
+    /* === 滚动条美化 (易用性增强版) === */
+    
+    /* Firefox 适配 */
+    .detail-scroll-left,
+    .detail-scroll-right {
+        scrollbar-color: transparent transparent; 
+        scrollbar-width: thin;
+        transition: scrollbar-color 0.3s;
+    }
+    
+    /* 容器悬停时：显示极淡的滑块 (0.2透明度)，方便您快速定位滑块位置 */
+    .detail-scroll-left:hover,
+    .detail-scroll-right:hover {
+        scrollbar-color: rgba(255, 255, 255, 0.2) transparent; 
+    }
+
+    /* Webkit 内核 (Chrome, Edge, Safari) */
+    .detail-scroll-left::-webkit-scrollbar,
+    .detail-scroll-right::-webkit-scrollbar {
+        width: 14px;  /* 【关键】加宽鼠标感应热区，更容易选中 */
+        height: 14px;
+    }
+    
+    /* 轨道：始终透明 */
+    .detail-scroll-left::-webkit-scrollbar-track,
+    .detail-scroll-right::-webkit-scrollbar-track {
+        background: transparent;
+        /* 【关键修改】 
+           顶部设置 80px 间距 (导航栏72px + 8px缝隙)，
+           这样滚动条只会在导航栏下方显示，永远不会和导航栏重叠。
+           底部保留 10px 间距。
+        */
+        margin-top: 80px; 
+        margin-bottom: 10px;
+    }
+    
+    /* 滑块：基础样式 */
+    .detail-scroll-left::-webkit-scrollbar-thumb,
+    .detail-scroll-right::-webkit-scrollbar-thumb {
+        background-color: transparent; /* 默认隐藏 */
+        border-radius: 10px;
+        
+        /* 【关键】利用4px透明边框，让滑块视觉上只有6px宽，但鼠标感应区有14px宽 */
+        border: 4px solid transparent; 
+        background-clip: content-box; 
+        
+        transition: background-color 0.3s ease;
+    }
+    
+    /* 状态1：鼠标移入内容区 -> 滑块微弱显示，解决“找不到滑块”的问题 */
+    .detail-scroll-left:hover::-webkit-scrollbar-thumb,
+    .detail-scroll-right:hover::-webkit-scrollbar-thumb {
+        background-color: rgba(255, 255, 255, 0.2); 
+    }
+
+    /* 状态2：鼠标精准悬停在滑块上 (或在加宽的14px范围内) -> 高亮纯白 */
+    .detail-scroll-left::-webkit-scrollbar-thumb:hover,
+    .detail-scroll-right::-webkit-scrollbar-thumb:hover {
+        background-color: #fff !important;
+    }
+}
+/* ================== 11. 拖拽上传区域样式 (模态框专用) ================== */
+.upload-zone-modal {
+    border: 2px dashed #cbd5e1;
+    border-radius: 16px;
+    padding: 30px 20px;
+    text-align: center;
+    background: #f8fafc;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    position: relative;
+    margin-bottom: 20px;
+}
+
+.upload-zone-modal:hover, .upload-zone-modal.drag-over {
+    border-color: var(--accent-color);
+    background: rgba(79, 172, 254, 0.05);
+}
+
+.upload-zone-modal i {
+    font-size: 2rem;
+    color: #94a3b8;
+    margin-bottom: 10px;
+    display: block;
+}
+
+.upload-zone-modal p {
+    margin: 0;
+    color: #64748b;
+    font-size: 0.9rem;
+}
+
+.upload-zone-modal input[type="file"] {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    opacity: 0;
+    cursor: pointer;
+}
+
+/* 预览容器 */
+.preview-container-modal {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+/* 预览项 */
+.preview-item-modal {
+    position: relative;
+    aspect-ratio: 1;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid rgba(0,0,0,0.1);
+    background: #fff;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+}
+
+.preview-item-modal img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    transition: opacity 0.3s;
+}
+
+.preview-item-modal .spinner-border {
+    position: absolute;
+    top: 50%; left: 50%;
+    margin-top: -0.5rem; margin-left: -0.5rem;
+}
+
+/* 删除按钮 */
+.btn-remove-preview-modal {
+    position: absolute;
+    top: 4px; right: 4px;
+    width: 24px; height: 24px;
+    background: rgba(0, 0, 0, 0.6);
+    color: white;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    font-size: 0.8rem;
+    backdrop-filter: blur(4px);
+    transition: all 0.2s;
+    z-index: 10;
+}
+
+.btn-remove-preview-modal:hover {
+    background: #ff4757;
+    transform: scale(1.1);
+}
+
+/* ================== 12. 按钮动效优化 (流光弹性效果) ================== */
+.btn-action-shine {
+    /* 基础渐变背景 */
+    background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+    border: none;
+    position: relative;
+    overflow: hidden; /* 限制流光不溢出 */
+    z-index: 1;
+    
+    /* 弹性过渡，让放大缩小的过程更有质感 */
+    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    
+    /* 默认自带轻微发光阴影 */
+    box-shadow: 0 4px 15px rgba(79, 172, 254, 0.3);
+}
+
+/* 悬停状态：上浮、变大、阴影加深 */
+.btn-action-shine:hover {
+    transform: translateY(-3px) scale(1.05);
+    box-shadow: 0 10px 25px rgba(79, 172, 254, 0.5) !important;
+}
+
+/* 点击状态：轻微下沉反馈 */
+.btn-action-shine:active {
+    transform: translateY(-1px) scale(0.98);
+    box-shadow: 0 5px 15px rgba(79, 172, 254, 0.4) !important;
+}
+
+/* === 流光动画核心 === */
+.btn-action-shine::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: -100%; /* 初始位置在左侧外部 */
+    width: 50%;
+    height: 100%;
+    
+    /* 制作一道倾斜的光束 */
+    background: linear-gradient(to right, rgba(255,255,255,0) 0%, rgba(255,255,255,0.5) 50%, rgba(255,255,255,0) 100%);
+    transform: skewX(-25deg);
+    z-index: -1;
+}
+
+/* 鼠标悬停时触发流光划过动画 */
+.btn-action-shine:hover::after {
+    animation: shine-sweep 1s infinite; /* 1秒循环一次 */
+}
+
+@keyframes shine-sweep {
+    0% { left: -75%; opacity: 0; }
+    30% { opacity: 1; }
+    100% { left: 125%; opacity: 0; }
+}
+/* ================== 13. 详情页沉浸式导航栏特效 (最终修正版) ================== */
+
+/* 1. 定义透明导航栏样式 (最高优先级) */
+/* 当 JS 添加此类时，强制背景全透明 */
+.navbar-transparent {
+    background: transparent !important;
+    backdrop-filter: none !important;
+    border-bottom: 1px solid transparent !important;
+    box-shadow: none !important;
+}
+
+/* 2. PC端布局重构 (仅在 body.detail-page 下生效) */
+@media (min-width: 992px) {
+    /* 锁定页面主滚动条 */
+    body.detail-page {
+        overflow: hidden; 
+    }
+
+    /* 强制导航栏悬浮在内容之上 */
+    body.detail-page .navbar-glass {
+        position: fixed !important; /* 覆盖 sticky */
+        top: 0;
+        left: 0;
+        width: 100%;
+        z-index: 1000;
+        transition: background 0.3s ease, backdrop-filter 0.3s ease;
+    }
+
+    /* 左右分栏容器：占满全屏，无视导航栏高度 */
+    body.detail-page .detail-split-view {
+        height: 100vh !important; 
+        margin-top: 0 !important;
+        padding-top: 0 !important;
+        overflow: hidden;
+    }
+
+    /* 左侧与右侧滚动区域 */
+    body.detail-page .detail-scroll-left,
+    body.detail-page .detail-scroll-right {
+        height: 100%;
+        overflow-y: auto;
+        
+        /* 【关键】顶部留出 100px 空白，让内容初始显示在导航栏下方，不被遮挡 */
+        /* 导航栏约72px + 间距28px = 100px */
+        padding-top: 100px !important; 
+        
+        padding-bottom: 80px;
+        
+        /* 隐藏原生滚动条，使用自定义样式 */
+        scrollbar-color: transparent transparent; 
+        scrollbar-width: thin;
+    }
+    
+    body.detail-page .detail-scroll-left { padding-right: 15px; }
+    body.detail-page .detail-scroll-right { padding-left: 20px !important; border-left: 1px solid rgba(0,0,0,0.03); }
+
+    /* === 滚动条美化与防重叠 === */
+    /* 1. 轨道设置：使用透明边框代替 margin 来避开导航栏 */
+    body.detail-page .detail-scroll-left::-webkit-scrollbar-track,
+    body.detail-page .detail-scroll-right::-webkit-scrollbar-track {
+        background: transparent;
+        
+        /* 【核心修复】使用 80px 透明边框将滚动条“顶”下来 */
+        /* 这比 margin-top 更稳定，不会导致滚动条消失 */
+        border-top: 80px solid transparent; 
+        border-bottom: 10px solid transparent;
+        
+        /* 确保背景裁剪，不会干扰边框 */
+        background-clip: padding-box; 
+    }
+
+    /* 2. 滚动条整体尺寸 */
+    body.detail-page .detail-scroll-left::-webkit-scrollbar,
+    body.detail-page .detail-scroll-right::-webkit-scrollbar {
+        width: 12px; /* 稍微改细一点，更精致 */
+    }
+
+    /* 3. 滑块样式 */
+    body.detail-page .detail-scroll-left::-webkit-scrollbar-thumb,
+    body.detail-page .detail-scroll-right::-webkit-scrollbar-thumb {
+        /* 【修复】默认不再完全透明，而是给一个极淡的灰色 */
+        /* 这样用户随时能知道滚动条在哪里 */
+        background-color: rgba(0, 0, 0, 0.06); 
+        
+        border-radius: 10px;
+        
+        /* 利用透明边框让滑块变细，保留鼠标感应区 */
+        border: 3px solid transparent;
+        background-clip: content-box;
+        
+        transition: background-color 0.2s;
+    }
+
+    /* 4. 交互反馈：鼠标移入内容区域时，加深滑块颜色 */
+    body.detail-page .detail-scroll-left:hover::-webkit-scrollbar-thumb,
+    body.detail-page .detail-scroll-right:hover::-webkit-scrollbar-thumb {
+        background-color: rgba(0, 0, 0, 0.15); /* 明显可见的灰色 */
+    }
+
+    /* 5. 交互反馈：鼠标按住/悬停在滑块上时，高亮显示 */
+    body.detail-page .detail-scroll-left::-webkit-scrollbar-thumb:hover,
+    body.detail-page .detail-scroll-right::-webkit-scrollbar-thumb:hover {
+        background-color: var(--accent-color) !important; /* 变为主题蓝/紫色 */
+    }
 }

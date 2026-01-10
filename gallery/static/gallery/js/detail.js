@@ -469,3 +469,168 @@ function handleImageUpload(event) {
         Swal.fire({ icon: 'error', title: '网络错误', text: '无法连接到服务器或响应格式错误' });
     });
 }
+
+// ================= 详情页拖拽上传逻辑 =================
+
+// 独立存储详情页模态框中的文件
+let modalGenFiles = [];
+let modalRefFiles = [];
+
+document.addEventListener('DOMContentLoaded', function() {
+    // 初始化两个模态框的拖拽
+    setupDetailDragDrop('zone-modal-gen', 'input-modal-gen', 'preview-modal-gen', 'gen');
+    setupDetailDragDrop('zone-modal-ref', 'input-modal-ref', 'preview-modal-ref', 'ref');
+});
+
+function setupDetailDragDrop(zoneId, inputId, previewId, type) {
+    const zone = document.getElementById(zoneId);
+    if (!zone) return; // 详情页可能不存在某些元素，安全退出
+    
+    const input = document.getElementById(inputId);
+    const previewContainer = document.getElementById(previewId);
+
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+        zone.addEventListener(eventName, preventDefaults, false);
+        document.body.addEventListener(eventName, preventDefaults, false);
+    });
+
+    ['dragenter', 'dragover'].forEach(eventName => {
+        zone.addEventListener(eventName, () => zone.classList.add('drag-over'), false);
+    });
+    ['dragleave', 'drop'].forEach(eventName => {
+        zone.addEventListener(eventName, () => zone.classList.remove('drag-over'), false);
+    });
+
+    zone.addEventListener('drop', (e) => {
+        const dt = e.dataTransfer;
+        handleModalFiles(dt.files, type, input, previewContainer);
+    }, false);
+
+    input.addEventListener('change', (e) => {
+        if (input.files.length > 0) {
+            handleModalFiles(input.files, type, input, previewContainer);
+        }
+    });
+}
+
+function preventDefaults(e) {
+    e.preventDefault(); e.stopPropagation();
+}
+
+function handleModalFiles(newFiles, type, input, previewContainer) {
+    const fileArray = (type === 'gen') ? modalGenFiles : modalRefFiles;
+    
+    Array.from(newFiles).forEach(file => {
+        // 简单查重：检查文件名和大小
+        const exists = fileArray.some(f => f.name === file.name && f.size === file.size);
+        if (!exists) {
+            fileArray.push(file);
+            addModalPreviewItem(file, type, previewContainer, input);
+        }
+    });
+    
+    updateModalInputFiles(type, input);
+}
+
+function updateModalInputFiles(type, input) {
+    const fileArray = (type === 'gen') ? modalGenFiles : modalRefFiles;
+    const dataTransfer = new DataTransfer();
+    fileArray.forEach(file => dataTransfer.items.add(file));
+    input.files = dataTransfer.files;
+}
+
+function addModalPreviewItem(file, type, container, input) {
+    const div = document.createElement('div');
+    div.className = 'preview-item-modal';
+    div.innerHTML = '<div class="spinner-border text-secondary spinner-border-sm"></div>';
+    
+    const delBtn = document.createElement('div');
+    delBtn.className = 'btn-remove-preview-modal';
+    delBtn.innerHTML = '<i class="bi bi-x-lg"></i>';
+    delBtn.onclick = (e) => {
+        e.stopPropagation();
+        const fileArray = (type === 'gen') ? modalGenFiles : modalRefFiles;
+        const index = fileArray.indexOf(file);
+        if (index > -1) {
+            fileArray.splice(index, 1);
+            div.remove();
+            updateModalInputFiles(type, input);
+        }
+    };
+    div.appendChild(delBtn);
+    container.appendChild(div);
+
+    // 生成缩略图
+    createModalThumbnail(file).then(url => {
+        const spinner = div.querySelector('.spinner-border');
+        if(spinner) spinner.remove();
+        
+        if (url) {
+            const img = document.createElement('img');
+            img.src = url;
+            div.insertBefore(img, delBtn);
+        } else {
+            div.innerHTML = '<div class="text-center pt-4 text-danger small">无法预览</div>';
+            div.appendChild(delBtn);
+        }
+    });
+}
+
+// 简易缩略图生成 (复用逻辑)
+function createModalThumbnail(file) {
+    return new Promise((resolve) => {
+        if (!file.type.startsWith('image/')) { resolve(null); return; }
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const img = new Image();
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                const maxSize = 200; // 模态框预览图不需要太大
+                let w = img.width, h = img.height;
+                if (w > h) { if (w > maxSize) { h *= maxSize/w; w = maxSize; } }
+                else { if (h > maxSize) { w *= maxSize/h; h = maxSize; } }
+                canvas.width = w; canvas.height = h;
+                ctx.drawImage(img, 0, 0, w, h);
+                resolve(canvas.toDataURL('image/jpeg', 0.8));
+            };
+            img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+    });
+}
+
+// ================= 13. 导航栏滚动透明特效 (JS部分) =================
+
+document.addEventListener('DOMContentLoaded', function() {
+    // 仅在详情页运行
+    if (!document.body.classList.contains('detail-page')) return;
+
+    const navbar = document.querySelector('.navbar-glass');
+    const scrollLeft = document.querySelector('.detail-scroll-left');
+    const scrollRight = document.querySelector('.detail-scroll-right');
+    
+    if (navbar && (scrollLeft || scrollRight)) {
+        
+        function updateNavbar() {
+            // 获取左右两侧的滚动距离
+            const scrollTopLeft = scrollLeft ? scrollLeft.scrollTop : 0;
+            const scrollTopRight = scrollRight ? scrollRight.scrollTop : 0;
+            
+            // 只要有一侧滚动超过 10px，就取消透明（变为磨砂）
+            if (scrollTopLeft > 10 || scrollTopRight > 10) {
+                navbar.classList.remove('navbar-transparent');
+            } else {
+                // 回到顶部，变透明
+                navbar.classList.add('navbar-transparent');
+            }
+        }
+
+        // 初始化执行
+        updateNavbar();
+
+        // 监听滚动
+        if(scrollLeft) scrollLeft.addEventListener('scroll', updateNavbar);
+        if(scrollRight) scrollRight.addEventListener('scroll', updateNavbar);
+    }
+});

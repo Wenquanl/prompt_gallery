@@ -90,48 +90,47 @@
         .btn-back-interactive:active { transform: translateX(-4px) scale(0.96); }
     </style>
 </head>
-<body>
+<body class="detail-page">
 
 {% include 'gallery/components/navbar.html' %}
-<div class="container my-5">
+<div class="container mt-0 mb-4">
     <div class="mb-4">
         {% with from_view=request.GET.from|default:'home' page_num=request.GET.page|default:'1' q_val=request.GET.q|default:'' filter_val=request.GET.filter|default:'' source_id=request.GET.source_img_id back_to_id=request.GET.back_to_detail_id search_id=request.GET.search_id %}
-            {% if back_to_id %}
-                <a href="{% url 'detail' back_to_id %}?from={{ from_view }}&page={{ page_num }}{% if q_val %}&q={{ q_val }}{% endif %}{% if filter_val %}&filter={{ filter_val }}{% endif %}{% if source_id %}&source_img_id={{ source_id }}{% endif %}" 
-                   class="btn rounded-pill px-3 shadow-sm btn-back-interactive">
-                    <i class="bi bi-arrow-left me-2"></i>返回
-                </a>
-            {% elif search_id %}
-                {% if from_view == 'home_search' %}
-                    <a href="{% url 'home' %}?search_id={{ search_id }}" class="btn rounded-pill px-3 shadow-sm btn-back-interactive">
-                        <i class="bi bi-arrow-left me-2"></i>返回搜索结果
-                    </a>
-                {% else %}
-                    <a href="{% url 'liked_images_gallery' %}?search_id={{ search_id }}" class="btn rounded-pill px-3 shadow-sm btn-back-interactive">
-                        <i class="bi bi-arrow-left me-2"></i>返回搜索结果
-                    </a>
-                {% endif %}
-            {% elif from_view == 'liked' %}
-                <a href="{% url 'liked_images_gallery' %}?page={{ page_num }}{% if q_val %}&q={{ q_val }}{% endif %}{% if source_id %}#card-img-{{ source_id }}{% endif %}" 
-                   class="btn rounded-pill px-3 shadow-sm btn-back-interactive">
-                    <i class="bi bi-arrow-left me-2"></i>返回
+        {% if back_to_id %}
+            <a href="{% url 'detail' back_to_id %}?from={{ from_view }}&page={{ page_num }}{% if q_val %}&q={{ q_val }}{% endif %}{% if filter_val %}&filter={{ filter_val }}{% endif %}{% if source_id %}&source_img_id={{ source_id }}{% endif %}" 
+            class="btn-float-back" title="返回">
+                <i class="bi bi-arrow-left"></i><span>返回</span>
+            </a>
+        {% elif search_id %}
+            {% if from_view == 'home_search' %}
+                <a href="{% url 'home' %}?search_id={{ search_id }}" class="btn-float-back" title="返回搜索结果">
+                    <i class="bi bi-arrow-left"></i><span>返回搜索结果</span>
                 </a>
             {% else %}
-                <a href="{% url 'home' %}?page={{ page_num }}{% if q_val %}&q={{ q_val }}{% endif %}{% if filter_val %}&filter={{ filter_val }}{% endif %}#group-card-{{ group.pk }}" 
-                   class="btn rounded-pill px-3 shadow-sm btn-back-interactive">
-                    <i class="bi bi-arrow-left me-2"></i>返回
+                <a href="{% url 'liked_images_gallery' %}?search_id={{ search_id }}" class="btn-float-back" title="返回搜索结果">
+                    <i class="bi bi-arrow-left"></i><span>返回搜索结果</span>
                 </a>
             {% endif %}
-        {% endwith %}
+        {% elif from_view == 'liked' %}
+            <a href="{% url 'liked_images_gallery' %}?page={{ page_num }}{% if q_val %}&q={{ q_val }}{% endif %}{% if source_id %}#card-img-{{ source_id }}{% endif %}" 
+            class="btn-float-back" title="返回">
+                <i class="bi bi-arrow-left"></i><span>返回</span>
+            </a>
+        {% else %}
+            <a href="{% url 'home' %}?page={{ page_num }}{% if q_val %}&q={{ q_val }}{% endif %}{% if filter_val %}&filter={{ filter_val }}{% endif %}#group-card-{{ group.pk }}" 
+            class="btn-float-back" title="返回">
+                <i class="bi bi-arrow-left"></i><span>返回</span>
+            </a>
+        {% endif %}
+    {% endwith %}
     </div>
 
-    <div class="row gx-lg-5">
-        <div class="col-lg-8 mb-5 mb-lg-0">
+    <div class="row gx-lg-5 detail-split-view">
+        <div class="col-lg-8 mb-5 mb-lg-0 detail-scroll-left">
             <div class="d-flex justify-content-between align-items-start mb-3">
                 <h2 class="fw-bold text-dark mb-0">{{ group.title }}</h2>
-                <button type="button" class="btn btn-primary rounded-pill px-3 shadow-sm btn-sm d-flex align-items-center" 
-                        data-bs-toggle="modal" data-bs-target="#addImagesModal"
-                        style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); border: none;">
+                <button type="button" class="btn btn-primary rounded-pill px-3 btn-sm d-flex align-items-center btn-action-shine" 
+                        data-bs-toggle="modal" data-bs-target="#addImagesModal">
                     <i class="bi bi-plus-lg me-1"></i>添加生成图
                 </button>
             </div>
@@ -232,7 +231,7 @@
             {% endif %}
         </div>
 
-        <div class="col-lg-4 ps-lg-4">
+        <div class="col-lg-4 ps-lg-4 detail-scroll-right">
             <div class="sticky-sidebar">
                 <div class="prompt-card p-4 border-danger border-opacity-25 mb-4" style="background: rgba(255, 230, 230, 0.4);">
                     <div class="section-header mb-2"><span class="section-label text-danger">管理操作</span></div>
@@ -242,17 +241,6 @@
                             <i class="bi bi-trash3 me-2"></i>永久删除整个作品
                         </button>
                     </form>
-                </div>
-
-                <div class="prompt-card p-4">
-                   <div class="section-header mb-3"><span class="section-label">快速跳转创作</span></div>
-                   <div class="platform-links d-grid gap-2">
-                       <a href="https://jimeng.jianying.com/" target="_blank" class="btn btn-platform rounded-pill"><i class="bi bi-palette me-2 text-danger"></i>前往 即梦AI</a>
-                       <a href="https://dreamina.capcut.com/ai-tool/home/" target="_blank" class="btn btn-platform rounded-pill"><i class="bi bi-magic me-2 text-warning"></i>前往 Dreamina</a>
-                       <a href="https://www.doubao.com/" target="_blank" class="btn btn-platform rounded-pill"><i class="bi bi-chat-quote-fill me-2 text-success"></i>前往 豆包 (Doubao)</a>
-                       <a href="https://gemini.google.com/" target="_blank" class="btn btn-platform rounded-pill"><i class="bi bi-google me-2 text-primary"></i>前往 Gemini</a>
-                       <a href="https://aistudio.google.com/" target="_blank" class="btn btn-platform rounded-pill"><i class="bi bi-code-square me-2 text-info"></i>前往 AI Studio</a>
-                   </div>
                 </div>
 
                 <div class="prompt-card p-4">
@@ -359,14 +347,29 @@
 </div>
 
 <div class="modal fade" id="addImagesModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
         <div class="modal-content border-0 shadow-lg rounded-4" style="background: rgba(255,255,255,0.95); backdrop-filter: blur(10px);">
-            <div class="modal-header border-0 pb-0"><h5 class="modal-title fw-bold text-dark">添加生成图</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title fw-bold text-dark">添加生成图</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
             <div class="modal-body pt-4">
                 <form id="addImagesForm" action="{% url 'add_images' group.pk %}" method="post" enctype="multipart/form-data" onsubmit="handleImageUpload(event)">
                     {% csrf_token %}
-                    <div class="mb-4"><label class="form-label small text-muted text-uppercase fw-bold ls-1">选择图片 (支持多选)</label><input type="file" name="new_images" class="form-control" multiple required accept="image/*"></div>
-                    <div class="d-grid"><button type="submit" class="btn btn-primary rounded-pill fw-bold" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); border: none;"><i class="bi bi-cloud-upload me-2"></i>开始上传</button></div>
+                    
+                    <div id="zone-modal-gen" class="upload-zone-modal">
+                        <i class="bi bi-cloud-arrow-up"></i>
+                        <p>点击或将图片拖拽至此 (生成图)</p>
+                        <input type="file" name="new_images" id="input-modal-gen" multiple accept="image/*">
+                    </div>
+
+                    <div id="preview-modal-gen" class="preview-container-modal"></div>
+
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary rounded-pill fw-bold" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); border: none;">
+                            <i class="bi bi-cloud-upload me-2"></i>确认上传
+                        </button>
+                    </div>
                 </form>
             </div>
         </div>
@@ -374,10 +377,31 @@
 </div>
 
 <div class="modal fade" id="addReferenceModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
         <div class="modal-content border-0 shadow-lg rounded-4" style="background: rgba(255,255,255,0.95); backdrop-filter: blur(10px);">
-            <div class="modal-header border-0 pb-0"><h5 class="modal-title fw-bold text-dark">添加参考图</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
-            <div class="modal-body pt-4"><form action="{% url 'add_references' group.pk %}" method="post" enctype="multipart/form-data">{% csrf_token %}<div class="mb-4"><label class="form-label small text-muted text-uppercase fw-bold ls-1">选择参考图 (支持多选)</label><input type="file" name="new_references" class="form-control" multiple required accept="image/*"></div><div class="d-grid"><button type="submit" class="btn btn-info text-white rounded-pill fw-bold border-0"><i class="bi bi-cloud-upload me-2"></i>上传参考图</button></div></form></div>
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title fw-bold text-dark">添加参考图</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body pt-4">
+                <form id="addReferenceForm" action="{% url 'add_references' group.pk %}" method="post" enctype="multipart/form-data" onsubmit="handleImageUpload(event)">
+                    {% csrf_token %}
+                    
+                    <div id="zone-modal-ref" class="upload-zone-modal">
+                        <i class="bi bi-images"></i>
+                        <p>点击或将图片拖拽至此 (参考图)</p>
+                        <input type="file" name="new_references" id="input-modal-ref" multiple accept="image/*">
+                    </div>
+
+                    <div id="preview-modal-ref" class="preview-container-modal"></div>
+
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-info text-white rounded-pill fw-bold border-0">
+                            <i class="bi bi-cloud-upload me-2"></i>上传参考图
+                        </button>
+                    </div>
+                </form>
+            </div>
         </div>
     </div>
 </div>
