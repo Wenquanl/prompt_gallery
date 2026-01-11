@@ -4,8 +4,7 @@ import json
 from django.shortcuts import render, redirect, get_object_or_404
 from django.conf import settings
 from django.http import JsonResponse
-from django.db.models import Q, Count, Case, When, IntegerField
-from django.contrib import messages
+from django.db.models import Q, Count, Case, When, IntegerField, Max
 from django.core.paginator import Paginator
 from django.views.decorators.http import require_GET,require_POST
 from django.core.cache import cache
@@ -13,7 +12,7 @@ from django.db.models import Q, Count, Case, When, IntegerField, Max  # 【修�
 from .models import ImageItem, PromptGroup, Tag, AIModel, ReferenceItem
 from .forms import PromptGroupForm
 from .ai_utils import search_similar_images
-from django.db.models import Max, Count
+
 
 # === 引入 Service 层 ===
 from .services import (
@@ -128,18 +127,28 @@ def home(request):
             Q(prompt_text_zh__icontains=query) |
             Q(tags__name__icontains=query)
         ).distinct()
-    else:
-        # 【默认浏览模式】：启用“家族折叠”，只显示每个系列最新的一个
-        # 1. 按 group_id 分组，找到每组最大的 ID (即最新创建的)
-        latest_ids_in_group = PromptGroup.objects.values('group_id').annotate(
-            max_id=Max('id')
-        ).values_list('max_id', flat=True)
-
-        # 2. 过滤 queryset，只保留这些 ID
-        queryset = queryset.filter(id__in=latest_ids_in_group)
     
     if filter_type == 'liked':
         queryset = queryset.filter(is_liked=True)
+
+    # === 【核心新增】版本去重与计数逻辑 ===
+    # 仅在默认浏览模式下启用（无搜索、无筛选、无以图搜图）
+    version_counts = {}
+    if not query and not filter_type and not search_id:
+        # 1. 按 group_id 分组，找出每组【最新ID】和【数量】
+        group_stats = PromptGroup.objects.values('group_id').annotate(
+            latest_id=Max('id'),
+            count=Count('id')
+        )
+        
+        # 2. 提取需要保留的 ID 列表
+        latest_ids = [s['latest_id'] for s in group_stats]
+        
+        # 3. 建立映射表：ID -> 版本数量
+        version_counts = {s['latest_id']: s['count'] for s in group_stats}
+        
+        # 4. 过滤查询集，只显示最新的
+        queryset = queryset.filter(id__in=latest_ids)
 
     # 获取标签栏数据
     tags_bar = get_tags_bar_data()
@@ -147,6 +156,11 @@ def home(request):
     paginator = Paginator(queryset, 12)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
+
+    # === 【核心新增】将版本数量挂载到对象上 ===
+    for group in page_obj:
+        # 如果有计数（去重模式），则使用；否则默认为 0（不显示徽章）
+        group.version_count = version_counts.get(group.id, 0)
 
     return render(request, 'gallery/home.html', {
         'page_obj': page_obj,
