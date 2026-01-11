@@ -6,7 +6,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
 from django.conf import settings
 from django.http import JsonResponse
-from django.db.models import Q, Count, Case, When, IntegerField, Max
+from django.db.models import Q, Count, Case, When, IntegerField, Max, Prefetch
 from django.core.paginator import Paginator
 from django.views.decorators.http import require_GET, require_POST
 from django.core.cache import cache
@@ -270,8 +270,13 @@ def liked_images_gallery(request):
 
 
 def detail(request, pk):
+    # 【核心修改】Prefetch 预取时按 ID 倒序，确保最新图在最前
     group = get_object_or_404(
-        PromptGroup.objects.prefetch_related('tags', 'images', 'references'), 
+        PromptGroup.objects.prefetch_related(
+            'tags', 
+            Prefetch('images', queryset=ImageItem.objects.order_by('-id')),
+            'references'
+        ), 
         pk=pk
     )
     
@@ -542,32 +547,25 @@ def add_images_to_group(request, pk):
 
             # === [关键修复] AJAX 请求返回 JSON，不跳转 ===
             if is_ajax:
-                new_images = ImageItem.objects.filter(id__in=created_ids)
-                # 计算前端起始索引
-                # 注意：group.images.all() 已经包含了刚上传的图片
-                # 所以新图片之前的数量 = 总数量 - 新上传数量
-                total_count = group.images.count()
-                start_index = total_count - len(created_ids)
+                # 获取新上传的图片，按 ID 正序排列（前端 unshift 时正好变成倒序）
+                new_images = ImageItem.objects.filter(id__in=created_ids).order_by('id')
                 
+                new_images_data = []
                 html_list = []
-                for i, img in enumerate(new_images):
-                    # 【关键修复】构造伪造的 forloop 上下文
-                    # 解决 "Failed lookup for key [forloop]" 报错
-                    current_idx = start_index + i
-                    mock_forloop = {
-                        'counter0': current_idx,
-                        'counter': current_idx + 1,
-                        'first': (current_idx == 0),
-                        'last': (current_idx == total_count - 1),
-                        'revcounter': total_count - current_idx,
-                        'revcounter0': total_count - current_idx - 1,
-                    }
-
-                    # render_to_string 传递 request=request，防止 CSRF 或其他上下文丢失
+                
+                for img in new_images:
+                    # 1. 构造前端需要的 JSON 数据
+                    new_images_data.append({
+                        'id': img.pk,
+                        'url': img.image.url,
+                        'isLiked': img.is_liked
+                    })
+                    
+                    # 2. 渲染 HTML 卡片
+                    # 注意：detail_image_card.html 必须使用 img.pk 而不是 index
                     html = render_to_string('gallery/components/detail_image_card.html', {
                         'img': img, 
-                        'index': current_idx,
-                        'forloop': mock_forloop, # 传入伪造对象
+                        # 'index': ... 不需要了，改用 ID
                     }, request=request)
                     html_list.append(html)
 
@@ -576,7 +574,8 @@ def add_images_to_group(request, pk):
                     'uploaded_count': uploaded_count,
                     'duplicates': duplicates,
                     'new_images_html': html_list,
-                    'type': 'gen'  # 标记类型为生成图
+                    'new_images_data': new_images_data, # 返回数据供前端更新
+                    'type': 'gen'
                 })
             
             # 普通表单提交的回退处理

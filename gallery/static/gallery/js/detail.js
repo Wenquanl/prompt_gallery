@@ -1,7 +1,7 @@
 /**
- * detail.js
- * 详情页交互：图片切换、提示词编辑、标签管理、点赞、删除、AJAX上传(修复版)、版本关联
- * 依赖: Bootstrap 5, SweetAlert2, galleryImages (全局变量), common.js
+ * detail.js - 终极修复完整版 (V2)
+ * 修复：版本关联搜索列表缩略图丢失问题
+ * 包含：图片重叠修复、Masonry 布局塌陷修复、AJAX 上传、拖拽上传
  */
 
 let currentIndex = 0;
@@ -25,12 +25,24 @@ document.addEventListener('DOMContentLoaded', function() {
         imageModal = new bootstrap.Modal(modalEl);
     }
     
-    // 2. 初始化 Masonry 布局 (图片卡片)
-    if (window.initMasonry) {
-        initMasonry('#detail-masonry-grid', '.grid-item');
+    // 2. 初始化 Masonry 布局
+    const grid = document.querySelector('#detail-masonry-grid');
+    if (grid && typeof Masonry !== 'undefined') {
+        // 初始化
+        window.msnry = new Masonry(grid, {
+            itemSelector: '.grid-item',
+            percentPosition: true
+        });
+
+        // 初始加载也使用 imagesLoaded 防止刷新时重叠
+        if (typeof imagesLoaded !== 'undefined') {
+            imagesLoaded(grid).on('progress', function() {
+                window.msnry.layout();
+            });
+        }
     }
 
-    // 3. 键盘事件监听 (左右切换图片)
+    // 3. 键盘事件监听
     document.addEventListener('keydown', function(event) {
         if (modalEl && modalEl.classList.contains('show')) {
             if (event.key === 'ArrowLeft') changeImage(-1);
@@ -52,7 +64,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // 5. 初始化内嵌拖拽区 (修复样式响应)
+    // 5. 初始化内嵌拖拽区
     setupInlineDragDrop('inline-trigger-gen', 'addImagesModal', 'gen');
     setupInlineDragDrop('inline-trigger-ref', 'addReferenceModal', 'ref');
 
@@ -63,15 +75,21 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // ================= 图片模态框逻辑 =================
 
-function showModal(index) {
-    currentIndex = index;
-    updateModalImage();
-    imageModal.show();
+function showModal(id) {
+    if (window.galleryImages) {
+        const index = window.galleryImages.findIndex(img => img.id === id);
+        if (index !== -1) {
+            currentIndex = index;
+            updateModalImage();
+            imageModal.show();
+        } else {
+            console.error("Image ID not found:", id);
+        }
+    }
 }
 
 function changeImage(direction) {
     currentIndex += direction;
-    // 循环播放
     if (currentIndex >= galleryImages.length) { currentIndex = 0; } 
     else if (currentIndex < 0) { currentIndex = galleryImages.length - 1; }
     updateModalImage();
@@ -88,7 +106,6 @@ function updateModalImage() {
 
     const currentImgData = galleryImages[currentIndex];
 
-    // 图片切换动画效果
     imgElement.style.opacity = '0.5';
     imgElement.src = currentImgData.url;
     imgElement.onload = function() { imgElement.style.opacity = '1'; };
@@ -108,7 +125,7 @@ function updateModalImage() {
     }
 }
 
-// 模态框内的点赞
+// 模态框点赞
 function toggleModalLike() {
     const currentImgData = galleryImages[currentIndex];
     const csrftoken = getCookie('csrftoken');
@@ -137,7 +154,7 @@ function toggleModalLike() {
     });
 }
 
-// 列表中的点赞
+// 列表点赞
 function toggleImageLike(event, pk) {
     event.stopPropagation(); 
     const btn = event.currentTarget;
@@ -164,7 +181,7 @@ function toggleImageLike(event, pk) {
     });
 }
 
-// 通用删除确认
+// 删除确认
 function confirmDelete(event) {
     event.preventDefault(); 
     const form = event.target.closest('form');
@@ -234,20 +251,12 @@ function savePrompt(elementId, pk, type) {
             if (copyBtn) copyBtn.disabled = !newText.trim();
             if (!newText.trim()) { box.innerHTML = '<span class="empty-text">未填写</span>'; }
             toggleEditButtons(box, false);
-            
-            Swal.fire({
-                icon: 'success', 
-                title: '保存成功',
-                toast: true,
-                position: 'top-end',
-                showConfirmButton: false,
-                timer: 1500
-            });
+            Swal.fire({icon: 'success', title: '保存成功', toast: true, position: 'top-end', showConfirmButton: false, timer: 1500});
         } else {
             Swal.fire({ icon: 'error', title: '保存失败', text: res.message });
         }
     })
-    .catch(err => { console.error(err); Swal.fire({ icon: 'error', title: '错误', text: '网络错误，请重试' }); });
+    .catch(err => { console.error(err); Swal.fire({ icon: 'error', title: '错误', text: '网络错误' }); });
 }
 
 function toggleEditButtons(boxElement, isEditing) {
@@ -266,18 +275,11 @@ function toggleEditButtons(boxElement, isEditing) {
 function copyTextHandler(elementId, btnElement) {
     const textElement = document.getElementById(elementId);
     if (textElement.querySelector('.empty-text')) return;
-
-    const text = textElement.innerText;
-    copyToClipboard(text); 
-
+    copyToClipboard(textElement.innerText); 
     const originalHTML = btnElement.innerHTML;
     const isPrimary = btnElement.classList.contains('btn-outline-primary');
     const isDanger = btnElement.classList.contains('btn-outline-danger');
-    let originalClass;
-    if (isPrimary) originalClass = 'btn-outline-primary';
-    else if (isDanger) originalClass = 'btn-outline-danger';
-    else originalClass = 'btn-outline-success';
-
+    let originalClass = isPrimary ? 'btn-outline-primary' : (isDanger ? 'btn-outline-danger' : 'btn-outline-success');
     btnElement.innerHTML = '<i class="bi bi-check-lg me-1"></i>已复制';
     btnElement.classList.remove(originalClass); btnElement.classList.add('btn-success', 'text-white');
     setTimeout(() => {
@@ -287,25 +289,16 @@ function copyTextHandler(elementId, btnElement) {
 }
 
 // ================= 标签交互逻辑 =================
-
 function showTagInput() {
-    const btn = document.getElementById('btnAddTag');
-    if(btn) btn.style.display = 'none';
-    
+    document.getElementById('btnAddTag').style.display = 'none';
     const container = document.getElementById('tagInputContainer');
-    if(container) container.classList.add('show');
-    
-    const input = document.getElementById('newTagInput');
-    if(input) setTimeout(() => input.focus(), 100);
+    container.classList.add('show');
+    setTimeout(() => document.getElementById('newTagInput').focus(), 100);
 }
 
 function handleTagKey(event, groupPk) {
-    if (event.key === 'Enter') {
-        event.preventDefault();
-        addTag(groupPk);
-    } else if (event.key === 'Escape') {
-        resetTagInput();
-    }
+    if (event.key === 'Enter') { event.preventDefault(); addTag(groupPk); }
+    else if (event.key === 'Escape') { resetTagInput(); }
 }
 
 function resetTagInput() {
@@ -323,10 +316,7 @@ function resetTagInput() {
 function addTag(groupPk) {
     const input = document.getElementById('newTagInput');
     const tagName = input.value.trim();
-    if (!tagName) { 
-        input.focus(); 
-        return; 
-    }
+    if (!tagName) { input.focus(); return; }
 
     const csrftoken = getCookie('csrftoken');
     fetch(`/add-tag/${groupPk}/`, {
@@ -340,208 +330,179 @@ function addTag(groupPk) {
             const newTagHtml = `
                 <span class="tag-interactive" id="tag-pill-${data.tag_id}">
                     <a href="/?q=${data.tag_name}">${data.tag_name}</a>
-                    <span class="tag-remove-btn" onclick="removeTag(${groupPk}, ${data.tag_id}, '${data.tag_name}')" title="移除">
-                        <i class="bi bi-x-circle-fill"></i>
-                    </span>
-                </span>
-            `;
+                    <span class="tag-remove-btn" onclick="removeTag(${groupPk}, ${data.tag_id}, '${data.tag_name}')" title="移除"><i class="bi bi-x-circle-fill"></i></span>
+                </span>`;
             document.getElementById('btnAddTag').parentNode.insertAdjacentHTML('beforebegin', newTagHtml);
-            input.value = '';
-            input.focus();
+            input.value = ''; input.focus();
         } else {
             Swal.fire({ icon: 'error', title: '添加失败', text: data.message });
         }
-    })
-    .catch(err => Swal.fire({ icon: 'error', title: '错误', text: '网络请求失败' }));
+    });
 }
 
 function removeTag(groupPk, tagId, tagName) {
     Swal.fire({
-        title: '移除标签?',
-        text: `确定要移除 "${tagName}" 吗？`,
-        icon: 'warning',
-        showCancelButton: true,
-        confirmButtonColor: '#ff4757',
-        cancelButtonColor: '#6c757d',
-        confirmButtonText: '是的, 移除',
-        cancelButtonText: '取消',
-        background: 'rgba(255, 255, 255, 0.95)',
-        customClass: { popup: 'rounded-4 shadow-lg border-0' }
+        title: '移除标签?', text: `确定要移除 "${tagName}" 吗？`, icon: 'warning',
+        showCancelButton: true, confirmButtonColor: '#ff4757', confirmButtonText: '移除', cancelButtonText: '取消'
     }).then((result) => {
         if (result.isConfirmed) {
-            performRemoveTag(groupPk, tagId);
+            const csrftoken = getCookie('csrftoken');
+            fetch(`/remove-tag/${groupPk}/`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrftoken },
+                body: JSON.stringify({ tag_id: tagId })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    const el = document.getElementById(`tag-pill-${tagId}`);
+                    if (el) { el.style.transform = 'scale(0.8)'; el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }
+                } else { Swal.fire({ icon: 'error', title: '移除失败', text: data.message }); }
+            });
         }
     });
 }
 
-function performRemoveTag(groupPk, tagId) {
-    const csrftoken = getCookie('csrftoken');
-    fetch(`/remove-tag/${groupPk}/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrftoken },
-        body: JSON.stringify({ tag_id: tagId })
-    })
-    .then(res => res.json())
-    .then(data => {
-        if (data.status === 'success') {
-            const el = document.getElementById(`tag-pill-${tagId}`);
-            if (el) {
-                el.style.transform = 'scale(0.8)';
-                el.style.opacity = '0';
-                setTimeout(() => el.remove(), 300);
-            }
-        } else {
-            Swal.fire({ icon: 'error', title: '移除失败', text: data.message });
-        }
-    });
-}
-
-// ================= 图片上传处理 (AJAX 通用版 - 修复) =================
+// ================= 【核心修复】上传处理 =================
 
 function handleImageUpload(event) {
     event.preventDefault(); 
-    
     const form = event.target;
     const formData = new FormData(form);
     const submitBtn = form.querySelector('button[type="submit"]');
-    
     const originalBtnContent = submitBtn.innerHTML;
+    
     submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>上传处理中...';
     submitBtn.disabled = true;
-
-    const csrftoken = getCookie('csrftoken');
 
     fetch(form.action, {
         method: 'POST',
         body: formData,
-        headers: { 
-            'X-Requested-With': 'XMLHttpRequest', // 必须：防止后端返回 302 跳转
-            'X-CSRFToken': csrftoken 
-        }
+        headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': getCookie('csrftoken') }
     })
-    .then(response => {
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-        return response.json();
-    })
+    .then(response => response.json())
     .then(data => {
         submitBtn.innerHTML = originalBtnContent;
         submitBtn.disabled = false;
 
         if (data.status === 'success' || data.status === 'warning') {
-            // 1. 关闭对应模态框
+            // 1. 关闭模态框
             const modalId = (data.type === 'ref') ? 'addReferenceModal' : 'addImagesModal';
             const modalEl = document.getElementById(modalId);
-            if (modalEl) {
-                const modalInstance = bootstrap.Modal.getInstance(modalEl);
-                if (modalInstance) modalInstance.hide();
-            }
+            if (modalEl) bootstrap.Modal.getInstance(modalEl).hide();
 
-            // 2. 动态插入内容
+            // 2. 处理生成图
             if (data.type === 'gen') {
-                // [生成图]
+                if (data.new_images_data && window.galleryImages) {
+                    // ID 正序的数据倒序插入，确保最新图在最前
+                    data.new_images_data.forEach(img => window.galleryImages.unshift(img));
+                }
+
                 if (data.new_images_html && data.new_images_html.length > 0) {
                     const grid = document.getElementById('detail-masonry-grid');
                     const emptyPlaceholder = grid.querySelector('.alert.alert-light');
                     if (emptyPlaceholder) emptyPlaceholder.parentNode.remove();
 
+                    // A. 准备 DOM 元素
                     const tempDiv = document.createElement('div');
                     const newItems = [];
                     data.new_images_html.forEach(html => {
                         tempDiv.innerHTML = html;
                         const node = tempDiv.firstElementChild;
-                        grid.appendChild(node);
+                        
+                        // 【核心修复1】强制开启 eager 加载，让浏览器立刻请求图片
+                        const img = node.querySelector('img');
+                        if (img) img.setAttribute('loading', 'eager');
+                        
+                        grid.prepend(node); // 先插入到最前面
                         newItems.push(node);
                     });
 
+                    // B. Masonry 重排逻辑
                     if (window.msnry) {
-                        window.msnry.appended(newItems);
-                        window.msnry.layout();
+                        // 1. 告知 Masonry 有新元素
+                        window.msnry.prepended(newItems);
+                        
+                        // 2. 定义重排函数
+                        const onLayout = () => { window.msnry.layout(); };
+
+                        // 3. 【核心修复2】使用 imagesLoaded 监听图片加载进度
+                        if (typeof imagesLoaded !== 'undefined') {
+                            imagesLoaded(newItems).on('progress', onLayout);
+                        }
+
+                        // 4. 【核心修复3】使用 ResizeObserver 监听卡片尺寸变化
+                        // 这是防止塌陷的终极手段，只要图片撑开卡片，就立即重排
+                        const ro = new ResizeObserver(entries => {
+                            onLayout();
+                        });
+                        newItems.forEach(item => {
+                            ro.observe(item);
+                            // 监听内部图片本身
+                            const img = item.querySelector('img');
+                            if(img) ro.observe(img);
+                        });
+                        
+                        // 5. 保底：立即排一次，延迟排几次
+                        onLayout();
+                        setTimeout(onLayout, 300);
+                        setTimeout(onLayout, 1000);
                     }
                     
+                    // 清空预览
                     modalGenFiles = [];
                     document.getElementById('preview-modal-gen').innerHTML = '';
                 }
-            } else if (data.type === 'ref') {
-                // [参考图]
+            } 
+            // 3. 处理参考图
+            else if (data.type === 'ref') {
                 if (data.new_references_html && data.new_references_html.length > 0) {
-                    // 确保 detail.html 中参考图容器有 id="reference-grid"
                     const refGrid = document.getElementById('reference-grid');
                     if (refGrid) {
-                        data.new_references_html.forEach(html => {
-                            refGrid.insertAdjacentHTML('beforeend', html);
-                        });
+                        data.new_references_html.forEach(html => refGrid.insertAdjacentHTML('beforeend', html));
                     }
-                    
                     modalRefFiles = [];
                     document.getElementById('preview-modal-ref').innerHTML = '';
                 }
             }
 
-            // 3. 提示结果
+            // 4. 显示结果
             if (data.status === 'warning') {
-                let listItems = '';
-                if (data.duplicates && data.duplicates.length > 0) {
-                    data.duplicates.forEach(dup => {
-                        listItems += `
-                            <div class="duplicate-item">
-                                <img src="${dup.existing_url || ''}" class="duplicate-alert-img">
-                                <div class="duplicate-text-content">
-                                    <div class="duplicate-filename" title="${dup.name}">${dup.name}</div>
-                                    <div class="duplicate-source">
-                                        已存在于：<strong>《${dup.existing_group_title}》</strong>
-                                    </div>
-                                    <div class="duplicate-badge"><i class="bi bi-shield-fill-x me-1"></i>已拦截</div>
-                                </div>
-                            </div>
-                        `;
-                    });
-                }
-                const duplicateHtml = `
-                    <div class="text-start mb-2 text-muted small">以下图片因重复而被系统自动拦截：</div>
-                    <div class="duplicate-scroll-container">${listItems}</div>
-                    <div class="text-end text-muted small mt-2">
-                        成功上传: <span class="text-success fw-bold">${data.uploaded_count}</span> 张 
-                        / 拦截: <span class="text-danger fw-bold">${data.duplicates ? data.duplicates.length : 0}</span> 张
-                    </div>
-                `;
+                let listItems = data.duplicates.map(dup => `
+                    <div class="duplicate-item">
+                        <img src="${dup.existing_url||''}" class="duplicate-alert-img">
+                        <div class="duplicate-text-content">
+                            <div class="duplicate-filename">${dup.name}</div>
+                            <div class="duplicate-badge">已拦截</div>
+                        </div>
+                    </div>`).join('');
+                    
                 Swal.fire({
-                    title: `<span class="text-danger fw-bold"><i class="bi bi-exclamation-triangle-fill me-2"></i>重复拦截报告</span>`,
-                    html: duplicateHtml,
-                    confirmButtonText: '知道了',
-                    confirmButtonColor: '#2c3e50',
-                    width: '600px',
-                    background: '#fff',
-                    customClass: { popup: 'rounded-4 shadow-lg border-0' }
+                    title: '重复拦截报告',
+                    html: `<div class="duplicate-scroll-container">${listItems}</div>
+                           <div class="mt-2 text-end">成功: <b class="text-success">${data.uploaded_count}</b> / 拦截: <b class="text-danger">${data.duplicates.length}</b></div>`,
+                    width: '600px'
                 });
             } else {
-                Swal.fire({
-                    icon: 'success',
-                    title: '添加成功',
-                    text: `已添加 ${data.uploaded_count} 张图片`,
-                    toast: true, position: 'top-end', showConfirmButton: false, timer: 2000
-                });
+                Swal.fire({ icon: 'success', title: `已添加 ${data.uploaded_count} 张图片`, toast: true, position: 'top-end', showConfirmButton: false, timer: 2000 });
             }
             form.reset();
-
         } else {
-            Swal.fire({ icon: 'error', title: '操作失败', text: '服务器未返回预期状态' });
+            Swal.fire({ icon: 'error', title: '操作失败', text: 'Server error' });
         }
     })
     .catch(error => {
-        console.error(error);
         submitBtn.innerHTML = originalBtnContent;
         submitBtn.disabled = false;
         Swal.fire({ icon: 'error', title: '上传错误', text: error.message });
     });
 }
 
-// ================= 拖拽上传逻辑 (修复样式闪烁) =================
+// ================= 拖拽上传辅助函数 =================
 
 function setupInlineDragDrop(triggerId, modalId, type) {
-    const trigger = document.getElementById(triggerId);
-    if (!trigger) return;
-
-    let dragCounter = 0; // 引入计数器解决子元素闪烁问题
+    const trigger = document.getElementById(triggerId); if (!trigger) return;
+    let dragCounter = 0;
 
     trigger.addEventListener('click', () => {
         const modalEl = document.getElementById(modalId);
@@ -703,164 +664,72 @@ function createModalThumbnail(file) {
     });
 }
 
-// ================= 导航栏滚动透明特效 (JS部分) =================
-
+// ================= 导航栏滚动透明特效 =================
 document.addEventListener('DOMContentLoaded', function() {
-    // 仅在详情页运行
     if (!document.body.classList.contains('detail-page')) return;
-
     const navbar = document.querySelector('.navbar-glass');
-    const scrollLeft = document.querySelector('.detail-scroll-left');
-    const scrollRight = document.querySelector('.detail-scroll-right');
-    
-    if (navbar && (scrollLeft || scrollRight)) {
-        
-        function updateNavbar() {
-            // 获取左右两侧的滚动距离
-            const scrollTopLeft = scrollLeft ? scrollLeft.scrollTop : 0;
-            const scrollTopRight = scrollRight ? scrollRight.scrollTop : 0;
-            
-            // 只要有一侧滚动超过 10px，就取消透明（变为磨砂）
-            if (scrollTopLeft > 10 || scrollTopRight > 10) {
-                navbar.classList.remove('navbar-transparent');
-            } else {
-                // 回到顶部，变透明
-                navbar.classList.add('navbar-transparent');
-            }
-        }
-
-        // 初始化执行
-        updateNavbar();
-
-        // 监听滚动
-        if(scrollLeft) scrollLeft.addEventListener('scroll', updateNavbar);
-        if(scrollRight) scrollRight.addEventListener('scroll', updateNavbar);
-    }
+    const update = () => {
+        const sl = document.querySelector('.detail-scroll-left')?.scrollTop || 0;
+        const sr = document.querySelector('.detail-scroll-right')?.scrollTop || 0;
+        if(sl>10 || sr>10) navbar.classList.remove('navbar-transparent'); else navbar.classList.add('navbar-transparent');
+    };
+    update();
+    document.querySelector('.detail-scroll-left')?.addEventListener('scroll', update);
+    document.querySelector('.detail-scroll-right')?.addEventListener('scroll', update);
 });
 
 // ================= 版本关联管理 =================
-
-// 1. 解除关联
-function unlinkSibling(event, siblingId) {
-    event.preventDefault(); 
-    event.stopPropagation();
-    
-    Swal.fire({
-        title: '解除关联?',
-        text: "该版本将独立成为一个新的作品组，不再显示在当前列表。",
-        icon: 'warning',
-        showCancelButton: true,
-        confirmButtonText: '确定解除',
-        cancelButtonText: '取消',
-        confirmButtonColor: '#ffc107'
-    }).then((result) => {
-        if (result.isConfirmed) {
-            const csrftoken = getCookie('csrftoken');
-            fetch(`/api/unlink-group/${siblingId}/`, {
-                method: 'POST',
-                headers: { 'X-CSRFToken': csrftoken }
-            })
-            .then(res => res.json())
-            .then(data => {
-                if (data.status === 'success') {
-                    Swal.fire('已解除', '', 'success').then(() => location.reload());
-                } else {
-                    Swal.fire('失败', data.message, 'error');
-                }
-            });
+function unlinkSibling(e, id) { 
+    e.preventDefault(); e.stopPropagation(); 
+    Swal.fire({title:'解除关联?',showCancelButton:true,confirmButtonText:'确定'}).then(r=>{
+        if(r.isConfirmed){
+            fetch(`/api/unlink-group/${id}/`,{method:'POST',headers:{'X-CSRFToken':getCookie('csrftoken')}})
+            .then(res=>res.json()).then(d=>{if(d.status==='success')location.reload();});
         }
+    });
+} 
+
+let linkModal;
+function openLinkModal() { 
+    if(!linkModal) linkModal=new bootstrap.Modal(document.getElementById('linkVersionModal')); 
+    document.getElementById('linkSearchResults').innerHTML='<div class="text-center text-muted p-3">请输入关键词</div>'; 
+    linkModal.show(); 
+}
+
+let st; 
+function debounceSearchLink() { 
+    clearTimeout(st); st=setTimeout(()=>{performLinkSearch(document.getElementById('linkSearchInput').value.trim())},500); 
+}
+
+// 【关键修复】恢复了搜索结果列表中的缩略图显示代码
+function performLinkSearch(q) {
+    if(!q)return;
+    fetch(`/api/groups/?q=${encodeURIComponent(q)}`).then(r=>r.json()).then(d=>{
+        const c = document.getElementById('linkSearchResults'); c.innerHTML='';
+        if(!d.results.length) { c.innerHTML='<div class="text-center text-muted">无结果</div>'; return; }
+        
+        // 此处恢复了完整的 HTML 结构，包含缩略图 div
+        d.results.forEach(i => {
+            const html = `
+                <div class="d-flex align-items-center p-2 border-bottom" onclick="confirmLinkGroup(${i.id},'${i.title.replace(/'/g, "\\'")}')" style="cursor:pointer">
+                    <div class="rounded overflow-hidden bg-light me-3" style="width: 40px; height: 40px; flex-shrink: 0;">
+                        ${i.cover_url ? `<img src="${i.cover_url}" class="w-100 h-100 object-fit-cover">` : ''}
+                    </div>
+                    <div class="flex-grow-1 overflow-hidden">
+                        <div class="fw-bold text-truncate" style="font-size: 0.85rem;">${i.title}</div>
+                        <div class="text-muted text-truncate small" style="font-size: 0.75rem;">${i.prompt_text.substring(0,30)}...</div>
+                    </div>
+                    <i class="bi bi-plus-lg text-primary ms-2"></i>
+                </div>`;
+            c.insertAdjacentHTML('beforeend', html);
+        });
     });
 }
 
-// 2. 打开关联模态框
-let linkModal;
-function openLinkModal() {
-    if (!linkModal) {
-        linkModal = new bootstrap.Modal(document.getElementById('linkVersionModal'));
-    }
-    document.getElementById('linkSearchInput').value = '';
-    document.getElementById('linkSearchResults').innerHTML = '<div class="text-center text-muted py-3 small">请输入关键词搜索</div>';
-    linkModal.show();
-}
-
-// 3. 搜索防抖
-let searchTimer;
-function debounceSearchLink() {
-    clearTimeout(searchTimer);
-    searchTimer = setTimeout(() => {
-        const query = document.getElementById('linkSearchInput').value.trim();
-        if (query) performLinkSearch(query);
-    }, 500);
-}
-
-// 4. 执行搜索
-function performLinkSearch(query) {
-    const container = document.getElementById('linkSearchResults');
-    container.innerHTML = '<div class="text-center py-3"><div class="spinner-border spinner-border-sm text-primary"></div></div>';
-    
-    // 复用 group_list_api 进行搜索
-    fetch(`/api/groups/?q=${encodeURIComponent(query)}`)
-        .then(res => res.json())
-        .then(data => {
-            container.innerHTML = '';
-            if (!data.results || data.results.length === 0) {
-                container.innerHTML = '<div class="text-center text-muted py-3 small">未找到相关内容</div>';
-                return;
-            }
-            
-            data.results.forEach(item => {
-                const html = `
-                    <div class="search-result-item d-flex align-items-center p-2 rounded border-bottom" onclick="confirmLinkGroup(${item.id}, '${item.title.replace(/'/g, "\\'")}')">
-                        <div class="rounded overflow-hidden bg-light me-3" style="width: 40px; height: 40px; flex-shrink: 0;">
-                            ${item.cover_url ? `<img src="${item.cover_url}" class="w-100 h-100 object-fit-cover">` : ''}
-                        </div>
-                        <div class="flex-grow-1 overflow-hidden">
-                            <div class="fw-bold text-truncate" style="font-size: 0.85rem;">${item.title}</div>
-                            <div class="text-muted text-truncate small" style="font-size: 0.75rem;">${item.prompt_text}</div>
-                        </div>
-                        <i class="bi bi-plus-lg text-primary ms-2"></i>
-                    </div>
-                `;
-                container.insertAdjacentHTML('beforeend', html);
-            });
-        });
-}
-
-// 5. 确认关联
-function confirmLinkGroup(targetId, targetTitle) {
-    const pathParts = window.location.pathname.split('/');
-    const currentPk = pathParts[pathParts.length - 2] || pathParts[pathParts.length - 1]; // 简单容错
-
-    if (currentPk == targetId) {
-        Swal.fire('提示', '不能关联自己', 'warning');
-        return;
-    }
-
-    Swal.fire({
-        title: '确认关联?',
-        text: `将 "${targetTitle}" 作为当前作品的一个版本?`,
-        icon: 'question',
-        showCancelButton: true,
-        confirmButtonText: '确认关联'
-    }).then((result) => {
-        if (result.isConfirmed) {
-            const csrftoken = getCookie('csrftoken');
-            fetch(`/api/link-group/${currentPk}/`, {
-                method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json',
-                    'X-CSRFToken': csrftoken 
-                },
-                body: JSON.stringify({ target_id: targetId })
-            })
-            .then(res => res.json())
-            .then(data => {
-                if (data.status === 'success') {
-                    Swal.fire('成功', '版本关联成功', 'success').then(() => location.reload());
-                } else {
-                    Swal.fire('失败', data.message, 'error');
-                }
-            });
-        }
+function confirmLinkGroup(tid, ttitle) {
+    const parts=location.pathname.split('/'); const cid=parts[parts.length-2]||parts[parts.length-1];
+    if(cid==tid) { Swal.fire('不能关联自己'); return; }
+    Swal.fire({title:`关联 "${ttitle}"?`,showCancelButton:true}).then(r=>{
+        if(r.isConfirmed) fetch(`/api/link-group/${cid}/`,{method:'POST',body:JSON.stringify({target_id:tid}),headers:{'Content-Type':'application/json','X-CSRFToken':getCookie('csrftoken')}}).then(res=>res.json()).then(d=>{if(d.status==='success')location.reload();});
     });
 }
