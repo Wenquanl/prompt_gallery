@@ -37,3 +37,5 @@ local_settings.py
 # 9. 操作系统生成的文件
 .DS_Store
 Thumbs.db
+
+backup/

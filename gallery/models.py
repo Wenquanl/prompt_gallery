@@ -1,6 +1,7 @@
 import uuid
 import os
 import hashlib
+import difflib
 from django.db import models
 from django.utils import timezone
 from imagekit.models import ImageSpecField
@@ -50,16 +51,87 @@ class PromptGroup(models.Model):
     model_info = models.CharField("模型信息", max_length=200, blank=True)
     tags = models.ManyToManyField(Tag, blank=True, verbose_name="关联标签")
     
-    # 【优化点】添加 db_index=True，加速首页的时间倒序查询
     created_at = models.DateTimeField("创建时间", auto_now_add=True, db_index=True)
-    
     is_liked = models.BooleanField("是否喜欢", default=False)
+
+    # 【新增】家族ID：同一系列的变体共享同一个ID
+    group_id = models.UUIDField("组ID", default=uuid.uuid4, editable=True, db_index=True)
 
     def __str__(self): return self.title
     class Meta:
         verbose_name = "提示词组"
         verbose_name_plural = "提示词组列表"
         ordering = ['-created_at']
+
+    def save(self, *args, **kwargs):
+        is_new = self._state.adding
+        
+        # 如果是新创建的，尝试自动寻找家族
+        if is_new:
+            self.find_and_join_group()
+
+        super().save(*args, **kwargs)
+
+    def find_and_join_group(self):
+        """查找最近的相似提示词组 (仅比较正向提示词)"""
+        # 【修正】只比较正向提示词，去掉首尾空格并转小写
+        my_content = (self.prompt_text or "").strip().lower()
+        
+        # 如果提示词太短（比如少于5个字符），就不自动归类了，避免误判
+        if len(my_content) < 5:
+            return
+
+        # 性能优化：只跟最近的 50 条比较 (变体通常是连续生成的)
+        candidates = PromptGroup.objects.order_by('-id')[:50]
+        
+        best_ratio = 0
+        best_group_id = None
+
+        for other in candidates:
+            # 【修正】同样只取正向提示词
+            other_content = (other.prompt_text or "").strip().lower()
+            
+            # 简单的长度预筛选
+            if abs(len(my_content) - len(other_content)) > len(my_content) * 0.4:
+                continue
+
+            # 计算相似度
+            ratio = difflib.SequenceMatcher(None, my_content, other_content).ratio()
+            
+            # 阈值：0.85 (85% 相似)
+            if ratio > 0.85 and ratio > best_ratio:
+                best_ratio = ratio
+                best_group_id = other.group_id
+        
+        if best_group_id:
+            self.group_id = best_group_id
+        """查找最近的相似提示词组，如果相似度 > 85% 则加入其 group_id"""
+        my_content = (self.prompt_text or "").strip() + " " + (self.negative_prompt or "").strip()
+        
+        # 性能优化：只跟最近的 200 条比较
+        candidates = PromptGroup.objects.order_by('-id')[:200]
+        
+        best_ratio = 0
+        best_group_id = None
+
+        for other in candidates:
+            other_content = (other.prompt_text or "").strip() + " " + (other.negative_prompt or "").strip()
+            
+            # 简单的长度预筛选
+            if abs(len(my_content) - len(other_content)) > len(my_content) * 0.3:
+                continue
+
+            # 计算相似度
+            ratio = difflib.SequenceMatcher(None, my_content, other_content).ratio()
+            
+            # 阈值设定为 0.85 (85% 相似)
+            if ratio > 0.85 and ratio > best_ratio:
+                best_ratio = ratio
+                best_group_id = other.group_id
+        
+        # 如果找到了相似的组，就加入它；否则保持默认生成的新的 UUID
+        if best_group_id:
+            self.group_id = best_group_id
 
 # === 4. 生成图 (作品单图) ===
 class ImageItem(models.Model):

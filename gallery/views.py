@@ -9,7 +9,7 @@ from django.contrib import messages
 from django.core.paginator import Paginator
 from django.views.decorators.http import require_POST
 from django.core.cache import cache
-
+from django.db.models import Q, Count, Case, When, IntegerField, Max  # 【修改】添加 Max
 from .models import ImageItem, PromptGroup, Tag, AIModel, ReferenceItem
 from .forms import PromptGroupForm
 from .ai_utils import search_similar_images
@@ -45,7 +45,6 @@ def home(request):
     queryset = PromptGroup.objects.all()
     query = request.GET.get('q')
     filter_type = request.GET.get('filter')
-    
     # 获取 URL 中的 search_id (用于恢复以图搜图结果)
     search_id = request.GET.get('search_id')
 
@@ -121,12 +120,22 @@ def home(request):
 
     # === 常规文本搜索 ===
     if query:
+        # 【搜索模式】：显示所有匹配结果，不去重，方便找回历史版本
         queryset = queryset.filter(
             Q(title__icontains=query) |
             Q(prompt_text__icontains=query) |
             Q(prompt_text_zh__icontains=query) |
             Q(tags__name__icontains=query)
         ).distinct()
+    else:
+        # 【默认浏览模式】：启用“家族折叠”，只显示每个系列最新的一个
+        # 1. 按 group_id 分组，找到每组最大的 ID (即最新创建的)
+        latest_ids_in_group = PromptGroup.objects.values('group_id').annotate(
+            max_id=Max('id')
+        ).values_list('max_id', flat=True)
+
+        # 2. 过滤 queryset，只保留这些 ID
+        queryset = queryset.filter(id__in=latest_ids_in_group)
     
     if filter_type == 'liked':
         queryset = queryset.filter(is_liked=True)
@@ -238,6 +247,11 @@ def detail(request, pk):
         usage_count=Count('promptgroup')
     ).order_by('-usage_count', 'name')[:500]
 
+    # 【修改】查找同系列的其他版本 (Group ID 相同，但 ID 不同)
+    siblings = PromptGroup.objects.filter(
+        group_id=group.group_id
+    ).exclude(pk=group.pk).order_by('-created_at')
+
     related_groups = PromptGroup.objects.filter(
         tags__in=group.tags.all()
     ).exclude(pk=pk).distinct()[:4]
@@ -249,6 +263,7 @@ def detail(request, pk):
         'group': group,
         'sorted_tags': tags_list,
         'all_tags': all_tags,
+        'siblings': siblings,      # 【新增】传递给模板
         'related_groups': related_groups,
         'tags_bar': tags_bar, # 传递标签数据
         'search_query': request.GET.get('q') # 传递搜索词以便高亮标签
