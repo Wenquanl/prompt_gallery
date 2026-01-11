@@ -11,6 +11,7 @@ from django.db.models import Q, Count, Case, When, IntegerField, Max
 from django.core.paginator import Paginator
 from django.views.decorators.http import require_GET, require_POST
 from django.core.cache import cache
+from django.template.loader import render_to_string
 from .models import ImageItem, PromptGroup, Tag, AIModel, ReferenceItem
 from .forms import PromptGroupForm
 from .ai_utils import search_similar_images
@@ -187,6 +188,7 @@ def home(request):
     paginator = Paginator(queryset, 12)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
+    total_groups_count = PromptGroup.objects.values('group_id').distinct().count()
 
     for group in page_obj:
         group.version_count = version_counts.get(group.id, 0)
@@ -195,7 +197,8 @@ def home(request):
         'page_obj': page_obj,
         'search_query': query,
         'current_filter': filter_type,
-        'tags_bar': tags_bar
+        'tags_bar': tags_bar,
+        'total_groups_count': total_groups_count,
     })
 
 
@@ -314,7 +317,6 @@ def detail(request, pk):
 
 def upload(request):
     if request.method == 'POST':
-        # ... (POST 逻辑保持不变) ...
         prompt_text = request.POST.get('prompt_text', '')
         prompt_text_zh = request.POST.get('prompt_text_zh', '')
         negative_prompt = request.POST.get('negative_prompt', '')
@@ -377,12 +379,27 @@ def upload(request):
             ReferenceItem.objects.create(group=group, image=rf)
 
         if not created_image_ids:
-            messages.warning(request, "虽然发布了作品，但未上传任何生成图。")
+            # messages.warning(request, "虽然发布了作品，但未上传任何生成图。"
+            pass
         else:
             trigger_background_processing(created_image_ids)
             messages.success(request, f"成功发布！包含 {len(created_image_ids)} 张图片，系统正在后台处理索引。")
-            
-        return redirect('home')
+
+        if request.headers.get('x-requested-with') == 'XMLHttpRequest':
+            # 渲染新卡片 HTML
+            # 伪造一个 version_count = 1
+            group.version_count = 1 
+            html = render_to_string('gallery/components/home_group_card.html', {
+                'group': group,
+                'request': request
+            })
+            return JsonResponse({
+                'status': 'success',
+                'html': html,
+                'message': f"成功发布！包含 {len(created_image_ids)} 张图片"
+            })
+
+        # return redirect('home')
 
     else:
         # === GET 请求：渲染上传页面 ===
@@ -519,15 +536,28 @@ def add_images_to_group(request, pk):
         trigger_background_processing(created_ids)
 
         if request.headers.get('x-requested-with') == 'XMLHttpRequest':
-            if duplicates:
-                return JsonResponse({
-                    'status': 'warning',
-                    'uploaded_count': uploaded_count,
-                    'duplicates': duplicates
+            # 渲染新图片的 HTML
+            new_images = ImageItem.objects.filter(id__in=created_ids)
+            # 注意：这里的 index 计算可能不准确，但在 masonry 中影响不大，或者可以通过前端修正
+            # 获取当前组已有图片数量作为起始索引
+            start_index = group.images.count() - len(created_ids)
+            
+            html_list = []
+            for i, img in enumerate(new_images):
+                html = render_to_string('gallery/components/detail_image_card.html', {
+                    'img': img, 
+                    'index': start_index + i,
+                    'request': request
                 })
-            else:
-                messages.success(request, f"成功添加 {uploaded_count} 张图片")
-                return JsonResponse({'status': 'success', 'uploaded_count': uploaded_count})
+                html_list.append(html)
+
+            return JsonResponse({
+                'status': 'success' if not duplicates else 'warning',
+                'uploaded_count': uploaded_count,
+                'duplicates': duplicates,
+                'new_images_html': html_list,  # 返回 HTML 列表
+                'total_count': group.images.count() # 返回最新总数
+            })
 
         if duplicates:
             messages.warning(request, f"成功添加 {uploaded_count} 张，忽略 {len(duplicates)} 张重复图片")

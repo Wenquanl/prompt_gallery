@@ -1,0 +1,60 @@
+<div class="modal fade" id="homeUploadModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content border-0 shadow-lg rounded-4">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title fw-bold">发布新作品</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body pt-3">
+                <form id="homeUploadForm" action="{% url 'upload' %}" method="post" enctype="multipart/form-data">
+                    {% csrf_token %}
+                    
+                    <div class="mb-3">
+                        <label class="form-label small text-muted">标题</label>
+                        <input type="text" name="title" class="form-control" placeholder="给这组图起个标题..." required>
+                    </div>
+
+                    <div class="mb-3">
+                        <div class="drag-drop-zone" id="home-upload-zone">
+                            <i class="bi bi-cloud-arrow-up fs-1 text-primary mb-2"></i>
+                            <p class="mb-1 text-dark fw-bold">点击或拖拽图片到这里</p>
+                            <p class="text-muted small">支持 JPG, PNG, WebP (支持多选)</p>
+                            <input type="file" name="upload_images" multiple accept="image/*" id="home-upload-input" required>
+                        </div>
+                        <div id="home-upload-preview" class="preview-list custom-scrollbar"></div>
+                    </div>
+
+                    <div class="accordion mb-3" id="accordionPrompt">
+                        <div class="accordion-item border-0 bg-light rounded-3">
+                            <h2 class="accordion-header">
+                                <button class="accordion-button collapsed bg-transparent shadow-none" type="button" data-bs-toggle="collapse" data-bs-target="#collapsePrompt">
+                                    <i class="bi bi-code-square me-2"></i>填写提示词与参数 (可选)
+                                </button>
+                            </h2>
+                            <div id="collapsePrompt" class="accordion-collapse collapse" data-bs-parent="#accordionPrompt">
+                                <div class="accordion-body">
+                                    <div class="mb-2">
+                                        <textarea name="prompt_text" class="form-control mb-2" rows="3" placeholder="Positive Prompt..."></textarea>
+                                        <textarea name="negative_prompt" class="form-control mb-2" rows="2" placeholder="Negative Prompt..."></textarea>
+                                        <select name="model_info" class="form-select form-select-sm">
+                                            <option value="">-- 选择模型 (可选) --</option>
+                                            {% for m in all_models %}
+                                            <option value="{{ m.id }}">{{ m.name }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary rounded-pill py-2 fw-bold btn-action-shine">
+                            <i class="bi bi-send-fill me-2"></i>立即发布
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>

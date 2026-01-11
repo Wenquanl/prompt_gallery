@@ -123,20 +123,44 @@ function performLikeFetch(url, btn, id, type, shouldRemove) {
     });
 }
 
-// 4. 分页跳转
-function jumpToPage(maxPage) {
-    const input = document.getElementById('jumpPageInput');
-    if (!input) return;
-    
-    const page = input.value;
-    if (page >= 1 && page <= maxPage) {
-        const urlParams = new URLSearchParams(window.location.search);
-        urlParams.set('page', page);
-        window.location.search = urlParams.toString();
-    } else {
-        Swal.fire('页码错误', `请输入 1 到 ${maxPage} 之间的页码`, 'warning');
+
+// 4. 分页跳转逻辑 (优化版)
+document.addEventListener('DOMContentLoaded', function() {
+    const jumpInput = document.getElementById('jumpPageInput');
+    const jumpBtn = document.getElementById('btnJumpPage');
+
+    if (jumpInput && jumpBtn) {
+        // 执行跳转的函数
+        const doJump = () => {
+            const page = parseInt(jumpInput.value);
+            const maxPage = parseInt(jumpInput.dataset.maxPage);
+            
+            if (page >= 1 && page <= maxPage) {
+                const urlParams = new URLSearchParams(window.location.search);
+                urlParams.set('page', page);
+                window.location.search = urlParams.toString();
+            } else {
+                Swal.fire({
+                    icon: 'warning',
+                    title: '页码无效',
+                    text: `请输入 1 到 ${maxPage} 之间的页码`,
+                    confirmButtonColor: '#4facfe'
+                });
+            }
+        };
+
+        // 监听按钮点击
+        jumpBtn.addEventListener('click', doJump);
+
+        // 监听回车键
+        jumpInput.addEventListener('keydown', function(event) {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                doJump();
+            }
+        });
     }
-}
+});
 
 /**
  * 5. 优化的 Masonry 初始化函数

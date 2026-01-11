@@ -198,68 +198,7 @@
     </div>
 
     {% if not is_home_search and search_mode != 'image' %}
-        {% if page_obj.paginator.num_pages > 1 %}
-        <div class="bili-pagination-wrapper">
-            {% if page_obj.has_previous %}
-            <a href="?page={{ page_obj.previous_page_number }}{% if search_query %}&q={{ search_query }}{% endif %}" class="bili-btn">上一页</a>
-            {% else %}
-            <span class="bili-btn disabled">上一页</span>
-            {% endif %}
-
-            <a href="?page=1{% if search_query %}&q={{ search_query }}{% endif %}" 
-            class="bili-btn {% if page_obj.number == 1 %}active{% endif %}">1</a>
-
-            {% if page_obj.number > 3 %}
-                <span class="bili-ellipsis">...</span>
-            {% endif %}
-
-            {% if page_obj.number > 2 %}
-                <a href="?page={{ page_obj.number|add:'-1' }}{% if search_query %}&q={{ search_query }}{% endif %}" 
-                class="bili-btn">{{ page_obj.number|add:'-1' }}</a>
-            {% endif %}
-
-            {% if page_obj.number != 1 and page_obj.number != page_obj.paginator.num_pages %}
-                <span class="bili-btn active">{{ page_obj.number }}</span>
-            {% endif %}
-
-            {% if page_obj.number < page_obj.paginator.num_pages|add:'-1' %}
-                <a href="?page={{ page_obj.number|add:'1' }}{% if search_query %}&q={{ search_query }}{% endif %}" 
-                class="bili-btn">{{ page_obj.number|add:'1' }}</a>
-            {% endif %}
-
-            {% if page_obj.number < page_obj.paginator.num_pages|add:'-2' %}
-                <span class="bili-ellipsis">...</span>
-            {% endif %}
-
-            <a href="?page={{ page_obj.paginator.num_pages }}{% if search_query %}&q={{ search_query }}{% endif %}" 
-            class="bili-btn {% if page_obj.number == page_obj.paginator.num_pages %}active{% endif %}">{{ page_obj.paginator.num_pages }}</a>
-
-            {% if page_obj.has_next %}
-            <a href="?page={{ page_obj.next_page_number }}{% if search_query %}&q={{ search_query }}{% endif %}" class="bili-btn">下一页</a>
-            {% else %}
-            <span class="bili-btn disabled">下一页</span>
-            {% endif %}
-
-            <div class="bili-jump-box">
-                共 {{ page_obj.paginator.num_pages }} 页，跳至
-                <input type="number" id="jumpPageInput" class="bili-input" min="1" max="{{ page_obj.paginator.num_pages }}" 
-                    onkeydown="if(event.key==='Enter') jumpToPage()">
-                页
-            </div>
-        </div>
-
-        <script>
-        function jumpToPage() {
-            const page = document.getElementById('jumpPageInput').value;
-            const maxPage = {{ page_obj.paginator.num_pages }};
-            if (page >= 1 && page <= maxPage) {
-                const urlParams = new URLSearchParams(window.location.search);
-                urlParams.set('page', page);
-                window.location.search = urlParams.toString();
-            }
-        }
-        </script>
-        {% endif %}
+        {% include 'gallery/components/pagination.html' %}
     {% endif %}
 </div>
 

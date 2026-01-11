@@ -570,7 +570,43 @@ a { text-decoration: none; }
     white-space: nowrap;
     user-select: none;
 }
+/* ================== 标签数量气泡样式 ================== */
+.tag-count-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    
+    margin-left: 8px;      /* 与文字的间距 */
+    padding: 2px 8px;      /* 内部留白，形成椭圆 */
+    height: 20px;
+    min-width: 20px;
+    
+    border-radius: 10px;   /* 完全圆角 */
+    font-size: 0.75rem;    /* 字体稍小 */
+    font-weight: 600;
+    line-height: 1;
+    
+    /* 默认状态：淡灰色背景，低调 */
+    background: rgba(0, 0, 0, 0.06);
+    color: var(--text-muted);
+    
+    transition: all 0.2s ease;
+}
 
+/* 状态1：鼠标悬停在标签上时 */
+/* 背景变淡蓝，文字变主题色，增加活力 */
+.tag-pill:hover .tag-count-badge {
+    background: rgba(79, 172, 254, 0.15);
+    color: var(--accent-color);
+}
+
+/* 状态2：标签被选中激活时 */
+/* 背景半透明白，文字白色，融入渐变背景 */
+.tag-pill.active .tag-count-badge {
+    background: rgba(255, 255, 255, 0.25);
+    color: #fff;
+    box-shadow: inset 0 1px 2px rgba(0,0,0,0.05); /* 轻微内阴影增加质感 */
+}
 /* 悬停态 */
 .tag-pill:hover {
     background: white;
@@ -1646,4 +1682,183 @@ a { text-decoration: none; }
     opacity: 1 !important; /* 覆盖 text-secondary 的 opacity-50 */
     color: #dc3545 !important; /* 悬停时变为红色 */
     transform: scale(1.1);
+}
+
+/* ================== 分页样式 (优化版) ================== */
+.gallery-pagination-wrapper {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin-top: 3rem;
+    margin-bottom: 2rem;
+    flex-wrap: wrap;
+    gap: 8px;
+    user-select: none;
+}
+
+.page-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 12px; /* 圆角矩形 */
+    background: rgba(255, 255, 255, 0.6);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.8);
+    color: var(--text-muted);
+    font-weight: 600;
+    font-size: 0.9rem;
+    text-decoration: none;
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.02);
+}
+
+.page-btn:hover:not(.disabled):not(.active) {
+    transform: translateY(-3px);
+    background: white;
+    color: var(--accent-color);
+    box-shadow: 0 5px 15px rgba(79, 172, 254, 0.2);
+    border-color: white;
+}
+
+.page-btn.active {
+    background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+    color: white;
+    border-color: transparent;
+    box-shadow: 0 4px 12px rgba(79, 172, 254, 0.4);
+    cursor: default;
+    pointer-events: none;
+}
+
+.page-btn.disabled {
+    background: rgba(255, 255, 255, 0.3);
+    color: #cbd5e1;
+    border-color: transparent;
+    cursor: not-allowed;
+    box-shadow: none;
+}
+
+.page-ellipsis {
+    color: #94a3b8;
+    font-weight: bold;
+    letter-spacing: 2px;
+    padding: 0 4px;
+}
+
+/* 跳转区域 */
+.page-jump-box {
+    display: inline-flex;
+    align-items: center;
+    margin-left: 20px;
+    background: rgba(255, 255, 255, 0.5);
+    padding: 4px;
+    border-radius: 50px;
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    padding-left: 15px;
+}
+
+.page-jump-input {
+    width: 50px;
+    height: 32px;
+    border: none;
+    background: transparent;
+    text-align: center;
+    font-size: 0.9rem;
+    color: var(--text-main);
+    font-weight: 600;
+    outline: none;
+}
+.page-jump-input::placeholder { color: #cbd5e1; font-weight: 400; font-size: 0.8rem; }
+/* 隐藏 Chrome/Safari 的数字输入框箭头 */
+.page-jump-input::-webkit-inner-spin-button, 
+.page-jump-input::-webkit-outer-spin-button { 
+    -webkit-appearance: none; margin: 0; 
+}
+
+.page-jump-btn {
+    height: 32px;
+    padding: 0 15px;
+    border-radius: 20px;
+    border: none;
+    background: white;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+}
+
+.page-jump-btn:hover {
+    background: var(--accent-color);
+    color: white;
+    box-shadow: 0 4px 10px rgba(79, 172, 254, 0.3);
+}
+/* 1. 生成图上传横幅 */
+.upload-trigger-area {
+    border: 2px dashed #cbd5e1;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.6);
+    backdrop-filter: blur(5px);
+    text-align: center;
+    padding: 30px 20px;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+    position: relative;
+    overflow: hidden;
+}
+
+.upload-trigger-area:hover, .upload-trigger-area.drag-over {
+    background: rgba(255, 255, 255, 0.9);
+    border-color: var(--accent-color);
+    transform: translateY(-2px);
+    box-shadow: 0 10px 25px rgba(79, 172, 254, 0.15);
+}
+
+.upload-trigger-area .icon-wrapper {
+    width: 48px; height: 48px;
+    background: rgba(79, 172, 254, 0.1);
+    color: var(--accent-color);
+    border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 1.5rem;
+    transition: all 0.3s ease;
+}
+
+.upload-trigger-area:hover .icon-wrapper {
+    background: var(--accent-color);
+    color: white;
+    transform: scale(1.1);
+}
+
+/* 2. 参考图上传方块 */
+.upload-trigger-card {
+    border: 2px dashed #cbd5e1;
+    border-radius: 8px; /* 与参考图圆角一致 */
+    background: rgba(255, 255, 255, 0.4);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    color: #94a3b8;
+}
+
+.upload-trigger-card:hover, .upload-trigger-card.drag-over {
+    background: white;
+    border-color: #17a2b8; /* 参考图的主题色 (Info) */
+    color: #17a2b8;
+    box-shadow: 0 4px 12px rgba(23, 162, 184, 0.15);
+}
+
+.upload-trigger-card i {
+    transition: transform 0.3s;
+}
+.upload-trigger-card:hover i {
+    transform: rotate(90deg);
+}
+
+/* 拖拽激活时的全局遮罩提示 (可选，增强体验) */
+.drag-active-highlight {
+    border-color: var(--accent-color) !important;
+    background-color: rgba(79, 172, 254, 0.1) !important;
+    transform: scale(1.02);
 }

@@ -1,18 +1,19 @@
 /**
  * detail.js
- * 详情页交互：图片切换、提示词编辑、标签管理、点赞、删除
+ * 详情页交互：图片切换、提示词编辑、标签管理、点赞、删除、AJAX上传
  * 依赖: Bootstrap 5, SweetAlert2, galleryImages (全局变量), common.js (getCookie, copyToClipboard, initMasonry)
  */
 
 let currentIndex = 0;
 let imageModal = null; 
+let modalGenFiles = [];
+let modalRefFiles = [];
 
 document.addEventListener('DOMContentLoaded', function() {
     const dataElement = document.getElementById('gallery-data');
     if (dataElement) {
         window.galleryImages = JSON.parse(dataElement.textContent);
     }
-    // 原有的初始化逻辑...
 });
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -48,6 +49,14 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
     });
+
+    // 5. 初始化内嵌拖拽区 (新增)
+    setupInlineDragDrop('inline-trigger-gen', 'addImagesModal', 'gen');
+    setupInlineDragDrop('inline-trigger-ref', 'addReferenceModal', 'ref');
+
+    // 6. 初始化模态框内的拖拽逻辑
+    setupDetailDragDrop('zone-modal-gen', 'input-modal-gen', 'preview-modal-gen', 'gen');
+    setupDetailDragDrop('zone-modal-ref', 'input-modal-ref', 'preview-modal-ref', 'ref');
 });
 
 // ================= 图片模态框逻辑 =================
@@ -385,7 +394,7 @@ function performRemoveTag(groupPk, tagId) {
     });
 }
 
-// ================= 图片上传处理 (添加图片到现有组) =================
+// ================= 图片上传处理 (AJAX 无刷新) =================
 
 function handleImageUpload(event) {
     event.preventDefault(); 
@@ -394,6 +403,7 @@ function handleImageUpload(event) {
     const formData = new FormData(form);
     const submitBtn = form.querySelector('button[type="submit"]');
     
+    // 更新按钮状态
     const originalBtnContent = submitBtn.innerHTML;
     submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>上传并校验中...';
     submitBtn.disabled = true;
@@ -405,8 +415,8 @@ function handleImageUpload(event) {
         method: 'POST',
         body: formData,
         headers: { 
-            'X-Requested-With': 'XMLHttpRequest',
-            'X-CSRFToken': csrftoken // 新增 CSRF 头部
+            'X-Requested-With': 'XMLHttpRequest', // 标记为 AJAX 请求
+            'X-CSRFToken': csrftoken
         }
     })
     .then(response => response.json())
@@ -414,58 +424,102 @@ function handleImageUpload(event) {
         submitBtn.innerHTML = originalBtnContent;
         submitBtn.disabled = false;
 
-        if (data.status === 'success') {
-            window.location.reload();
-        } else if (data.status === 'warning') {
-            // 隐藏上传弹窗
+        if (data.status === 'success' || data.status === 'warning') {
+            // 1. 关闭模态框
             const uploadModalEl = document.getElementById('addImagesModal');
             if (uploadModalEl) {
                 const uploadModal = bootstrap.Modal.getInstance(uploadModalEl);
                 if (uploadModal) uploadModal.hide();
             }
 
-            // 构建重复图片列表
-            let listItems = '';
-            data.duplicates.forEach(dup => {
-                listItems += `
-                    <div class="duplicate-item">
-                        <img src="${dup.existing_url || ''}" class="duplicate-alert-img">
-                        <div class="duplicate-text-content">
-                            <div class="duplicate-filename" title="${dup.name}">${dup.name}</div>
-                            <div class="duplicate-source">
-                                已存在于：<strong>《${dup.existing_group_title}》</strong>
+            // 2. 如果有新图片，动态追加到瀑布流
+            if (data.new_images_html && data.new_images_html.length > 0) {
+                const grid = document.getElementById('detail-masonry-grid');
+                
+                // 创建临时容器，将 HTML 字符串转为 DOM 节点
+                const tempDiv = document.createElement('div');
+                const newItems = [];
+                
+                // 移除"暂无图片"的空状态占位符（如果存在）
+                const emptyPlaceholder = grid.querySelector('.alert.alert-light');
+                if (emptyPlaceholder) emptyPlaceholder.parentNode.remove();
+
+                data.new_images_html.forEach(html => {
+                    tempDiv.innerHTML = html;
+                    const node = tempDiv.firstElementChild;
+                    grid.appendChild(node);
+                    newItems.push(node);
+                    
+                    // 同时更新全局 galleryImages 数据，以便灯箱能浏览新图
+                    // 这里我们简单地刷新一下页面数据，或者手动构造对象
+                    // 如果后端没返回完整 JSON，为了保险，最好让灯箱逻辑能重新获取
+                    // 此处简化处理：灯箱浏览可能需要刷新页面才能看到新图，或者可以追加到 window.galleryImages
+                    // TODO: 后端最好返回 new_images_json
+                });
+
+                // 通知 Masonry 重新布局
+                if (window.msnry) {
+                    window.msnry.appended(newItems);
+                    window.msnry.layout();
+                }
+            }
+
+            // 3. 处理重复图片的警告
+            if (data.status === 'warning' && data.duplicates.length > 0) {
+                // 构建重复图片列表 HTML
+                let listItems = '';
+                data.duplicates.forEach(dup => {
+                    listItems += `
+                        <div class="duplicate-item">
+                            <img src="${dup.existing_url || ''}" class="duplicate-alert-img">
+                            <div class="duplicate-text-content">
+                                <div class="duplicate-filename" title="${dup.name}">${dup.name}</div>
+                                <div class="duplicate-source">
+                                    已存在于：<strong>《${dup.existing_group_title}》</strong>
+                                </div>
+                                <div class="duplicate-badge"><i class="bi bi-shield-fill-x me-1"></i>已拦截重复上传</div>
                             </div>
-                            <div class="duplicate-badge"><i class="bi bi-shield-fill-x me-1"></i>已拦截重复上传</div>
                         </div>
+                    `;
+                });
+
+                const duplicateHtml = `
+                    <div class="text-start mb-2 text-muted small">以下图片因重复而被系统自动拦截：</div>
+                    <div class="duplicate-scroll-container">${listItems}</div>
+                    <div class="text-end text-muted small mt-2">
+                        成功上传: <span class="text-success fw-bold">${data.uploaded_count}</span> 张 
+                        / 拦截: <span class="text-danger fw-bold">${data.duplicates.length}</span> 张
                     </div>
                 `;
-            });
 
-            const duplicateHtml = `
-                <div class="text-start mb-2 text-muted small">以下图片因重复而被系统自动拦截：</div>
-                <div class="duplicate-scroll-container">
-                    ${listItems}
-                </div>
-                <div class="text-end text-muted small mt-2">
-                    成功上传: <span class="text-success fw-bold">${data.uploaded_count}</span> 张 
-                    / 拦截: <span class="text-danger fw-bold">${data.duplicates.length}</span> 张
-                </div>
-            `;
+                Swal.fire({
+                    title: `<span class="text-danger fw-bold"><i class="bi bi-exclamation-triangle-fill me-2"></i>重复拦截报告</span>`,
+                    html: duplicateHtml,
+                    icon: null,
+                    confirmButtonText: '知道了',
+                    confirmButtonColor: '#2c3e50',
+                    width: '600px',
+                    background: '#fff',
+                    customClass: { popup: 'rounded-4 shadow-lg border-0' }
+                });
+            } else {
+                // 纯成功状态：显示 Toast
+                Swal.fire({
+                    icon: 'success',
+                    title: '添加成功',
+                    text: `已添加 ${data.uploaded_count} 张图片`,
+                    toast: true,
+                    position: 'top-end',
+                    showConfirmButton: false,
+                    timer: 2000
+                });
+            }
 
-            Swal.fire({
-                title: `<span class="text-danger fw-bold"><i class="bi bi-exclamation-triangle-fill me-2"></i>重复拦截报告</span>`,
-                html: duplicateHtml,
-                icon: null,
-                confirmButtonText: '知道了',
-                confirmButtonColor: '#2c3e50',
-                width: '600px',
-                background: '#fff',
-                customClass: { popup: 'rounded-4 shadow-lg border-0' }
-            }).then(() => {
-                if (data.uploaded_count > 0) {
-                    window.location.reload();
-                }
-            });
+            // 4. 清理表单
+            modalGenFiles = []; // 清空文件数组
+            document.getElementById('preview-modal-gen').innerHTML = ''; // 清空预览
+            form.reset(); // 重置表单
+
         } else {
             Swal.fire({ icon: 'error', title: '上传失败', text: '请重试' });
         }
@@ -480,19 +534,59 @@ function handleImageUpload(event) {
 
 // ================= 详情页拖拽上传逻辑 =================
 
-// 独立存储详情页模态框中的文件
-let modalGenFiles = [];
-let modalRefFiles = [];
+// 初始化内嵌触发器
+function setupInlineDragDrop(triggerId, modalId, type) {
+    const trigger = document.getElementById(triggerId);
+    if (!trigger) return;
 
-document.addEventListener('DOMContentLoaded', function() {
-    // 初始化两个模态框的拖拽
-    setupDetailDragDrop('zone-modal-gen', 'input-modal-gen', 'preview-modal-gen', 'gen');
-    setupDetailDragDrop('zone-modal-ref', 'input-modal-ref', 'preview-modal-ref', 'ref');
-});
+    // 1. 点击事件：直接打开模态框
+    trigger.addEventListener('click', () => {
+        const modalEl = document.getElementById(modalId);
+        if (modalEl) {
+            const bsModal = bootstrap.Modal.getOrCreateInstance(modalEl);
+            bsModal.show();
+        }
+    });
+
+    // 2. 拖拽事件处理
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+        trigger.addEventListener(eventName, (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+        }, false);
+    });
+
+    trigger.addEventListener('dragenter', () => trigger.classList.add('drag-over'));
+    trigger.addEventListener('dragleave', () => trigger.classList.remove('drag-over'));
+    trigger.addEventListener('drop', () => trigger.classList.remove('drag-over'));
+
+    // Drop 处理
+    trigger.addEventListener('drop', (e) => {
+        const dt = e.dataTransfer;
+        const files = dt.files;
+
+        if (files && files.length > 0) {
+            // 打开模态框
+            const modalEl = document.getElementById(modalId);
+            if (modalEl) {
+                const bsModal = bootstrap.Modal.getOrCreateInstance(modalEl);
+                bsModal.show();
+
+                // 填入文件
+                const input = document.getElementById(`input-modal-${type}`);
+                const previewContainer = document.getElementById(`preview-modal-${type}`);
+                
+                if (input && previewContainer) {
+                    handleModalFiles(files, type, input, previewContainer);
+                }
+            }
+        }
+    });
+}
 
 function setupDetailDragDrop(zoneId, inputId, previewId, type) {
     const zone = document.getElementById(zoneId);
-    if (!zone) return; // 详情页可能不存在某些元素，安全退出
+    if (!zone) return; 
     
     const input = document.getElementById(inputId);
     const previewContainer = document.getElementById(previewId);
@@ -529,7 +623,6 @@ function handleModalFiles(newFiles, type, input, previewContainer) {
     const fileArray = (type === 'gen') ? modalGenFiles : modalRefFiles;
     
     Array.from(newFiles).forEach(file => {
-        // 简单查重：检查文件名和大小
         const exists = fileArray.some(f => f.name === file.name && f.size === file.size);
         if (!exists) {
             fileArray.push(file);
@@ -568,7 +661,6 @@ function addModalPreviewItem(file, type, container, input) {
     div.appendChild(delBtn);
     container.appendChild(div);
 
-    // 生成缩略图
     createModalThumbnail(file).then(url => {
         const spinner = div.querySelector('.spinner-border');
         if(spinner) spinner.remove();
@@ -584,7 +676,6 @@ function addModalPreviewItem(file, type, container, input) {
     });
 }
 
-// 简易缩略图生成 (复用逻辑)
 function createModalThumbnail(file) {
     return new Promise((resolve) => {
         if (!file.type.startsWith('image/')) { resolve(null); return; }
@@ -594,7 +685,7 @@ function createModalThumbnail(file) {
             img.onload = () => {
                 const canvas = document.createElement('canvas');
                 const ctx = canvas.getContext('2d');
-                const maxSize = 200; // 模态框预览图不需要太大
+                const maxSize = 200; 
                 let w = img.width, h = img.height;
                 if (w > h) { if (w > maxSize) { h *= maxSize/w; w = maxSize; } }
                 else { if (h > maxSize) { w *= maxSize/h; h = maxSize; } }
@@ -608,7 +699,7 @@ function createModalThumbnail(file) {
     });
 }
 
-// ================= 13. 导航栏滚动透明特效 (JS部分) =================
+// ================= 导航栏滚动透明特效 (JS部分) =================
 
 document.addEventListener('DOMContentLoaded', function() {
     // 仅在详情页运行
@@ -621,23 +712,18 @@ document.addEventListener('DOMContentLoaded', function() {
     if (navbar && (scrollLeft || scrollRight)) {
         
         function updateNavbar() {
-            // 获取左右两侧的滚动距离
             const scrollTopLeft = scrollLeft ? scrollLeft.scrollTop : 0;
             const scrollTopRight = scrollRight ? scrollRight.scrollTop : 0;
             
-            // 只要有一侧滚动超过 10px，就取消透明（变为磨砂）
             if (scrollTopLeft > 10 || scrollTopRight > 10) {
                 navbar.classList.remove('navbar-transparent');
             } else {
-                // 回到顶部，变透明
                 navbar.classList.add('navbar-transparent');
             }
         }
 
-        // 初始化执行
         updateNavbar();
 
-        // 监听滚动
         if(scrollLeft) scrollLeft.addEventListener('scroll', updateNavbar);
         if(scrollRight) scrollRight.addEventListener('scroll', updateNavbar);
     }
@@ -645,7 +731,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // ================= 版本关联管理 =================
 
-// 1. 解除关联
 function unlinkSibling(event, siblingId) {
     event.preventDefault(); 
     event.stopPropagation();
@@ -677,7 +762,6 @@ function unlinkSibling(event, siblingId) {
     });
 }
 
-// 2. 打开关联模态框
 let linkModal;
 function openLinkModal() {
     if (!linkModal) {
@@ -688,7 +772,6 @@ function openLinkModal() {
     linkModal.show();
 }
 
-// 3. 搜索防抖
 let searchTimer;
 function debounceSearchLink() {
     clearTimeout(searchTimer);
@@ -698,12 +781,10 @@ function debounceSearchLink() {
     }, 500);
 }
 
-// 4. 执行搜索
 function performLinkSearch(query) {
     const container = document.getElementById('linkSearchResults');
     container.innerHTML = '<div class="text-center py-3"><div class="spinner-border spinner-border-sm text-primary"></div></div>';
     
-    // 复用 group_list_api 进行搜索
     fetch(`/api/groups/?q=${encodeURIComponent(query)}`)
         .then(res => res.json())
         .then(data => {
@@ -712,10 +793,6 @@ function performLinkSearch(query) {
                 container.innerHTML = '<div class="text-center text-muted py-3 small">未找到相关内容</div>';
                 return;
             }
-            
-            // 当前页面的 ID，用于排除自己
-            // 假设 URL 是 /detail/123/，简单解析一下或从 DOM 获取
-            // 这里简单处理：不做前端排除，由后端处理或用户自己看
             
             data.results.forEach(item => {
                 const html = `
@@ -735,13 +812,9 @@ function performLinkSearch(query) {
         });
 }
 
-// 5. 确认关联
 function confirmLinkGroup(targetId, targetTitle) {
-    // 获取当前页面 Group ID (从URL或DOM中获取，这里假设 detail.html 中有一个全局变量或从URL解析)
-    // 更稳妥的方式是在 HTML 中埋入 currentGroupId
-    // 这里我们解析 URL: /detail/123/
     const pathParts = window.location.pathname.split('/');
-    const currentPk = pathParts[pathParts.length - 2] || pathParts[pathParts.length - 1]; // 简单容错
+    const currentPk = pathParts[pathParts.length - 2] || pathParts[pathParts.length - 1]; 
 
     if (currentPk == targetId) {
         Swal.fire('提示', '不能关联自己', 'warning');

@@ -1,0 +1,75 @@
+<div class="grid-item">
+    <div class="gallery-card masonry-entry h-100 d-block position-relative group-card-container" id="group-card-{{ group.pk }}">
+         
+        <button class="btn-card-float position-absolute top-0 end-0 m-2 z-3" 
+                style="right: 52px!important;" 
+                onclick="copyHomePrompt(event, '{{ group.prompt_text|escapejs }}')"
+                title="复制提示词">
+            <i class="bi bi-clipboard text-primary"></i>
+        </button>
+        
+        <button class="btn-card-float position-absolute top-0 end-0 m-2 {% if group.is_liked %}active{% endif %}"
+                onclick="toggleGroupLike(event, {{ group.pk }}, {% if group.is_liked %}true{% else %}false{% endif %})">
+            <i class="bi {% if group.is_liked %}bi-heart-fill{% else %}bi-heart{% endif %}"></i>
+        </button>
+
+        <a href="{% url 'detail' group.pk %}?from=home" class="text-decoration-none text-dark">
+            <div class="img-wrapper">
+                {% with cover=group.images.first %}
+                    {% if cover %}
+                        <img src="{{ cover.thumbnail.url }}" alt="{{ group.title }}">
+                    {% else %}
+                        <div class="d-flex align-items-center justify-content-center h-100 w-100 text-secondary bg-light bg-opacity-50" style="min-height: 200px;">
+                            <i class="bi bi-image fs-1 opacity-50"></i>
+                        </div>
+                    {% endif %}
+                {% endwith %}
+                
+                {% if group.references.all %}
+                <div class="ref-stack-container">
+                    {% for ref in group.references.all|slice:":4" %}
+                    <div class="ref-item">
+                        <img src="{{ ref.thumbnail.url }}" alt="Ref">
+                    </div>
+                    {% endfor %}
+                    {% if group.references.count > 4 %}
+                    <div class="ref-more-badge">+{{ group.references.count|add:"-4" }}</div>
+                    {% endif %}
+                </div>
+                {% endif %}
+
+                <div style="position: absolute; bottom: 10px; right: 10px; z-index: 3; display: flex; flex-direction: column; align-items: flex-end; gap: 6px;">
+                    {% if group.version_count > 1 %}
+                    <div style="background: rgba(0, 0, 0, 0.6); color: white; padding: 3px 8px; border-radius: 20px; font-size: 0.75rem; backdrop-filter: blur(4px); box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                        <i class="bi bi-layers-fill me-1"></i>{{ group.version_count }}
+                    </div>
+                    {% endif %}
+                    {% if group.images.count > 1 %}
+                    <div style="background: rgba(0, 0, 0, 0.6); color: white; padding: 3px 8px; border-radius: 20px; font-size: 0.75rem; backdrop-filter: blur(4px); box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                        <i class="bi bi-images me-1"></i>{{ group.images.count }}
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="card-body p-3">
+                <h5 class="card-title text-truncate mb-2">{{ group.title }}</h5>
+                <div class="mb-2" style="height: 28px; overflow: hidden;">
+                    {% for tag in group.tags.all|slice:":3" %}
+                    <object><a href="/?q={{ tag.name }}" class="tag-badge">{{ tag.name }}</a></object>
+                    {% endfor %}
+                    {% if group.tags.count > 3 %}
+                    <span class="text-muted small align-middle">+{{ group.tags.count|add:"-3" }}</span>
+                    {% endif %}
+                </div>
+                <p class="card-text text-clamp" title="{{ group.prompt_text }}">
+                   {{ group.prompt_text }}
+                </p>
+                <div class="d-flex justify-content-between align-items-center mt-3 border-top border-light pt-2 text-muted small">
+                    <span><i class="bi bi-clock me-1"></i>{{ group.created_at|date:"m-d" }}</span>
+                    <span>查看详情 &rarr;</span>
+                </div>
+            </div>
+        </a>
+    </div>
+</div>

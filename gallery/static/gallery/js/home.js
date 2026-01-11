@@ -1,3 +1,6 @@
+// home.js
+// 首页交互：Masonry布局、Tooltip、合并管理、首页弹窗上传
+
 // 全局变量定义
 let mergeModal;
 let selectedMergeIds = new Set();
@@ -13,7 +16,10 @@ document.addEventListener('DOMContentLoaded', function() {
         IS_LIKED_FILTER = JSON.parse(filterScript.textContent);
     }
 
-    initMasonry('#masonry-grid', '.grid-item');
+    // 初始化瀑布流
+    if (window.initMasonry) {
+        initMasonry('#masonry-grid', '.grid-item');
+    }
     
     // 初始化 Tooltips
     var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
@@ -31,6 +37,91 @@ document.addEventListener('DOMContentLoaded', function() {
                 currentQuery = e.target.value.trim();
                 loadMergeData(1, true);
             }, 500);
+        });
+    }
+
+    // ================= [新增] 首页模态框上传逻辑 =================
+    const homeUploadForm = document.getElementById('homeUploadForm');
+    if (homeUploadForm) {
+        homeUploadForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(this);
+            const btn = this.querySelector('button[type="submit"]');
+            const originalText = btn.innerHTML;
+            
+            // 按钮 Loading 状态
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>发布中...';
+            btn.disabled = true;
+
+            fetch(this.action, {
+                method: 'POST',
+                body: formData,
+                headers: { 
+                    'X-Requested-With': 'XMLHttpRequest', // 标记为 AJAX
+                    'X-CSRFToken': getCookie('csrftoken') 
+                }
+            })
+            .then(res => res.json())
+            .then(data => {
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+
+                if (data.status === 'success') {
+                    // 1. 关闭 Modal
+                    const modalEl = document.getElementById('homeUploadModal');
+                    const bsModal = bootstrap.Modal.getInstance(modalEl);
+                    if (bsModal) bsModal.hide();
+
+                    // 2. 动态插入新卡片到顶部
+                    if (data.html) {
+                        const grid = document.getElementById('masonry-grid');
+                        const tempDiv = document.createElement('div');
+                        tempDiv.innerHTML = data.html;
+                        const newNode = tempDiv.firstElementChild;
+                        
+                        // 移除空状态提示（如果存在）
+                        const emptyState = grid.querySelector('.text-center.py-5');
+                        if (emptyState) emptyState.remove();
+
+                        // 插入到 DOM
+                        grid.insertBefore(newNode, grid.firstChild); 
+
+                        // 3. Masonry 布局更新
+                        if (window.msnry) {
+                            window.msnry.prepended([newNode]);
+                            window.msnry.layout();
+                        }
+                    }
+                    
+                    // 4. 清空表单与预览
+                    const previewBox = document.getElementById('home-upload-preview');
+                    if (previewBox) previewBox.innerHTML = '';
+                    homeUploadForm.reset();
+
+                    // 5. 成功提示
+                    Swal.fire({
+                        icon: 'success',
+                        title: '发布成功',
+                        text: data.message,
+                        timer: 2000,
+                        showConfirmButton: false
+                    });
+
+                } else {
+                    Swal.fire({
+                        icon: 'error',
+                        title: '发布失败',
+                        text: data.message || '请重试',
+                    });
+                }
+            })
+            .catch(err => {
+                console.error(err);
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+                Swal.fire('错误', '网络请求失败', 'error');
+            });
         });
     }
 });
