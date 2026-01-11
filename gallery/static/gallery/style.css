@@ -1862,3 +1862,16 @@ a { text-decoration: none; }
     background-color: rgba(79, 172, 254, 0.1) !important;
     transform: scale(1.02);
 }
+
+/* 拖拽激活时的样式 */
+.upload-trigger-area.drag-over,
+.upload-trigger-card.drag-over {
+    background-color: rgba(79, 172, 254, 0.15) !important;
+    border-color: var(--accent-color) !important;
+    transform: scale(1.02);
+    box-shadow: 0 0 15px rgba(79, 172, 254, 0.3);
+}
+
+.upload-trigger-card.drag-over {
+    color: var(--accent-color);
+}

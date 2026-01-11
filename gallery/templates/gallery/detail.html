@@ -116,7 +116,7 @@
                         <span class="section-label text-info">参考图 (References)</span>
                     </div>
 
-                    <div class="row row-cols-3 g-2">
+                    <div class="row row-cols-3 g-2" id="reference-grid">
                         <div class="col">
                             <div class="ratio ratio-1x1 upload-trigger-card" id="inline-trigger-ref" role="button">
                                 <div class="d-flex flex-column align-items-center justify-content-center h-100 content-wrapper">
@@ -126,22 +126,7 @@
                             </div>
                         </div>
                         {% for ref in group.references.all %}
-                        <div class="col position-relative">
-                            <div class="ratio ratio-1x1 rounded overflow-hidden border bg-light">
-                                <a href="{{ ref.image.url }}" target="_blank">
-                                    <img src="{{ ref.thumbnail.url }}" alt="Ref" style="object-fit: contain; width: 100%; height: 100%;" loading="lazy">
-                                </a>
-                            </div>
-                            <form action="{% url 'delete_reference' ref.pk %}" method="post" class="position-absolute top-0 end-0 m-1">
-                                {% csrf_token %}
-                                <button type="button" class="btn btn-danger btn-sm p-0 d-flex align-items-center justify-content-center rounded-circle shadow-sm" 
-                                        style="width: 20px; height: 20px; opacity: 0.9;" onclick="confirmDelete(event)" title="删除参考图">
-                                    <i class="bi bi-x" style="font-size: 14px;"></i>
-                                </button>
-                            </form>
-                        </div>
-                        {% empty %}
-                        <div class="col-12 text-center text-muted small py-3 fst-italic">无参考图</div>
+                            {% include 'gallery/components/detail_reference_item.html' with ref=ref %}
                         {% endfor %}
                     </div>
                 </div>

@@ -1,7 +1,6 @@
 import os
 import uuid
 import json
-import difflib
 import re
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
@@ -504,8 +503,8 @@ def toggle_like_image(request, pk):
     image.save()
     return JsonResponse({'status': 'success', 'is_liked': image.is_liked})
 
-
 def add_images_to_group(request, pk):
+    """【修复版】添加生成图：支持 AJAX JSON 返回"""
     group = get_object_or_404(PromptGroup, pk=pk)
     
     if request.method == 'POST':
@@ -517,7 +516,6 @@ def add_images_to_group(request, pk):
         if files:
             for f in files:
                 file_hash = calculate_file_hash(f)
-                
                 existing_img = ImageItem.objects.filter(group=group, image_hash=file_hash).first()
                 
                 if existing_img:
@@ -533,13 +531,14 @@ def add_images_to_group(request, pk):
                     created_ids.append(img_item.id)
                     uploaded_count += 1
         
-        trigger_background_processing(created_ids)
+        # 触发后台处理
+        if created_ids:
+            trigger_background_processing(created_ids)
 
+        # === [关键修复] AJAX 请求返回 JSON，不跳转 ===
         if request.headers.get('x-requested-with') == 'XMLHttpRequest':
-            # 渲染新图片的 HTML
             new_images = ImageItem.objects.filter(id__in=created_ids)
-            # 注意：这里的 index 计算可能不准确，但在 masonry 中影响不大，或者可以通过前端修正
-            # 获取当前组已有图片数量作为起始索引
+            # 计算前端起始索引
             start_index = group.images.count() - len(created_ids)
             
             html_list = []
@@ -555,10 +554,11 @@ def add_images_to_group(request, pk):
                 'status': 'success' if not duplicates else 'warning',
                 'uploaded_count': uploaded_count,
                 'duplicates': duplicates,
-                'new_images_html': html_list,  # 返回 HTML 列表
-                'total_count': group.images.count() # 返回最新总数
+                'new_images_html': html_list,
+                'type': 'gen'  # 标记类型为生成图
             })
-
+        
+        # 普通表单提交的回退处理
         if duplicates:
             messages.warning(request, f"成功添加 {uploaded_count} 张，忽略 {len(duplicates)} 张重复图片")
         else:
@@ -568,12 +568,34 @@ def add_images_to_group(request, pk):
 
 
 def add_references_to_group(request, pk):
+    """【修复版】添加参考图：支持 AJAX JSON 返回"""
     group = get_object_or_404(PromptGroup, pk=pk)
+    
     if request.method == 'POST':
         files = request.FILES.getlist('new_references')
+        new_refs = []
         if files:
             for f in files:
-                ReferenceItem.objects.create(group=group, image=f)
+                ref = ReferenceItem.objects.create(group=group, image=f)
+                new_refs.append(ref)
+        
+        # === [关键修复] AJAX 请求返回 JSON，包含新图片的 HTML ===
+        if request.headers.get('x-requested-with') == 'XMLHttpRequest':
+            html_list = []
+            for ref in new_refs:
+                html = render_to_string('gallery/components/detail_reference_item.html', {
+                    'ref': ref,
+                    'request': request
+                })
+                html_list.append(html)
+            
+            return JsonResponse({
+                'status': 'success',
+                'uploaded_count': len(new_refs),
+                'new_references_html': html_list,
+                'type': 'ref'  # 标记类型为参考图
+            })
+
     return redirect('detail', pk=pk)
 
 

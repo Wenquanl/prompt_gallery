@@ -1,14 +1,16 @@
 /**
  * detail.js
- * 详情页交互：图片切换、提示词编辑、标签管理、点赞、删除、AJAX上传
- * 依赖: Bootstrap 5, SweetAlert2, galleryImages (全局变量), common.js (getCookie, copyToClipboard, initMasonry)
+ * 详情页交互：图片切换、提示词编辑、标签管理、点赞、删除、AJAX上传(修复版)、版本关联
+ * 依赖: Bootstrap 5, SweetAlert2, galleryImages (全局变量), common.js
  */
 
 let currentIndex = 0;
 let imageModal = null; 
+// 独立存储详情页模态框中的文件
 let modalGenFiles = [];
 let modalRefFiles = [];
 
+// 初始化全局数据
 document.addEventListener('DOMContentLoaded', function() {
     const dataElement = document.getElementById('gallery-data');
     if (dataElement) {
@@ -50,7 +52,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // 5. 初始化内嵌拖拽区 (新增)
+    // 5. 初始化内嵌拖拽区 (修复样式响应)
     setupInlineDragDrop('inline-trigger-gen', 'addImagesModal', 'gen');
     setupInlineDragDrop('inline-trigger-ref', 'addReferenceModal', 'ref');
 
@@ -394,7 +396,7 @@ function performRemoveTag(groupPk, tagId) {
     });
 }
 
-// ================= 图片上传处理 (AJAX 无刷新) =================
+// ================= 图片上传处理 (AJAX 通用版 - 修复) =================
 
 function handleImageUpload(event) {
     event.preventDefault(); 
@@ -403,99 +405,108 @@ function handleImageUpload(event) {
     const formData = new FormData(form);
     const submitBtn = form.querySelector('button[type="submit"]');
     
-    // 更新按钮状态
     const originalBtnContent = submitBtn.innerHTML;
-    submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>上传并校验中...';
+    submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>上传处理中...';
     submitBtn.disabled = true;
 
-    // 获取 CSRF Token
     const csrftoken = getCookie('csrftoken');
 
     fetch(form.action, {
         method: 'POST',
         body: formData,
         headers: { 
-            'X-Requested-With': 'XMLHttpRequest', // 标记为 AJAX 请求
-            'X-CSRFToken': csrftoken
+            'X-Requested-With': 'XMLHttpRequest', // 必须：防止后端返回 302 跳转
+            'X-CSRFToken': csrftoken 
         }
     })
-    .then(response => response.json())
+    .then(response => {
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return response.json();
+    })
     .then(data => {
         submitBtn.innerHTML = originalBtnContent;
         submitBtn.disabled = false;
 
         if (data.status === 'success' || data.status === 'warning') {
-            // 1. 关闭模态框
-            const uploadModalEl = document.getElementById('addImagesModal');
-            if (uploadModalEl) {
-                const uploadModal = bootstrap.Modal.getInstance(uploadModalEl);
-                if (uploadModal) uploadModal.hide();
+            // 1. 关闭对应模态框
+            const modalId = (data.type === 'ref') ? 'addReferenceModal' : 'addImagesModal';
+            const modalEl = document.getElementById(modalId);
+            if (modalEl) {
+                const modalInstance = bootstrap.Modal.getInstance(modalEl);
+                if (modalInstance) modalInstance.hide();
             }
 
-            // 2. 如果有新图片，动态追加到瀑布流
-            if (data.new_images_html && data.new_images_html.length > 0) {
-                const grid = document.getElementById('detail-masonry-grid');
-                
-                // 创建临时容器，将 HTML 字符串转为 DOM 节点
-                const tempDiv = document.createElement('div');
-                const newItems = [];
-                
-                // 移除"暂无图片"的空状态占位符（如果存在）
-                const emptyPlaceholder = grid.querySelector('.alert.alert-light');
-                if (emptyPlaceholder) emptyPlaceholder.parentNode.remove();
+            // 2. 动态插入内容
+            if (data.type === 'gen') {
+                // [生成图]
+                if (data.new_images_html && data.new_images_html.length > 0) {
+                    const grid = document.getElementById('detail-masonry-grid');
+                    const emptyPlaceholder = grid.querySelector('.alert.alert-light');
+                    if (emptyPlaceholder) emptyPlaceholder.parentNode.remove();
 
-                data.new_images_html.forEach(html => {
-                    tempDiv.innerHTML = html;
-                    const node = tempDiv.firstElementChild;
-                    grid.appendChild(node);
-                    newItems.push(node);
+                    const tempDiv = document.createElement('div');
+                    const newItems = [];
+                    data.new_images_html.forEach(html => {
+                        tempDiv.innerHTML = html;
+                        const node = tempDiv.firstElementChild;
+                        grid.appendChild(node);
+                        newItems.push(node);
+                    });
+
+                    if (window.msnry) {
+                        window.msnry.appended(newItems);
+                        window.msnry.layout();
+                    }
                     
-                    // 同时更新全局 galleryImages 数据，以便灯箱能浏览新图
-                    // 这里我们简单地刷新一下页面数据，或者手动构造对象
-                    // 如果后端没返回完整 JSON，为了保险，最好让灯箱逻辑能重新获取
-                    // 此处简化处理：灯箱浏览可能需要刷新页面才能看到新图，或者可以追加到 window.galleryImages
-                    // TODO: 后端最好返回 new_images_json
-                });
-
-                // 通知 Masonry 重新布局
-                if (window.msnry) {
-                    window.msnry.appended(newItems);
-                    window.msnry.layout();
+                    modalGenFiles = [];
+                    document.getElementById('preview-modal-gen').innerHTML = '';
+                }
+            } else if (data.type === 'ref') {
+                // [参考图]
+                if (data.new_references_html && data.new_references_html.length > 0) {
+                    // 确保 detail.html 中参考图容器有 id="reference-grid"
+                    const refGrid = document.getElementById('reference-grid');
+                    if (refGrid) {
+                        data.new_references_html.forEach(html => {
+                            refGrid.insertAdjacentHTML('beforeend', html);
+                        });
+                    }
+                    
+                    modalRefFiles = [];
+                    document.getElementById('preview-modal-ref').innerHTML = '';
                 }
             }
 
-            // 3. 处理重复图片的警告
-            if (data.status === 'warning' && data.duplicates.length > 0) {
-                // 构建重复图片列表 HTML
+            // 3. 提示结果
+            if (data.status === 'warning') {
                 let listItems = '';
-                data.duplicates.forEach(dup => {
-                    listItems += `
-                        <div class="duplicate-item">
-                            <img src="${dup.existing_url || ''}" class="duplicate-alert-img">
-                            <div class="duplicate-text-content">
-                                <div class="duplicate-filename" title="${dup.name}">${dup.name}</div>
-                                <div class="duplicate-source">
-                                    已存在于：<strong>《${dup.existing_group_title}》</strong>
+                if (data.duplicates && data.duplicates.length > 0) {
+                    data.duplicates.forEach(dup => {
+                        listItems += `
+                            <div class="duplicate-item">
+                                <img src="${dup.existing_url || ''}" class="duplicate-alert-img">
+                                <div class="duplicate-text-content">
+                                    <div class="duplicate-filename" title="${dup.name}">${dup.name}</div>
+                                    <div class="duplicate-source">
+                                        已存在于：<strong>《${dup.existing_group_title}》</strong>
+                                    </div>
+                                    <div class="duplicate-badge"><i class="bi bi-shield-fill-x me-1"></i>已拦截</div>
                                 </div>
-                                <div class="duplicate-badge"><i class="bi bi-shield-fill-x me-1"></i>已拦截重复上传</div>
                             </div>
-                        </div>
-                    `;
-                });
-
+                        `;
+                    });
+                }
                 const duplicateHtml = `
                     <div class="text-start mb-2 text-muted small">以下图片因重复而被系统自动拦截：</div>
                     <div class="duplicate-scroll-container">${listItems}</div>
                     <div class="text-end text-muted small mt-2">
                         成功上传: <span class="text-success fw-bold">${data.uploaded_count}</span> 张 
-                        / 拦截: <span class="text-danger fw-bold">${data.duplicates.length}</span> 张
+                        / 拦截: <span class="text-danger fw-bold">${data.duplicates ? data.duplicates.length : 0}</span> 张
                     </div>
                 `;
-
                 Swal.fire({
                     title: `<span class="text-danger fw-bold"><i class="bi bi-exclamation-triangle-fill me-2"></i>重复拦截报告</span>`,
                     html: duplicateHtml,
-                    icon: null,
                     confirmButtonText: '知道了',
                     confirmButtonColor: '#2c3e50',
                     width: '600px',
@@ -503,52 +514,40 @@ function handleImageUpload(event) {
                     customClass: { popup: 'rounded-4 shadow-lg border-0' }
                 });
             } else {
-                // 纯成功状态：显示 Toast
                 Swal.fire({
                     icon: 'success',
                     title: '添加成功',
                     text: `已添加 ${data.uploaded_count} 张图片`,
-                    toast: true,
-                    position: 'top-end',
-                    showConfirmButton: false,
-                    timer: 2000
+                    toast: true, position: 'top-end', showConfirmButton: false, timer: 2000
                 });
             }
-
-            // 4. 清理表单
-            modalGenFiles = []; // 清空文件数组
-            document.getElementById('preview-modal-gen').innerHTML = ''; // 清空预览
-            form.reset(); // 重置表单
+            form.reset();
 
         } else {
-            Swal.fire({ icon: 'error', title: '上传失败', text: '请重试' });
+            Swal.fire({ icon: 'error', title: '操作失败', text: '服务器未返回预期状态' });
         }
     })
     .catch(error => {
-        console.error('Error:', error);
+        console.error(error);
         submitBtn.innerHTML = originalBtnContent;
         submitBtn.disabled = false;
-        Swal.fire({ icon: 'error', title: '网络错误', text: '无法连接到服务器或响应格式错误' });
+        Swal.fire({ icon: 'error', title: '上传错误', text: error.message });
     });
 }
 
-// ================= 详情页拖拽上传逻辑 =================
+// ================= 拖拽上传逻辑 (修复样式闪烁) =================
 
-// 初始化内嵌触发器
 function setupInlineDragDrop(triggerId, modalId, type) {
     const trigger = document.getElementById(triggerId);
     if (!trigger) return;
 
-    // 1. 点击事件：直接打开模态框
+    let dragCounter = 0; // 引入计数器解决子元素闪烁问题
+
     trigger.addEventListener('click', () => {
         const modalEl = document.getElementById(modalId);
-        if (modalEl) {
-            const bsModal = bootstrap.Modal.getOrCreateInstance(modalEl);
-            bsModal.show();
-        }
+        if (modalEl) bootstrap.Modal.getOrCreateInstance(modalEl).show();
     });
 
-    // 2. 拖拽事件处理
     ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
         trigger.addEventListener(eventName, (e) => {
             e.preventDefault();
@@ -556,26 +555,29 @@ function setupInlineDragDrop(triggerId, modalId, type) {
         }, false);
     });
 
-    trigger.addEventListener('dragenter', () => trigger.classList.add('drag-over'));
-    trigger.addEventListener('dragleave', () => trigger.classList.remove('drag-over'));
-    trigger.addEventListener('drop', () => trigger.classList.remove('drag-over'));
+    trigger.addEventListener('dragenter', () => {
+        dragCounter++;
+        trigger.classList.add('drag-over');
+    });
 
-    // Drop 处理
+    trigger.addEventListener('dragleave', () => {
+        dragCounter--;
+        if (dragCounter === 0) {
+            trigger.classList.remove('drag-over');
+        }
+    });
+
     trigger.addEventListener('drop', (e) => {
-        const dt = e.dataTransfer;
-        const files = dt.files;
-
+        dragCounter = 0;
+        trigger.classList.remove('drag-over');
+        
+        const files = e.dataTransfer.files;
         if (files && files.length > 0) {
-            // 打开模态框
             const modalEl = document.getElementById(modalId);
             if (modalEl) {
-                const bsModal = bootstrap.Modal.getOrCreateInstance(modalEl);
-                bsModal.show();
-
-                // 填入文件
+                bootstrap.Modal.getOrCreateInstance(modalEl).show();
                 const input = document.getElementById(`input-modal-${type}`);
                 const previewContainer = document.getElementById(`preview-modal-${type}`);
-                
                 if (input && previewContainer) {
                     handleModalFiles(files, type, input, previewContainer);
                 }
@@ -590,35 +592,39 @@ function setupDetailDragDrop(zoneId, inputId, previewId, type) {
     
     const input = document.getElementById(inputId);
     const previewContainer = document.getElementById(previewId);
+    let dragCounter = 0;
 
     ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-        zone.addEventListener(eventName, preventDefaults, false);
-        document.body.addEventListener(eventName, preventDefaults, false);
+        zone.addEventListener(eventName, (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+        }, false);
     });
 
-    ['dragenter', 'dragover'].forEach(eventName => {
-        zone.addEventListener(eventName, () => zone.classList.add('drag-over'), false);
+    zone.addEventListener('dragenter', () => {
+        dragCounter++;
+        zone.classList.add('drag-over');
     });
-    ['dragleave', 'drop'].forEach(eventName => {
-        zone.addEventListener(eventName, () => zone.classList.remove('drag-over'), false);
+    
+    zone.addEventListener('dragleave', () => {
+        dragCounter--;
+        if (dragCounter === 0) zone.classList.remove('drag-over');
     });
 
     zone.addEventListener('drop', (e) => {
-        const dt = e.dataTransfer;
-        handleModalFiles(dt.files, type, input, previewContainer);
-    }, false);
+        dragCounter = 0;
+        zone.classList.remove('drag-over');
+        handleModalFiles(e.dataTransfer.files, type, input, previewContainer);
+    });
 
-    input.addEventListener('change', (e) => {
+    input.addEventListener('change', () => {
         if (input.files.length > 0) {
             handleModalFiles(input.files, type, input, previewContainer);
         }
     });
 }
 
-function preventDefaults(e) {
-    e.preventDefault(); e.stopPropagation();
-}
-
+// 辅助函数：文件处理
 function handleModalFiles(newFiles, type, input, previewContainer) {
     const fileArray = (type === 'gen') ? modalGenFiles : modalRefFiles;
     
@@ -629,7 +635,6 @@ function handleModalFiles(newFiles, type, input, previewContainer) {
             addModalPreviewItem(file, type, previewContainer, input);
         }
     });
-    
     updateModalInputFiles(type, input);
 }
 
@@ -663,15 +668,14 @@ function addModalPreviewItem(file, type, container, input) {
 
     createModalThumbnail(file).then(url => {
         const spinner = div.querySelector('.spinner-border');
-        if(spinner) spinner.remove();
+        if (spinner) spinner.remove();
         
         if (url) {
             const img = document.createElement('img');
             img.src = url;
             div.insertBefore(img, delBtn);
         } else {
-            div.innerHTML = '<div class="text-center pt-4 text-danger small">无法预览</div>';
-            div.appendChild(delBtn);
+            div.innerHTML += '<span class="small text-danger">Error</span>';
         }
     });
 }
@@ -685,7 +689,7 @@ function createModalThumbnail(file) {
             img.onload = () => {
                 const canvas = document.createElement('canvas');
                 const ctx = canvas.getContext('2d');
-                const maxSize = 200; 
+                const maxSize = 200;
                 let w = img.width, h = img.height;
                 if (w > h) { if (w > maxSize) { h *= maxSize/w; w = maxSize; } }
                 else { if (h > maxSize) { w *= maxSize/h; h = maxSize; } }
@@ -712,18 +716,23 @@ document.addEventListener('DOMContentLoaded', function() {
     if (navbar && (scrollLeft || scrollRight)) {
         
         function updateNavbar() {
+            // 获取左右两侧的滚动距离
             const scrollTopLeft = scrollLeft ? scrollLeft.scrollTop : 0;
             const scrollTopRight = scrollRight ? scrollRight.scrollTop : 0;
             
+            // 只要有一侧滚动超过 10px，就取消透明（变为磨砂）
             if (scrollTopLeft > 10 || scrollTopRight > 10) {
                 navbar.classList.remove('navbar-transparent');
             } else {
+                // 回到顶部，变透明
                 navbar.classList.add('navbar-transparent');
             }
         }
 
+        // 初始化执行
         updateNavbar();
 
+        // 监听滚动
         if(scrollLeft) scrollLeft.addEventListener('scroll', updateNavbar);
         if(scrollRight) scrollRight.addEventListener('scroll', updateNavbar);
     }
@@ -731,6 +740,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // ================= 版本关联管理 =================
 
+// 1. 解除关联
 function unlinkSibling(event, siblingId) {
     event.preventDefault(); 
     event.stopPropagation();
@@ -762,6 +772,7 @@ function unlinkSibling(event, siblingId) {
     });
 }
 
+// 2. 打开关联模态框
 let linkModal;
 function openLinkModal() {
     if (!linkModal) {
@@ -772,6 +783,7 @@ function openLinkModal() {
     linkModal.show();
 }
 
+// 3. 搜索防抖
 let searchTimer;
 function debounceSearchLink() {
     clearTimeout(searchTimer);
@@ -781,10 +793,12 @@ function debounceSearchLink() {
     }, 500);
 }
 
+// 4. 执行搜索
 function performLinkSearch(query) {
     const container = document.getElementById('linkSearchResults');
     container.innerHTML = '<div class="text-center py-3"><div class="spinner-border spinner-border-sm text-primary"></div></div>';
     
+    // 复用 group_list_api 进行搜索
     fetch(`/api/groups/?q=${encodeURIComponent(query)}`)
         .then(res => res.json())
         .then(data => {
@@ -812,9 +826,10 @@ function performLinkSearch(query) {
         });
 }
 
+// 5. 确认关联
 function confirmLinkGroup(targetId, targetTitle) {
     const pathParts = window.location.pathname.split('/');
-    const currentPk = pathParts[pathParts.length - 2] || pathParts[pathParts.length - 1]; 
+    const currentPk = pathParts[pathParts.length - 2] || pathParts[pathParts.length - 1]; // 简单容错
 
     if (currentPk == targetId) {
         Swal.fire('提示', '不能关联自己', 'warning');

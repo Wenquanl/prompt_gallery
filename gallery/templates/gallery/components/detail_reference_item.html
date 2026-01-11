@@ -1,0 +1,13 @@
+<div class="col">
+    <div class="ratio ratio-1x1 position-relative ref-item-container group-card-hover">
+        <img src="{{ ref.thumbnail.url }}" class="w-100 h-100 object-fit-cover rounded" alt="Reference" style="cursor: zoom-in;" onclick="window.open('{{ ref.image.url }}', '_blank')">
+        <form action="{% url 'delete_reference' ref.pk %}" method="post" class="position-absolute top-0 end-0 m-1">
+            {% csrf_token %}
+            <button type="button" class="btn btn-dark bg-opacity-50 btn-sm p-0 rounded-circle d-flex align-items-center justify-content-center border-0" 
+                    style="width: 24px; height: 24px; backdrop-filter: blur(2px);" 
+                    onclick="confirmDelete(event)" title="删除">
+                <i class="bi bi-x text-white"></i>
+            </button>
+        </form>
+    </div>
+</div>
