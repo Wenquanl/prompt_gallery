@@ -1,0 +1,29 @@
+<div class="modal fade" id="addReferenceModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content border-0 shadow-lg rounded-4" style="background: rgba(255,255,255,0.95); backdrop-filter: blur(10px);">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title fw-bold text-dark">添加参考图</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body pt-4">
+                <form id="addReferenceForm" action="{% url 'add_references' group.pk %}" method="post" enctype="multipart/form-data" onsubmit="handleImageUpload(event)">
+                    {% csrf_token %}
+                    
+                    <div id="zone-modal-ref" class="upload-zone-modal">
+                        <i class="bi bi-images"></i>
+                        <p>点击或将图片拖拽至此 (参考图)</p>
+                        <input type="file" name="new_references" id="input-modal-ref" multiple accept="image/*">
+                    </div>
+
+                    <div id="preview-modal-ref" class="preview-container-modal"></div>
+
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-info text-white rounded-pill fw-bold border-0">
+                            <i class="bi bi-cloud-upload me-2"></i>上传参考图
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>

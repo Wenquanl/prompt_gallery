@@ -1,0 +1,50 @@
+<div class="modal fade" id="mergeManagerModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow-lg rounded-4" style="height: 85vh; overflow: hidden;">
+            <div class="modal-header border-0 pb-0 flex-column align-items-stretch bg-white" style="z-index: 10;">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="modal-title fw-bold text-dark d-flex align-items-center">
+                        <span class="bg-primary bg-opacity-10 text-primary rounded-circle d-flex align-items-center justify-content-center me-2" style="width: 32px; height: 32px;">
+                            <i class="bi bi-intersect fs-6"></i>
+                        </span>
+                        版本合并管理
+                    </h5>
+                    <button type="button" class="btn-close bg-light rounded-circle p-2" data-bs-dismiss="modal"></button>
+                </div>
+
+                <div class="search-bar-wrapper mb-3">
+                    <div class="position-relative">
+                        <i class="bi bi-search position-absolute top-50 start-0 translate-middle-y ms-3 text-muted"></i>
+                        <input type="text" id="mergeSearchInput" 
+                               class="form-control form-control-lg border-0 bg-light ps-5 rounded-pill shadow-sm" 
+                               placeholder="搜索提示词、标题..." 
+                               style="font-size: 0.95rem; transition: all 0.3s;">
+                        
+                        <div class="position-absolute top-50 end-0 translate-middle-y me-2 d-flex align-items-center gap-2">
+                            <button type="button" id="mergeClearBtn" 
+                                    class="btn btn-sm btn-light border-0 rounded-pill text-muted px-2 py-1" 
+                                    onclick="clearMergeSelection()" 
+                                    style="display:none; transition: all 0.2s; font-size: 0.85rem;"
+                                    title="清空所有选择">
+                                <i class="bi bi-x-circle-fill me-1 text-secondary"></i>清空
+                            </button>
+                            <span class="badge bg-white text-dark shadow-sm border rounded-pill py-2 px-3 fw-normal">
+                                已选 <span id="mergeSelectedCount" class="fw-bold text-primary mx-1">0</span> 组
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-body p-0 bg-light" id="mergeListContainer">
+                <div id="mergeListContent" class="p-3 d-flex flex-column gap-2"></div>
+                <div id="mergeLoadMore" class="text-center py-4" style="display:none;">
+                    <button class="btn btn-outline-secondary rounded-pill px-4 btn-sm" onclick="loadMergeData(currentPage + 1)">加载更多</button>
+                </div>
+            </div>
+            <div class="modal-footer border-top bg-white py-3">
+                <button type="button" class="btn btn-light rounded-pill px-4 fw-bold text-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary rounded-pill px-5 fw-bold shadow-sm" onclick="submitMerge()">确认合并</button>
+            </div>
+        </div>
+    </div>
+</div>

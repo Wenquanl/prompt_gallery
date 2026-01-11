@@ -8,6 +8,14 @@ let currentIndex = 0;
 let imageModal = null; 
 
 document.addEventListener('DOMContentLoaded', function() {
+    const dataElement = document.getElementById('gallery-data');
+    if (dataElement) {
+        window.galleryImages = JSON.parse(dataElement.textContent);
+    }
+    // 原有的初始化逻辑...
+});
+
+document.addEventListener('DOMContentLoaded', function() {
     // 1. 初始化模态框
     const modalEl = document.getElementById('imageModal');
     if (modalEl) {
@@ -634,3 +642,137 @@ document.addEventListener('DOMContentLoaded', function() {
         if(scrollRight) scrollRight.addEventListener('scroll', updateNavbar);
     }
 });
+
+// ================= 版本关联管理 =================
+
+// 1. 解除关联
+function unlinkSibling(event, siblingId) {
+    event.preventDefault(); 
+    event.stopPropagation();
+    
+    Swal.fire({
+        title: '解除关联?',
+        text: "该版本将独立成为一个新的作品组，不再显示在当前列表。",
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: '确定解除',
+        cancelButtonText: '取消',
+        confirmButtonColor: '#ffc107'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            const csrftoken = getCookie('csrftoken');
+            fetch(`/api/unlink-group/${siblingId}/`, {
+                method: 'POST',
+                headers: { 'X-CSRFToken': csrftoken }
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    Swal.fire('已解除', '', 'success').then(() => location.reload());
+                } else {
+                    Swal.fire('失败', data.message, 'error');
+                }
+            });
+        }
+    });
+}
+
+// 2. 打开关联模态框
+let linkModal;
+function openLinkModal() {
+    if (!linkModal) {
+        linkModal = new bootstrap.Modal(document.getElementById('linkVersionModal'));
+    }
+    document.getElementById('linkSearchInput').value = '';
+    document.getElementById('linkSearchResults').innerHTML = '<div class="text-center text-muted py-3 small">请输入关键词搜索</div>';
+    linkModal.show();
+}
+
+// 3. 搜索防抖
+let searchTimer;
+function debounceSearchLink() {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+        const query = document.getElementById('linkSearchInput').value.trim();
+        if (query) performLinkSearch(query);
+    }, 500);
+}
+
+// 4. 执行搜索
+function performLinkSearch(query) {
+    const container = document.getElementById('linkSearchResults');
+    container.innerHTML = '<div class="text-center py-3"><div class="spinner-border spinner-border-sm text-primary"></div></div>';
+    
+    // 复用 group_list_api 进行搜索
+    fetch(`/api/groups/?q=${encodeURIComponent(query)}`)
+        .then(res => res.json())
+        .then(data => {
+            container.innerHTML = '';
+            if (!data.results || data.results.length === 0) {
+                container.innerHTML = '<div class="text-center text-muted py-3 small">未找到相关内容</div>';
+                return;
+            }
+            
+            // 当前页面的 ID，用于排除自己
+            // 假设 URL 是 /detail/123/，简单解析一下或从 DOM 获取
+            // 这里简单处理：不做前端排除，由后端处理或用户自己看
+            
+            data.results.forEach(item => {
+                const html = `
+                    <div class="search-result-item d-flex align-items-center p-2 rounded border-bottom" onclick="confirmLinkGroup(${item.id}, '${item.title.replace(/'/g, "\\'")}')">
+                        <div class="rounded overflow-hidden bg-light me-3" style="width: 40px; height: 40px; flex-shrink: 0;">
+                            ${item.cover_url ? `<img src="${item.cover_url}" class="w-100 h-100 object-fit-cover">` : ''}
+                        </div>
+                        <div class="flex-grow-1 overflow-hidden">
+                            <div class="fw-bold text-truncate" style="font-size: 0.85rem;">${item.title}</div>
+                            <div class="text-muted text-truncate small" style="font-size: 0.75rem;">${item.prompt_text}</div>
+                        </div>
+                        <i class="bi bi-plus-lg text-primary ms-2"></i>
+                    </div>
+                `;
+                container.insertAdjacentHTML('beforeend', html);
+            });
+        });
+}
+
+// 5. 确认关联
+function confirmLinkGroup(targetId, targetTitle) {
+    // 获取当前页面 Group ID (从URL或DOM中获取，这里假设 detail.html 中有一个全局变量或从URL解析)
+    // 更稳妥的方式是在 HTML 中埋入 currentGroupId
+    // 这里我们解析 URL: /detail/123/
+    const pathParts = window.location.pathname.split('/');
+    const currentPk = pathParts[pathParts.length - 2] || pathParts[pathParts.length - 1]; // 简单容错
+
+    if (currentPk == targetId) {
+        Swal.fire('提示', '不能关联自己', 'warning');
+        return;
+    }
+
+    Swal.fire({
+        title: '确认关联?',
+        text: `将 "${targetTitle}" 作为当前作品的一个版本?`,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: '确认关联'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            const csrftoken = getCookie('csrftoken');
+            fetch(`/api/link-group/${currentPk}/`, {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrftoken 
+                },
+                body: JSON.stringify({ target_id: targetId })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    Swal.fire('成功', '版本关联成功', 'success').then(() => location.reload());
+                } else {
+                    Swal.fire('失败', data.message, 'error');
+                }
+            });
+        }
+    });
+}

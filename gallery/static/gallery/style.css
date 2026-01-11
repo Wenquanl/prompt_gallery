@@ -1292,3 +1292,358 @@ a { text-decoration: none; }
         background-color: var(--accent-color) !important; /* 变为主题蓝/紫色 */
     }
 }
+
+/* ================== 追加：从 HTML 提取的样式 ================== */
+
+/* --- Pagination (from home.html) --- */
+.bili-pagination-wrapper {
+    display: flex; justify-content: center; align-items: center;
+    margin-top: 50px; font-size: 14px; color: #666; flex-wrap: wrap; gap: 5px; user-select: none;
+}
+.bili-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    height: 34px; min-width: 34px; padding: 0 12px; margin: 0 2px;
+    border: 1px solid #e3e5e7; border-radius: 4px; background-color: #fff;
+    color: #61666d; text-decoration: none; transition: all 0.2s; cursor: pointer; font-family: inherit;
+}
+.bili-btn:hover:not(.disabled):not(.active) { border-color: #00aeec; color: #00aeec; text-decoration: none; }
+.bili-btn.active { background-color: #00aeec; border-color: #00aeec; color: #fff; cursor: default; }
+.bili-btn.disabled { background-color: #f6f7f8; color: #c0c4cc; cursor: not-allowed; border-color: #e3e5e7; pointer-events: none; }
+.bili-ellipsis { margin: 0 4px; color: #999; font-weight: bold; letter-spacing: 2px; }
+.bili-jump-box { display: inline-flex; align-items: center; margin-left: 15px; color: #61666d; }
+.bili-input {
+    width: 50px; height: 34px; margin: 0 8px; padding: 0 4px;
+    border: 1px solid #e3e5e7; border-radius: 4px; text-align: center; outline: none;
+    transition: border-color 0.2s; color: #61666d; background: transparent;
+}
+.bili-input:focus { border-color: #00aeec; }
+.bili-input::-webkit-inner-spin-button, .bili-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+
+/* --- Tooltip Adjustment (from home.html) --- */
+.tooltip-inner {
+    max-width: 350px !important; text-align: left !important; padding: 10px 12px !important;
+    font-size: 0.85rem; line-height: 1.4; background-color: rgba(0, 0, 0, 0.9) !important;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+/* Merge Manager Styles (from home.html) */
+.btn-float-manage:hover { transform: translateY(-3px); box-shadow: 0 6px 16px rgba(0,0,0,0.2) !important; background-color: #0d6efd !important; color: white !important; }
+.merge-item-card:hover { background-color: #f8f9fa; }
+.btn-float-action:hover { transform: translateY(-4px) scale(1.05); background-color: #f8f9fa !important; }
+.btn-float-action:active { transform: scale(0.95); }
+#mergeSearchInput:focus { background-color: #fff !important; box-shadow: 0 4px 12px rgba(0,0,0,0.08), 0 0 0 4px rgba(13, 110, 253, 0.1) !important; }
+.modal-body::-webkit-scrollbar { width: 6px; }
+.modal-body::-webkit-scrollbar-track { background: transparent; }
+.modal-body::-webkit-scrollbar-thumb { background-color: rgba(0,0,0,0.1); border-radius: 10px; }
+#mergeClearBtn:hover { background-color: #e9ecef !important; color: #dc3545 !important; }
+#mergeClearBtn:hover i { color: #dc3545 !important; }
+
+/* --- Detail Interactive Tags (from detail.html) --- */
+.tag-interactive {
+    display: inline-flex; align-items: center; padding: 6px 16px;
+    background: rgba(255, 255, 255, 0.65); backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.9); border-radius: 50px;
+    color: #555; font-size: 0.85rem; font-weight: 500;
+    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    cursor: default; user-select: none; box-shadow: 0 2px 5px rgba(0,0,0,0.03);
+    position: relative; overflow: hidden; height: 32px;
+}
+.tag-interactive:hover { background: white; transform: translateY(-3px) scale(1.02); box-shadow: 0 8px 15px rgba(0,0,0,0.08); color: #2c3e50; border-color: white; padding-right: 12px; }
+.tag-interactive a { color: inherit; text-decoration: none; display: flex; align-items: center; }
+.tag-interactive.model-tag { background: linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(243, 232, 255, 0.9) 100%); border: 1px solid rgba(161, 140, 209, 0.3); color: #6a4c93; font-weight: 600; }
+.tag-interactive.model-tag:hover { background: linear-gradient(135deg, #fff 0%, #f3e8ff 100%); box-shadow: 0 5px 15px rgba(161, 140, 209, 0.25); border-color: rgba(161, 140, 209, 0.5); }
+.tag-remove-btn {
+    width: 0; opacity: 0; transform: translateX(10px); margin-left: 0;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    color: #ff6b6b; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 0.9rem;
+}
+.tag-interactive:hover .tag-remove-btn { width: 20px; opacity: 1; transform: translateX(0); margin-left: 8px; }
+.tag-remove-btn:hover { color: #ff4757; transform: scale(1.2); }
+.btn-add-tag-dashed {
+    width: 32px; height: 32px; border: 1.5px dashed #cbd5e1; border-radius: 50%;
+    background: rgba(255,255,255,0.5); color: #94a3b8;
+    display: inline-flex; align-items: center; justify-content: center;
+    transition: all 0.3s ease; cursor: pointer; backdrop-filter: blur(4px); flex-shrink: 0; 
+}
+.btn-add-tag-dashed:hover { border-color: var(--accent-color); color: var(--accent-color); transform: rotate(90deg); background: white; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
+.tag-input-container { display: flex; align-items: center; overflow: hidden; width: 0; opacity: 0; transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1); white-space: nowrap; }
+.tag-input-container.show { width: 220px; opacity: 1; margin-left: 8px; }
+.tag-input-line { border: none; border-bottom: 2px solid var(--accent-color); background: transparent; border-radius: 0; padding: 2px 5px; font-size: 0.85rem; color: var(--text-main); width: 100%; outline: none; }
+.tag-input-line::placeholder { color: #cbd5e1; font-size: 0.8rem; }
+.btn-confirm-tag {
+    width: 28px; height: 28px; border: none; border-radius: 50%; background: #20c997; 
+    color: white; font-size: 0.8rem; display: flex; align-items: center; justify-content: center;
+    margin-left: 8px; cursor: pointer; transition: all 0.2s;
+    box-shadow: 0 2px 5px rgba(32, 201, 151, 0.3); opacity: 0; transform: scale(0.5); 
+}
+.btn-confirm-tag:hover { background: #198754; transform: scale(1.1) !important; }
+.tag-input-container.show .btn-confirm-tag { opacity: 1; transform: scale(1); transition-delay: 0.1s; }
+.btn-back-interactive {
+    background: rgba(255, 255, 255, 0.6); backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.8); color: #64748b;
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); font-weight: 500;
+    padding-left: 20px !important; padding-right: 24px !important; display: inline-flex; align-items: center;
+}
+.btn-back-interactive:hover { background: #fff; color: #2c3e50; transform: translateX(-4px); box-shadow: 0 8px 20px rgba(0,0,0,0.08) !important; border-color: #fff; }
+.btn-back-interactive i { transition: transform 0.3s ease; }
+.btn-back-interactive:hover i { transform: translateX(-3px); }
+.btn-back-interactive:active { transform: translateX(-4px) scale(0.96); }
+
+/* --- Upload Page (from upload.html) --- */
+.drag-drop-zone {
+    border: 2px dashed #dee2e6; border-radius: 12px; padding: 30px 20px;
+    text-align: center; background: #f8f9fa; transition: all 0.2s ease; position: relative; cursor: pointer;
+}
+.drag-drop-zone:hover, .drag-drop-zone.drag-over { border-color: var(--bs-primary); background: rgba(13, 110, 253, 0.05); }
+.drag-drop-zone input[type="file"] { position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.preview-list { display: flex; gap: 12px; overflow-x: auto; margin-top: 15px; padding: 5px 2px; min-height: 85px; }
+.preview-item {
+    width: 80px; height: 80px; flex-shrink: 0; border-radius: 8px; overflow: hidden; 
+    border: 1px solid #dee2e6; position: relative; background: #fff;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05); display: flex; align-items: center; justify-content: center; transition: all 0.2s;
+}
+.preview-item.duplicate { border: 2px solid #dc3545 !important; box-shadow: 0 0 0 3px rgba(220, 53, 69, 0.15) !important; }
+.duplicate-badge { position: absolute; bottom: 0; left: 0; right: 0; background: rgba(220, 53, 69, 0.9); color: white; font-size: 10px; font-weight: bold; text-align: center; padding: 2px 0; z-index: 5; pointer-events: none; }
+.preview-item img { width: 100%; height: 100%; object-fit: cover; display: block; opacity: 0; transition: opacity 0.3s ease; }
+.preview-item img.loaded { opacity: 1; }
+.btn-remove-preview {
+    position: absolute; top: 2px; right: 2px; width: 20px; height: 20px;
+    background: rgba(255, 255, 255, 0.9); color: #6c757d; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center; cursor: pointer; z-index: 10; transition: all 0.2s ease;
+}
+.btn-remove-preview:hover { background: #dc3545; color: white; }
+.btn-remove-preview i { font-size: 10px; font-weight: bold; }
+.preview-item.server-file { border-color: #0d6efd; background-color: #f0f7ff; }
+/* === Prompt Diff Styles === */
+.diff-add {
+    color: #198754;
+    background-color: rgba(25, 135, 84, 0.1);
+    font-weight: 600;
+    padding: 0 2px;
+    border-radius: 2px;
+}
+.diff-del {
+    color: #dc3545;
+    text-decoration: line-through;
+    opacity: 0.6;
+    font-size: 0.9em;
+    margin-right: 2px;
+}
+
+/* === Sibling Management Styles === */
+.sibling-item {
+    transition: all 0.2s ease;
+}
+.sibling-item:hover {
+    background-color: #f8f9fa;
+}
+.btn-unlink-sibling {
+    position: absolute;
+    top: 50%;
+    right: 10px;
+    transform: translateY(-50%);
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: #fff;
+    border: 1px solid #dee2e6;
+    color: #dc3545;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: all 0.2s;
+    cursor: pointer;
+    z-index: 5;
+}
+.sibling-item:hover .btn-unlink-sibling {
+    opacity: 1;
+}
+.btn-unlink-sibling:hover {
+    background: #dc3545;
+    color: #fff;
+    border-color: #dc3545;
+}
+
+/* 搜索关联模态框样式 */
+.search-result-item {
+    cursor: pointer;
+    transition: background 0.2s;
+}
+.search-result-item:hover {
+    background-color: #f0f7ff;
+}
+/* === 优化后的差异 Tag 样式 === */
+.diff-tag {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 0.75rem; /* 字号调小 */
+    margin-right: 4px;
+    margin-bottom: 4px;
+    font-family: monospace; /* 等宽字体显得更像代码/Prompt */
+    vertical-align: middle;
+    cursor: help;
+}
+
+/* 红色：代表该版本【缺少】这个词（相对于当前主图）*/
+.diff-tag-del {
+    color: #a71d2a;
+    background-color: #fce8e6;
+    border: 1px solid #fadbd8;
+    text-decoration: line-through; /* 删除线 */
+    opacity: 0.8;
+}
+
+/* 绿色：代表该版本【新增】这个词 */
+.diff-tag-add {
+    color: #0f5132;
+    background-color: #d1e7dd;
+    border: 1px solid #badbcc;
+    font-weight: 600;
+}
+
+/* 调整列表容器，让标签自动换行 */
+.sibling-diff-container {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    line-height: 1.2;
+    margin-top: 4px;
+}
+
+/* === Sibling Versions (其他版本) 纯净版样式 === */
+
+/* 卡片容器 */
+.sibling-card {
+    transition: all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
+    border: 1px solid rgba(0,0,0,0.05) !important;
+    position: relative;
+    overflow: hidden;
+}
+.sibling-card:hover {
+    transform: translateX(2px);
+    border-color: var(--bs-primary) !important;
+    box-shadow: 0 4px 12px rgba(13, 110, 253, 0.1) !important;
+}
+
+/* 左侧缩略图 */
+.sibling-thumb-wrapper {
+    width: 48px; 
+    height: 48px; 
+    flex-shrink: 0; 
+    border-radius: 6px; 
+    overflow: hidden;
+    background: #f8f9fa;
+    border: 1px solid #eee;
+}
+.sibling-thumb {
+    width: 100%; 
+    height: 100%; 
+    object-fit: cover;
+}
+.sibling-empty-thumb {
+    width: 100%; height: 100%;
+    display: flex; align-items: center; justify-content: center;
+    color: #ccc;
+}
+
+/* 差异标签容器 */
+.sibling-diff-wrapper {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px; /* 标签间距 */
+    max-height: 48px; /* 限制高度，防止太多标签撑开卡片 */
+    overflow-y: auto; /* 太多时允许组内滚动 */
+    align-content: flex-start;
+}
+/* 隐藏滚动条但保留功能 */
+.sibling-diff-wrapper::-webkit-scrollbar { width: 0; }
+
+/* === 核心：差异胶囊样式 === */
+.diff-tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 6px 1px 4px;
+    border-radius: 4px;
+    font-size: 11px;
+    line-height: 1.4;
+    font-family: 'Consolas', 'Monaco', monospace; /* 等宽字体 */
+    white-space: nowrap;
+    cursor: default;
+    border: 1px solid transparent;
+}
+.diff-tag i {
+    font-size: 10px;
+    margin-right: 2px;
+    font-weight: bold;
+}
+
+/* 新增项 (绿色) */
+.diff-add {
+    background-color: #ecfdf5; /* 极淡绿 */
+    color: #059669; /* 深绿 */
+    border-color: #a7f3d0;
+}
+
+/* 移除项 (淡红/灰色) */
+/* 这里设计得稍微低调一点，因为用户通常关注“新版本是啥样”，而不是“它不是啥样” */
+.diff-rem {
+    background-color: #f3f4f6; /* 浅灰 */
+    color: #6b7280; /* 深灰 */
+    border-color: #e5e7eb;
+    text-decoration: line-through; /* 删除线 */
+    opacity: 0.8;
+}
+
+/* 无差异提示 */
+.no-diff {
+    color: #adb5bd;
+    font-size: 11px;
+    font-style: italic;
+    padding: 2px 0;
+}
+
+/* 解除关联按钮 (悬浮显示) */
+.btn-unlink-float {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    width: 20px;
+    height: 20px;
+    background: #dc3545;
+    color: white;
+    border-radius: 50%;
+    border: 2px solid white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    opacity: 0;
+    transform: scale(0.8);
+    transition: all 0.2s ease;
+    z-index: 10;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+.sibling-group:hover .btn-unlink-float {
+    opacity: 1;
+    transform: scale(1);
+    top: -8px;
+    right: -8px;
+}
+.btn-unlink-float:hover {
+    background: #bb2d3b;
+    transform: scale(1.1);
+}
+/* ================== 搜索框清除按钮样式 ================== */
+.nav-search-clear-btn {
+    cursor: pointer;
+    font-size: 0.9rem;
+    display: none; /* 默认隐藏，由 JS 控制显示 */
+    transition: all 0.2s ease;
+}
+
+.nav-search-clear-btn:hover {
+    opacity: 1 !important; /* 覆盖 text-secondary 的 opacity-50 */
+    color: #dc3545 !important; /* 悬停时变为红色 */
+    transform: scale(1.1);
+}

@@ -206,3 +206,51 @@ function initMasonry(gridSelector, itemSelector = '.grid-item') {
 
     return msnry;
 }
+
+// 6. 导航栏搜索框逻辑 (解耦版)
+document.addEventListener('DOMContentLoaded', function() {
+    const searchInput = document.getElementById('navSearchInput');
+    const clearBtn = document.getElementById('navSearchClearBtn');
+
+    if (searchInput && clearBtn) {
+        
+        // 控制按钮显示的函数
+        const updateClearBtnVisibility = () => {
+            if (searchInput.value.trim().length > 0) {
+                clearBtn.style.display = 'block';
+            } else {
+                clearBtn.style.display = 'none';
+            }
+        };
+
+        // 初始化状态
+        updateClearBtnVisibility();
+
+        // 监听输入事件
+        searchInput.addEventListener('input', updateClearBtnVisibility);
+        
+        // 监听聚焦事件 (聚焦时如果有内容也显示)
+        searchInput.addEventListener('focus', updateClearBtnVisibility);
+
+        // 监听失焦事件
+        // 使用 setTimeout 延迟隐藏，否则点击清除按钮时，Blur 会先触发导致按钮消失，点击无效
+        searchInput.addEventListener('blur', function() {
+            setTimeout(() => {
+                clearBtn.style.display = 'none';
+            }, 200);
+        });
+
+        // 监听清除按钮点击
+        clearBtn.addEventListener('click', function(e) {
+            e.preventDefault(); // 阻止默认行为
+            searchInput.value = ''; // 清空输入
+            updateClearBtnVisibility(); // 更新按钮状态
+            searchInput.focus(); // 保持焦点在输入框，方便继续输入
+        });
+        
+        // 防止点击按钮本身导致输入框失焦 (辅助)
+        clearBtn.addEventListener('mousedown', function(e) {
+            e.preventDefault();
+        });
+    }
+});

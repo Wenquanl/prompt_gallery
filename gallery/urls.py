@@ -32,4 +32,6 @@ urlpatterns = [
     # 【新增】合并功能相关接口
     path('api/groups/', views.group_list_api, name='group_list_api'),
     path('api/merge-groups/', views.merge_groups, name='merge_groups'),
+    path('api/unlink-group/<int:pk>/', views.unlink_group_relation, name='unlink_group'),
+    path('api/link-group/<int:pk>/', views.link_group_relation, name='link_group'),
 ]

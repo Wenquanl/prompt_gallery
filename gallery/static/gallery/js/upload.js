@@ -11,10 +11,21 @@ let refFiles = []; // 参考图
 let serverGenFiles = []; 
 
 document.addEventListener('DOMContentLoaded', () => {
+    // 1. 读取后端传递的临时文件数据 (适配 JSON script 方式)
+    const tempFilesScript = document.getElementById('server-temp-files');
+    if (tempFilesScript) {
+        try {
+            window.SERVER_TEMP_FILES = JSON.parse(tempFilesScript.textContent);
+        } catch (e) {
+            console.error('JSON parse error', e);
+        }
+    }
+
+    // 2. 初始化拖拽区域
     setupDragDrop('zone-gen', 'upload_images', 'preview-gen', 'gen');
     setupDragDrop('zone-ref', 'upload_references', 'preview-ref', 'ref');
 
-    // 初始化从后端带入的临时文件 (查重后带入)
+    // 3. 初始化从后端带入的临时文件 (例如查重后带回的文件)
     if (window.SERVER_TEMP_FILES && window.SERVER_TEMP_FILES.length > 0) {
         initServerFiles(window.SERVER_TEMP_FILES);
     }
@@ -118,7 +129,7 @@ function preventDefaults(e) {
 
 /**
  * 处理文件添加逻辑
- * 【修改】增加了 ignoredCount 统计和 Toast 提示
+ * 增加了 ignoredCount 统计和 Toast 提示
  */
 function handleFiles(newFiles, type, input, previewContainer) {
     const fileArray = (type === 'gen') ? genFiles : refFiles;
@@ -158,7 +169,7 @@ function handleFiles(newFiles, type, input, previewContainer) {
         }
     }
 
-    // 【新增】如果有重复文件被过滤，显示轻量级提示
+    // 如果有重复文件被过滤，显示轻量级提示
     if (ignoredCount > 0) {
         const toast = Swal.mixin({
             toast: true,
@@ -287,8 +298,6 @@ function removeFileItem(target, type, container) {
     const itemDiv = target.closest('.preview-item');
     if (!itemDiv) return;
 
-    // server-file 在 initServerFiles 中已经独立绑定了点击事件，
-    // 这里为了防止意外的事件冒泡导致逻辑错误，再次拦截
     if (itemDiv.classList.contains('server-file')) {
         itemDiv.remove();
         return;

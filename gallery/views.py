@@ -1,18 +1,19 @@
 import os
 import uuid
 import json
+import difflib
+import re
 from django.shortcuts import render, redirect, get_object_or_404
+from django.contrib import messages
 from django.conf import settings
 from django.http import JsonResponse
 from django.db.models import Q, Count, Case, When, IntegerField, Max
 from django.core.paginator import Paginator
-from django.views.decorators.http import require_GET,require_POST
+from django.views.decorators.http import require_GET, require_POST
 from django.core.cache import cache
-from django.db.models import Q, Count, Case, When, IntegerField, Max  # 【修改】添加 Max
 from .models import ImageItem, PromptGroup, Tag, AIModel, ReferenceItem
 from .forms import PromptGroupForm
 from .ai_utils import search_similar_images
-
 
 # === 引入 Service 层 ===
 from .services import (
@@ -37,6 +38,63 @@ def get_tags_bar_data():
         )
     ).order_by('is_model', '-use_count')
 
+# 【核心修改】智能 Tag 差异对比函数
+def generate_diff_html(base_text, compare_text):
+    """
+    比较 compare_text (其他版本) 相对于 base_text (当前版本) 的差异。
+    只返回差异部分的 HTML。
+    """
+    if base_text is None: base_text = ""
+    if compare_text is None: compare_text = ""
+    
+    # 1. 智能拆分 Tag (支持 英文逗号, 中文逗号，换行符)
+    def parse_tags_to_dict(text):
+        # 正则分割：逗号(,)、中文逗号(，)、换行(\n)
+        parts = re.split(r'[,\uff0c\n]+', text)
+        # 生成 {小写key: 原始写法value} 的映射，用于忽略大小写比对但展示原始拼写
+        return {p.strip().lower(): p.strip() for p in parts if p.strip()}
+
+    base_map = parse_tags_to_dict(base_text)
+    comp_map = parse_tags_to_dict(compare_text)
+    
+    base_keys = set(base_map.keys())
+    comp_keys = set(comp_map.keys())
+    
+    # 2. 提取差异集合
+    # 新增的 = 对方有 - 我没有
+    added_keys = comp_keys - base_keys
+    # 移除的 = 我有 - 对方没有
+    removed_keys = base_keys - comp_keys
+    
+    # 如果没有检测到任何 Tag 差异
+    if not added_keys and not removed_keys:
+        return '<span class="no-diff">无提示词差异</span>'
+    
+    html_parts = []
+    
+    # 3. 生成 HTML
+    # 策略：先展示【新增】的（通常用户更关心这个版本多了什么），再展示【减少】的
+    
+    # A. 展示新增 (Green)
+    for k in added_keys:
+        val = comp_map[k]
+        # 截断超长 Tag 防止破坏布局
+        display_val = (val[:20] + '..') if len(val) > 20 else val
+        html_parts.append(
+            f'<span class="diff-tag diff-add" title="相对于当前版本，此处新增了: {val}">'
+            f'<i class="bi bi-plus"></i>{display_val}</span>'
+        )
+        
+    # B. 展示移除 (Red/Grey)
+    for k in removed_keys:
+        val = base_map[k]
+        display_val = (val[:20] + '..') if len(val) > 20 else val
+        html_parts.append(
+            f'<span class="diff-tag diff-rem" title="相对于当前版本，此处移除了: {val}">'
+            f'<i class="bi bi-dash"></i>{display_val}</span>'
+        )
+        
+    return "".join(html_parts)
 # ==========================================
 # 视图函数
 # ==========================================
@@ -45,35 +103,23 @@ def home(request):
     queryset = PromptGroup.objects.all()
     query = request.GET.get('q')
     filter_type = request.GET.get('filter')
-    # 获取 URL 中的 search_id (用于恢复以图搜图结果)
     search_id = request.GET.get('search_id')
 
     # === 1. 处理以图搜图提交 (POST) -> 转为 GET ===
     if request.method == 'POST' and request.FILES.get('search_image'):
         try:
             search_file = request.FILES['search_image']
-            
-            # 搜索全库图片
             similar_images = search_similar_images(search_file, ImageItem.objects.all(), top_k=50)
             
             if not similar_images:
                 messages.info(request, "未找到相似图片")
                 return redirect('home')
             
-            # 生成唯一ID，将结果存入缓存
             search_uuid = str(uuid.uuid4())
-            
-            # 仅缓存 ID 和 分数
-            cache_data = [
-                {'id': img.id, 'score': getattr(img, 'similarity_score', 0)} 
-                for img in similar_images
-            ]
-            
-            # 存入 Cache (有效期 1 小时)
+            cache_data = [{'id': img.id, 'score': getattr(img, 'similarity_score', 0)} for img in similar_images]
             cache_key = f"home_search_{search_uuid}"
             cache.set(cache_key, cache_data, 3600)
             
-            # 重定向到首页，带上 search_id
             return redirect(f"/?search_id={search_uuid}")
                 
         except Exception as e:
@@ -87,15 +133,12 @@ def home(request):
         cached_data = cache.get(cache_key)
         
         if cached_data:
-            # 从缓存恢复数据
             ids = [item['id'] for item in cached_data]
             id_score_map = {item['id']: item['score'] for item in cached_data}
             
-            # 使用 filter 代替 in_bulk
             images_list = list(ImageItem.objects.filter(id__in=ids))
             objects_dict = {img.id: img for img in images_list}
             
-            # 按缓存的顺序重组列表
             restored_images = []
             for img_id in ids:
                 if img_id in objects_dict:
@@ -103,7 +146,6 @@ def home(request):
                     obj.similarity_score = id_score_map.get(img_id, 0)
                     restored_images.append(obj)
             
-            # 【新增】以图搜图结果页也需要标签栏
             tags_bar = get_tags_bar_data()
 
             if restored_images:
@@ -113,14 +155,13 @@ def home(request):
                     'search_mode': 'image',
                     'is_home_search': True,
                     'current_search_id': search_id,
-                    'tags_bar': tags_bar  # 传递标签数据
+                    'tags_bar': tags_bar
                 })
         else:
             messages.warning(request, "搜索结果已过期，请重新搜索")
 
     # === 常规文本搜索 ===
     if query:
-        # 【搜索模式】：显示所有匹配结果，不去重，方便找回历史版本
         queryset = queryset.filter(
             Q(title__icontains=query) |
             Q(prompt_text__icontains=query) |
@@ -131,35 +172,23 @@ def home(request):
     if filter_type == 'liked':
         queryset = queryset.filter(is_liked=True)
 
-    # === 【核心新增】版本去重与计数逻辑 ===
-    # 仅在默认浏览模式下启用（无搜索、无筛选、无以图搜图）
+    # === 版本去重与计数逻辑 ===
     version_counts = {}
     if not query and not filter_type and not search_id:
-        # 1. 按 group_id 分组，找出每组【最新ID】和【数量】
         group_stats = PromptGroup.objects.values('group_id').annotate(
             latest_id=Max('id'),
             count=Count('id')
         )
-        
-        # 2. 提取需要保留的 ID 列表
         latest_ids = [s['latest_id'] for s in group_stats]
-        
-        # 3. 建立映射表：ID -> 版本数量
         version_counts = {s['latest_id']: s['count'] for s in group_stats}
-        
-        # 4. 过滤查询集，只显示最新的
         queryset = queryset.filter(id__in=latest_ids)
 
-    # 获取标签栏数据
     tags_bar = get_tags_bar_data()
-
     paginator = Paginator(queryset, 12)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
 
-    # === 【核心新增】将版本数量挂载到对象上 ===
     for group in page_obj:
-        # 如果有计数（去重模式），则使用；否则默认为 0（不显示徽章）
         group.version_count = version_counts.get(group.id, 0)
 
     return render(request, 'gallery/home.html', {
@@ -176,29 +205,23 @@ def liked_images_gallery(request):
     query_text = request.GET.get('q')
     search_id = request.GET.get('search_id') 
     
-    # === 1. 图墙以图搜图提交 ===
     if request.method == 'POST' and request.FILES.get('image_query'):
         try:
             uploaded_file = request.FILES['image_query']
             results = search_similar_images(uploaded_file, queryset) 
             
             search_uuid = str(uuid.uuid4())
-            cache_data = [
-                {'id': img.id, 'score': getattr(img, 'similarity_score', 0)} 
-                for img in results
-            ]
+            cache_data = [{'id': img.id, 'score': getattr(img, 'similarity_score', 0)} for img in results]
             
             cache_key = f"liked_search_{search_uuid}"
             cache.set(cache_key, cache_data, 3600)
             
-            # 【修复】：路径从 /liked/ 改为 /liked-images/ 以匹配 urls.py
             return redirect(f"/liked-images/?search_id={search_uuid}")
             
         except Exception as e:
             messages.error(request, "搜索失败")
             return redirect('liked_images_gallery')
 
-    # === 2. 图墙以图搜图结果 ===
     if search_id:
         cache_key = f"liked_search_{search_id}"
         cached_data = cache.get(cache_key)
@@ -229,9 +252,7 @@ def liked_images_gallery(request):
             Q(group__tags__name__icontains=query_text)
         ).distinct()
     
-    # 【新增】获取标签栏数据
     tags_bar = get_tags_bar_data()
-
     paginator = Paginator(queryset, 20)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
@@ -242,7 +263,7 @@ def liked_images_gallery(request):
         'search_mode': search_mode,
         'is_home_search': False,
         'current_search_id': search_id,
-        'tags_bar': tags_bar # 传递标签数据
+        'tags_bar': tags_bar
     })
 
 
@@ -257,46 +278,49 @@ def detail(request, pk):
     if model_name:
         tags_list.sort(key=lambda t: 0 if t.name == model_name else 1)
     
-    # 详情页原有的所有标签（用于自动补全）
-    all_tags = Tag.objects.annotate(
-        usage_count=Count('promptgroup')
-    ).order_by('-usage_count', 'name')[:500]
+    all_tags = Tag.objects.annotate(usage_count=Count('promptgroup')).order_by('-usage_count', 'name')[:500]
 
-    # 【修改】查找同系列的其他版本 (Group ID 相同，但 ID 不同)
-    siblings = PromptGroup.objects.filter(
+    # 【修改】获取同系列其他版本，并计算差异
+    siblings_qs = PromptGroup.objects.filter(
         group_id=group.group_id
     ).exclude(pk=group.pk).order_by('-created_at')
+    
+    siblings = []
+    current_prompt = group.prompt_text or ""
+    
+    for sib in siblings_qs:
+        sib_prompt = sib.prompt_text or ""
+        # 动态添加 diff_html 属性供模板使用
+        # 这里计算：sibling 相对 current 的差异
+        sib.diff_html = generate_diff_html(current_prompt, sib_prompt)
+        siblings.append(sib)
 
     related_groups = PromptGroup.objects.filter(
         tags__in=group.tags.all()
     ).exclude(pk=pk).distinct()[:4]
     
-    # 【新增】获取侧边栏标签数据
     tags_bar = get_tags_bar_data()
 
     return render(request, 'gallery/detail.html', {
         'group': group,
         'sorted_tags': tags_list,
         'all_tags': all_tags,
-        'siblings': siblings,      # 【新增】传递给模板
+        'siblings': siblings,
         'related_groups': related_groups,
-        'tags_bar': tags_bar, # 传递标签数据
-        'search_query': request.GET.get('q') # 传递搜索词以便高亮标签
+        'tags_bar': tags_bar,
+        'search_query': request.GET.get('q')
     })
 
 
 def upload(request):
     if request.method == 'POST':
-        # 判断是否确认提交 (表单中有 hidden input name="confirmed" value="1")
-        # 如果是直接上传，该字段也存在。
-        
+        # ... (POST 逻辑保持不变) ...
         prompt_text = request.POST.get('prompt_text', '')
         prompt_text_zh = request.POST.get('prompt_text_zh', '')
         negative_prompt = request.POST.get('negative_prompt', '')
         title = request.POST.get('title', '') or '未命名组'
         model_id = request.POST.get('model_info')
         
-        # 1. 处理模型
         model_name_str = ""
         if model_id:
             try:
@@ -305,7 +329,6 @@ def upload(request):
             except AIModel.DoesNotExist:
                 pass
 
-        # 2. 创建 PromptGroup
         group = PromptGroup.objects.create(
             title=title,
             prompt_text=prompt_text,
@@ -314,14 +337,10 @@ def upload(request):
             model_info=model_name_str,
         )
         
-        # 3. 处理标签 (支持 checkbox 选中的 ID 和 可能的文本输入)
         selected_tags = request.POST.getlist('tags')
-        
         for tag_val in selected_tags:
             tag_val = tag_val.strip()
             if not tag_val: continue
-            
-            # 如果是纯数字，尝试按 ID 查找；否则按名称查找
             if tag_val.isdigit():
                 try:
                     group.tags.add(Tag.objects.get(id=int(tag_val)))
@@ -331,36 +350,31 @@ def upload(request):
                 tag, _ = Tag.objects.get_or_create(name=tag_val)
                 group.tags.add(tag)
         
-        # 自动将模型也作为一个标签
         if model_name_str:
             m_tag, _ = Tag.objects.get_or_create(name=model_name_str)
             group.tags.add(m_tag)
 
         created_image_ids = []
-
-        # 4. 图片处理逻辑 (关键修复)
-        # ----------------------------------------------------------
-        # 场景 A: 本地直接上传的文件 (存在于 request.FILES 中)
+        
+        # 处理本地文件
         direct_files = request.FILES.getlist('upload_images')
         for f in direct_files:
             img_item = ImageItem(group=group, image=f)
-            img_item.save() # 保存触发哈希计算
+            img_item.save()
             created_image_ids.append(img_item.id)
 
-        # 场景 B: 经过查重的服务器暂存文件 (存在于 temp_uploads 目录中)
+        # 处理服务器暂存文件
         batch_id = request.POST.get('batch_id')
         server_file_names = request.POST.getlist('selected_files')
         
         if batch_id and server_file_names:
-            # 移动暂存文件并创建记录
             temp_ids = confirm_upload_images(batch_id, server_file_names, group)
             created_image_ids.extend(temp_ids)
             
-        # 场景 C: 参考图直接上传
+        # 处理参考图
         ref_files = request.FILES.getlist('upload_references')
         for rf in ref_files:
             ReferenceItem.objects.create(group=group, image=rf)
-        # ----------------------------------------------------------
 
         if not created_image_ids:
             messages.warning(request, "虽然发布了作品，但未上传任何生成图。")
@@ -371,7 +385,7 @@ def upload(request):
         return redirect('home')
 
     else:
-        # GET 请求：渲染上传页面
+        # === GET 请求：渲染上传页面 ===
         batch_id = request.GET.get('batch_id')
         temp_files_preview = []
         
@@ -388,19 +402,23 @@ def upload(request):
                                 'url': f"{settings.MEDIA_URL}temp_uploads/{batch_id}/{name}",
                                 'size': os.path.getsize(full_path) 
                             })
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"Error reading temp dir: {e}")
         
         form = PromptGroupForm()
         existing_titles = PromptGroup.objects.values_list('title', flat=True).distinct().order_by('title')
         all_models = AIModel.objects.all()
+
+        # 【核心修正】将 Python 列表转为 JSON 字符串
+        # 否则模板中使用 {{ temp_files }} 输出的是单引号的 Python 格式，JS 无法解析
+        temp_files_json = json.dumps(temp_files_preview)
 
         return render(request, 'gallery/upload.html', {
             'form': form,
             'existing_titles': existing_titles,
             'all_models': all_models,
             'batch_id': batch_id,
-            'temp_files': temp_files_preview
+            'temp_files': temp_files_json  # 传过去 JSON 字符串
         })
 
 
@@ -452,6 +470,8 @@ def check_duplicates(request):
     
     return JsonResponse({'status': 'error', 'message': '仅支持 POST 请求'})
 
+# ... (后续代码：toggle_like_group, toggle_like_image, add_images_to_group 等保持不变)
+# 为节省篇幅，后续未修改的函数请保持原样即可，主要修改点在 upload 函数中。
 
 @require_POST
 def toggle_like_group(request, pk):
@@ -616,11 +636,8 @@ def group_list_api(request):
     query = request.GET.get('q', '')
     page_num = request.GET.get('page', 1)
     
-    # 1. 基础查询
     qs = PromptGroup.objects.all()
     
-    # 2. 搜索过滤：先找出符合搜索条件的 group_id
-    # 如果用户搜“红衣服”，我们要把包含“红衣服”的那个家族找出来
     if query:
         matching_group_ids = qs.filter(
             Q(title__icontains=query) |
@@ -628,22 +645,16 @@ def group_list_api(request):
             Q(tags__name__icontains=query)
         ).values_list('group_id', flat=True).distinct()
         
-        # 锁定范围到这些家族
         qs = qs.filter(group_id__in=matching_group_ids)
     
-    # 3. 聚合去重：按 group_id 分组，找出【最新ID】和【成员数量】
-    # values('group_id') 相当于 SQL 的 GROUP BY group_id
     group_stats = qs.values('group_id').annotate(
-        max_id=Max('id'),     # 取该组最新的一个 ID 作为代表
-        count=Count('id')     # 统计该组有多少个
+        max_id=Max('id'),     
+        count=Count('id')     
     )
     
-    # 4. 构建映射表与ID列表
     latest_ids = [item['max_id'] for item in group_stats]
     count_map = {item['max_id']: item['count'] for item in group_stats}
     
-    # 5. 查询实体对象 (只查询代表)
-    # order_by('-id') 确保刚创建/刚修改的排在最前
     final_qs = PromptGroup.objects.filter(id__in=latest_ids).order_by('-id')
     
     paginator = Paginator(final_qs, 20)
@@ -666,7 +677,7 @@ def group_list_api(request):
             'cover_url': cover_url,
             'model_info': group.model_info or '',
             'group_id': str(group.group_id),
-            'count': count_map.get(group.id, 1)  # 【新增】返回该组的数量
+            'count': count_map.get(group.id, 1) 
         })
         
     return JsonResponse({
@@ -680,31 +691,52 @@ def merge_groups(request):
     """【升级版】按家族进行合并"""
     try:
         data = json.loads(request.body)
-        # 这里接收的是用户选中的“代表ID”
         representative_ids = data.get('group_ids', [])
         
         if len(representative_ids) < 2:
             return JsonResponse({'status': 'error', 'message': '请至少选择两个组进行合并'})
             
-        # 1. 根据代表ID，反向查出它们所属的 group_id (家族ID)
-        # 例如：选中了 ID=100(属于家族A) 和 ID=200(属于家族B)
         target_reps = PromptGroup.objects.filter(id__in=representative_ids)
         if not target_reps.exists():
             return JsonResponse({'status': 'error', 'message': '找不到选中的组'})
             
         involved_group_ids = target_reps.values_list('group_id', flat=True).distinct()
         
-        # 2. 确定合并目标 (使用第一个被选中代表的家族ID作为新家族ID)
         target_group_id = involved_group_ids[0]
         
-        # 3. 【核心修改】将所有涉及到的家族成员全部合并
-        # update PromptGroup set group_id = target where group_id IN (家族A, 家族B)
-        # 这样家族A和家族B的所有成员（不管有没有在列表里显示）都会被合并
         count = PromptGroup.objects.filter(group_id__in=involved_group_ids).update(group_id=target_group_id)
         
         return JsonResponse({
             'status': 'success', 
             'message': f'合并成功！共 {count} 个版本已归为同一系列。'
         })
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': str(e)})
+    
+# 【新增】解除关联 API
+@require_POST
+def unlink_group_relation(request, pk):
+    """将指定组(pk)从当前系列中移除（赋予新的 group_id）"""
+    group = get_object_or_404(PromptGroup, pk=pk)
+    # 生成新的 UUID，使其独立
+    group.group_id = uuid.uuid4()
+    group.save()
+    return JsonResponse({'status': 'success'})
+
+# 【新增】添加关联 API
+@require_POST
+def link_group_relation(request, pk):
+    """将目标组(target_id)合并到当前组(pk)的系列中"""
+    current_group = get_object_or_404(PromptGroup, pk=pk)
+    try:
+        data = json.loads(request.body)
+        target_id = data.get('target_id')
+        target_group = get_object_or_404(PromptGroup, pk=target_id)
+        
+        # 将目标组的 group_id 更新为当前组的 group_id
+        target_group.group_id = current_group.group_id
+        target_group.save()
+        
+        return JsonResponse({'status': 'success'})
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)})

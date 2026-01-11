@@ -37,18 +37,14 @@
                 <form action="{% url 'home' %}" method="get" class="nav-search-wrapper" onsubmit="return this.q.value.trim() !== ''">
                     <input type="text" name="q" id="navSearchInput" class="nav-search-input" 
                             placeholder="搜索提示词..." autocomplete="off" 
-                            value="{{ search_query|default:'' }}" 
-                            oninput="toggleSearchClearBtn()" 
-                            onfocus="toggleSearchClearBtn()"
-                            onblur="hideSearchClearBtn()">
+                            value="{{ search_query|default:'' }}">
                     
-                    <i class="bi bi-x-circle-fill text-secondary me-2 opacity-50" id="navSearchClearBtn" 
-                            style="cursor: pointer; display: none; font-size: 0.9rem;" 
-                            onmousedown="event.preventDefault(); clearNavSearch();" 
+                    <i class="bi bi-x-circle-fill text-secondary me-2 opacity-50 nav-search-clear-btn" 
+                            id="navSearchClearBtn" 
                             title="清除内容"></i>
 
                     <button type="button" class="nav-img-search-btn" onclick="document.getElementById('hiddenHomeImageInput').click()" title="以图搜图">
-                         <i class="bi bi-camera-fill"></i>
+                            <i class="bi bi-camera-fill"></i>
                     </button>
 
                     <button class="nav-search-btn" type="submit"><i class="bi bi-search" style="font-size: 0.8rem;"></i></button>
