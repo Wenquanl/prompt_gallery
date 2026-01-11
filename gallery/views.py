@@ -384,14 +384,17 @@ def upload(request):
             trigger_background_processing(created_image_ids)
             messages.success(request, f"成功发布！包含 {len(created_image_ids)} 张图片，系统正在后台处理索引。")
 
-        if request.headers.get('x-requested-with') == 'XMLHttpRequest':
+        # 判断是否为 AJAX (上传模态框可能也会用到类似逻辑，虽此处主要为页面提交)
+        is_ajax = request.headers.get('x-requested-with') == 'XMLHttpRequest' or \
+                  request.META.get('HTTP_X_REQUESTED_WITH') == 'XMLHttpRequest'
+
+        if is_ajax:
             # 渲染新卡片 HTML
             # 伪造一个 version_count = 1
             group.version_count = 1 
             html = render_to_string('gallery/components/home_group_card.html', {
                 'group': group,
-                'request': request
-            })
+            }, request=request) # 传递 request 确保 tag 渲染正常
             return JsonResponse({
                 'status': 'success',
                 'html': html,
@@ -486,9 +489,6 @@ def check_duplicates(request):
     
     return JsonResponse({'status': 'error', 'message': '仅支持 POST 请求'})
 
-# ... (后续代码：toggle_like_group, toggle_like_image, add_images_to_group 等保持不变)
-# 为节省篇幅，后续未修改的函数请保持原样即可，主要修改点在 upload 函数中。
-
 @require_POST
 def toggle_like_group(request, pk):
     group = get_object_or_404(PromptGroup, pk=pk)
@@ -508,61 +508,88 @@ def add_images_to_group(request, pk):
     group = get_object_or_404(PromptGroup, pk=pk)
     
     if request.method == 'POST':
-        files = request.FILES.getlist('new_images')
-        duplicates = []
-        uploaded_count = 0
-        created_ids = []
+        # 检测是否为 AJAX 请求（兼容旧版 Django 和各类代理）
+        is_ajax = request.headers.get('x-requested-with') == 'XMLHttpRequest' or \
+                  request.META.get('HTTP_X_REQUESTED_WITH') == 'XMLHttpRequest'
+                  
+        try:
+            files = request.FILES.getlist('new_images')
+            duplicates = []
+            uploaded_count = 0
+            created_ids = []
 
-        if files:
-            for f in files:
-                file_hash = calculate_file_hash(f)
-                existing_img = ImageItem.objects.filter(group=group, image_hash=file_hash).first()
-                
-                if existing_img:
-                    duplicates.append({
-                        'name': f.name,
-                        'existing_group_title': existing_img.group.title,
-                        'existing_url': existing_img.thumbnail.url if existing_img.thumbnail else existing_img.image.url
-                    })
-                else:
-                    img_item = ImageItem(group=group, image=f)
-                    img_item.image_hash = file_hash
-                    img_item.save()
-                    created_ids.append(img_item.id)
-                    uploaded_count += 1
-        
-        # 触发后台处理
-        if created_ids:
-            trigger_background_processing(created_ids)
-
-        # === [关键修复] AJAX 请求返回 JSON，不跳转 ===
-        if request.headers.get('x-requested-with') == 'XMLHttpRequest':
-            new_images = ImageItem.objects.filter(id__in=created_ids)
-            # 计算前端起始索引
-            start_index = group.images.count() - len(created_ids)
+            if files:
+                for f in files:
+                    file_hash = calculate_file_hash(f)
+                    existing_img = ImageItem.objects.filter(group=group, image_hash=file_hash).first()
+                    
+                    if existing_img:
+                        duplicates.append({
+                            'name': f.name,
+                            'existing_group_title': existing_img.group.title,
+                            'existing_url': existing_img.thumbnail.url if existing_img.thumbnail else existing_img.image.url
+                        })
+                    else:
+                        img_item = ImageItem(group=group, image=f)
+                        img_item.image_hash = file_hash
+                        img_item.save()
+                        created_ids.append(img_item.id)
+                        uploaded_count += 1
             
-            html_list = []
-            for i, img in enumerate(new_images):
-                html = render_to_string('gallery/components/detail_image_card.html', {
-                    'img': img, 
-                    'index': start_index + i,
-                    'request': request
-                })
-                html_list.append(html)
+            # 触发后台处理
+            if created_ids:
+                trigger_background_processing(created_ids)
 
-            return JsonResponse({
-                'status': 'success' if not duplicates else 'warning',
-                'uploaded_count': uploaded_count,
-                'duplicates': duplicates,
-                'new_images_html': html_list,
-                'type': 'gen'  # 标记类型为生成图
-            })
+            # === [关键修复] AJAX 请求返回 JSON，不跳转 ===
+            if is_ajax:
+                new_images = ImageItem.objects.filter(id__in=created_ids)
+                # 计算前端起始索引
+                # 注意：group.images.all() 已经包含了刚上传的图片
+                # 所以新图片之前的数量 = 总数量 - 新上传数量
+                total_count = group.images.count()
+                start_index = total_count - len(created_ids)
+                
+                html_list = []
+                for i, img in enumerate(new_images):
+                    # 【关键修复】构造伪造的 forloop 上下文
+                    # 解决 "Failed lookup for key [forloop]" 报错
+                    current_idx = start_index + i
+                    mock_forloop = {
+                        'counter0': current_idx,
+                        'counter': current_idx + 1,
+                        'first': (current_idx == 0),
+                        'last': (current_idx == total_count - 1),
+                        'revcounter': total_count - current_idx,
+                        'revcounter0': total_count - current_idx - 1,
+                    }
+
+                    # render_to_string 传递 request=request，防止 CSRF 或其他上下文丢失
+                    html = render_to_string('gallery/components/detail_image_card.html', {
+                        'img': img, 
+                        'index': current_idx,
+                        'forloop': mock_forloop, # 传入伪造对象
+                    }, request=request)
+                    html_list.append(html)
+
+                return JsonResponse({
+                    'status': 'success' if not duplicates else 'warning',
+                    'uploaded_count': uploaded_count,
+                    'duplicates': duplicates,
+                    'new_images_html': html_list,
+                    'type': 'gen'  # 标记类型为生成图
+                })
+            
+            # 普通表单提交的回退处理
+            if duplicates:
+                messages.warning(request, f"成功添加 {uploaded_count} 张，忽略 {len(duplicates)} 张重复图片")
+            else:
+                messages.success(request, f"成功添加 {uploaded_count} 张图片")
         
-        # 普通表单提交的回退处理
-        if duplicates:
-            messages.warning(request, f"成功添加 {uploaded_count} 张，忽略 {len(duplicates)} 张重复图片")
-        else:
-            messages.success(request, f"成功添加 {uploaded_count} 张图片")
+        except Exception as e:
+            # 如果是 AJAX 请求发生异常，返回 JSON 错误而不是让前端解析 HTML 失败
+            if is_ajax:
+                return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+            raise e
             
     return redirect('detail', pk=pk)
 
@@ -572,29 +599,37 @@ def add_references_to_group(request, pk):
     group = get_object_or_404(PromptGroup, pk=pk)
     
     if request.method == 'POST':
-        files = request.FILES.getlist('new_references')
-        new_refs = []
-        if files:
-            for f in files:
-                ref = ReferenceItem.objects.create(group=group, image=f)
-                new_refs.append(ref)
-        
-        # === [关键修复] AJAX 请求返回 JSON，包含新图片的 HTML ===
-        if request.headers.get('x-requested-with') == 'XMLHttpRequest':
-            html_list = []
-            for ref in new_refs:
-                html = render_to_string('gallery/components/detail_reference_item.html', {
-                    'ref': ref,
-                    'request': request
-                })
-                html_list.append(html)
+        # 检测 AJAX
+        is_ajax = request.headers.get('x-requested-with') == 'XMLHttpRequest' or \
+                  request.META.get('HTTP_X_REQUESTED_WITH') == 'XMLHttpRequest'
+
+        try:
+            files = request.FILES.getlist('new_references')
+            new_refs = []
+            if files:
+                for f in files:
+                    ref = ReferenceItem.objects.create(group=group, image=f)
+                    new_refs.append(ref)
             
-            return JsonResponse({
-                'status': 'success',
-                'uploaded_count': len(new_refs),
-                'new_references_html': html_list,
-                'type': 'ref'  # 标记类型为参考图
-            })
+            # === [关键修复] AJAX 请求返回 JSON，包含新图片的 HTML ===
+            if is_ajax:
+                html_list = []
+                for ref in new_refs:
+                    html = render_to_string('gallery/components/detail_reference_item.html', {
+                        'ref': ref,
+                    }, request=request)
+                    html_list.append(html)
+                
+                return JsonResponse({
+                    'status': 'success',
+                    'uploaded_count': len(new_refs),
+                    'new_references_html': html_list,
+                    'type': 'ref'  # 标记类型为参考图
+                })
+        except Exception as e:
+            if is_ajax:
+                return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+            raise e
 
     return redirect('detail', pk=pk)
 
