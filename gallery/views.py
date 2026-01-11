@@ -13,6 +13,7 @@ from django.db.models import Q, Count, Case, When, IntegerField, Max  # 【修�
 from .models import ImageItem, PromptGroup, Tag, AIModel, ReferenceItem
 from .forms import PromptGroupForm
 from .ai_utils import search_similar_images
+from django.db.models import Max, Count
 
 # === 引入 Service 层 ===
 from .services import (
@@ -597,26 +598,45 @@ def remove_tag_from_group(request, pk):
     
 @require_GET
 def group_list_api(request):
-    """【新增】为合并弹窗提供数据列表 (支持搜索和分页)"""
+    """【升级版】提供去重后的列表，并附带组内数量"""
     query = request.GET.get('q', '')
     page_num = request.GET.get('page', 1)
     
-    queryset = PromptGroup.objects.all().order_by('-created_at')
+    # 1. 基础查询
+    qs = PromptGroup.objects.all()
     
-    # 支持搜索
+    # 2. 搜索过滤：先找出符合搜索条件的 group_id
+    # 如果用户搜“红衣服”，我们要把包含“红衣服”的那个家族找出来
     if query:
-        queryset = queryset.filter(
+        matching_group_ids = qs.filter(
             Q(title__icontains=query) |
             Q(prompt_text__icontains=query) |
             Q(tags__name__icontains=query)
-        ).distinct()
+        ).values_list('group_id', flat=True).distinct()
+        
+        # 锁定范围到这些家族
+        qs = qs.filter(group_id__in=matching_group_ids)
     
-    paginator = Paginator(queryset, 20) # 每页加载20条
+    # 3. 聚合去重：按 group_id 分组，找出【最新ID】和【成员数量】
+    # values('group_id') 相当于 SQL 的 GROUP BY group_id
+    group_stats = qs.values('group_id').annotate(
+        max_id=Max('id'),     # 取该组最新的一个 ID 作为代表
+        count=Count('id')     # 统计该组有多少个
+    )
+    
+    # 4. 构建映射表与ID列表
+    latest_ids = [item['max_id'] for item in group_stats]
+    count_map = {item['max_id']: item['count'] for item in group_stats}
+    
+    # 5. 查询实体对象 (只查询代表)
+    # order_by('-id') 确保刚创建/刚修改的排在最前
+    final_qs = PromptGroup.objects.filter(id__in=latest_ids).order_by('-id')
+    
+    paginator = Paginator(final_qs, 20)
     page = paginator.get_page(page_num)
     
     data = []
     for group in page:
-        # 获取首张图的缩略图
         cover_url = ""
         if group.images.exists():
             try:
@@ -627,11 +647,12 @@ def group_list_api(request):
         data.append({
             'id': group.id,
             'title': group.title,
-            'prompt_text': group.prompt_text[:100] + '...' if len(group.prompt_text) > 100 else group.prompt_text,
+            'prompt_text': (group.prompt_text[:100] + '...') if group.prompt_text and len(group.prompt_text) > 100 else (group.prompt_text or ''),
             'created_at': group.created_at.strftime('%Y-%m-%d'),
             'cover_url': cover_url,
-            'model_info': group.model_info,
-            'group_id': str(group.group_id) # 用于前端识别是否已经是一伙的
+            'model_info': group.model_info or '',
+            'group_id': str(group.group_id),
+            'count': count_map.get(group.id, 1)  # 【新增】返回该组的数量
         })
         
     return JsonResponse({
@@ -642,26 +663,34 @@ def group_list_api(request):
 
 @require_POST
 def merge_groups(request):
-    """【新增】批量合并接口"""
+    """【升级版】按家族进行合并"""
     try:
         data = json.loads(request.body)
-        group_ids = data.get('group_ids', [])
+        # 这里接收的是用户选中的“代表ID”
+        representative_ids = data.get('group_ids', [])
         
-        if len(group_ids) < 2:
+        if len(representative_ids) < 2:
             return JsonResponse({'status': 'error', 'message': '请至少选择两个组进行合并'})
             
-        groups = PromptGroup.objects.filter(id__in=group_ids)
-        if not groups.exists():
+        # 1. 根据代表ID，反向查出它们所属的 group_id (家族ID)
+        # 例如：选中了 ID=100(属于家族A) 和 ID=200(属于家族B)
+        target_reps = PromptGroup.objects.filter(id__in=representative_ids)
+        if not target_reps.exists():
             return JsonResponse({'status': 'error', 'message': '找不到选中的组'})
             
-        # 以第一个组的 group_id 为准
-        target_group_id = groups.first().group_id
+        involved_group_ids = target_reps.values_list('group_id', flat=True).distinct()
         
-        count = groups.update(group_id=target_group_id)
+        # 2. 确定合并目标 (使用第一个被选中代表的家族ID作为新家族ID)
+        target_group_id = involved_group_ids[0]
+        
+        # 3. 【核心修改】将所有涉及到的家族成员全部合并
+        # update PromptGroup set group_id = target where group_id IN (家族A, 家族B)
+        # 这样家族A和家族B的所有成员（不管有没有在列表里显示）都会被合并
+        count = PromptGroup.objects.filter(group_id__in=involved_group_ids).update(group_id=target_group_id)
         
         return JsonResponse({
             'status': 'success', 
-            'message': f'成功将 {count} 个版本归为一类！'
+            'message': f'合并成功！共 {count} 个版本已归为同一系列。'
         })
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)})

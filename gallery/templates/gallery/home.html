@@ -494,39 +494,47 @@
                 }
 
                 data.results.forEach(item => {
-                    const isChecked = selectedMergeIds.has(String(item.id)) ? 'checked' : '';
-                    const activeClass = isChecked ? 'border-primary bg-primary bg-opacity-10' : 'border-0 bg-white';
-                    
-                    const html = `
-                        <div class="card shadow-sm merge-item-card ${activeClass}" 
-                             onclick="toggleMergeSelection(this, '${item.id}')" 
-                             style="cursor: pointer; transition: all 0.2s;">
-                            <div class="card-body p-2 d-flex align-items-center">
-                                <div class="me-3 ps-2">
-                                    <input type="checkbox" class="form-check-input merge-checkbox" 
-                                           ${isChecked} style="transform: scale(1.2); pointer-events: none;">
+                const isChecked = selectedMergeIds.has(String(item.id)) ? 'checked' : '';
+                const activeClass = isChecked ? 'border-primary bg-primary bg-opacity-10' : 'border-0 bg-white';
+                
+                // 【新增】判断是否显示数量徽章
+                let badgeHtml = '';
+                if (item.count > 1) {
+                    badgeHtml = `<span class="badge bg-primary bg-opacity-75 rounded-pill position-absolute top-0 end-0 m-2 shadow-sm" style="font-size: 0.7rem;">
+                                    <i class="bi bi-layers-fill me-1"></i>${item.count} 个版本
+                                </span>`;
+                }
+                
+                const html = `
+                    <div class="card shadow-sm merge-item-card ${activeClass} position-relative" 
+                        onclick="toggleMergeSelection(this, '${item.id}')" 
+                        style="cursor: pointer; transition: all 0.2s;">
+                        
+                        ${badgeHtml} <div class="card-body p-2 d-flex align-items-center">
+                            <div class="me-3 ps-2">
+                                <input type="checkbox" class="form-check-input merge-checkbox" 
+                                    ${isChecked} style="transform: scale(1.2); pointer-events: none;">
+                            </div>
+                            
+                            <div class="rounded overflow-hidden bg-secondary me-3" style="width: 60px; height: 60px; flex-shrink: 0;">
+                                ${item.cover_url ? `<img src="${item.cover_url}" class="w-100 h-100 object-fit-cover">` : '<div class="w-100 h-100 d-flex align-items-center justify-content-center text-white"><i class="bi bi-image"></i></div>'}
+                            </div>
+                            
+                            <div class="flex-grow-1 overflow-hidden">
+                                <div class="d-flex justify-content-between align-items-center pe-2">
+                                    <h6 class="mb-1 text-truncate fw-bold text-dark" style="max-width: 70%;">${item.title}</h6>
+                                    <span class="badge bg-light text-muted border fw-normal">${item.created_at}</span>
                                 </div>
-                                
-                                <div class="rounded overflow-hidden bg-secondary me-3" style="width: 60px; height: 60px; flex-shrink: 0;">
-                                    ${item.cover_url ? `<img src="${item.cover_url}" class="w-100 h-100 object-fit-cover">` : '<div class="w-100 h-100 d-flex align-items-center justify-content-center text-white"><i class="bi bi-image"></i></div>'}
-                                </div>
-                                
-                                <div class="flex-grow-1 overflow-hidden">
-                                    <div class="d-flex justify-content-between">
-                                        <h6 class="mb-1 text-truncate fw-bold text-dark">${item.title}</h6>
-                                        <span class="badge bg-light text-muted border fw-normal">${item.created_at}</span>
-                                    </div>
-                                    <div class="small text-muted text-truncate">${item.prompt_text}</div>
-                                    <div class="small text-primary mt-1">
-                                        <i class="bi bi-robot me-1"></i>${item.model_info || '未知模型'}
-                                        <span class="text-secondary ms-2" style="font-size: 0.7em;">ID: ${item.group_id.slice(0,8)}...</span>
-                                    </div>
+                                <div class="small text-muted text-truncate">${item.prompt_text}</div>
+                                <div class="small text-primary mt-1">
+                                    <i class="bi bi-robot me-1"></i>${item.model_info || '未知模型'}
                                 </div>
                             </div>
                         </div>
-                    `;
-                    container.insertAdjacentHTML('beforeend', html);
-                });
+                    </div>
+                `;
+                container.insertAdjacentHTML('beforeend', html);
+            });
 
                 // 处理分页按钮
                 if (data.has_next) {
