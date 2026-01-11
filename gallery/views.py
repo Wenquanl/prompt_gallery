@@ -7,7 +7,7 @@ from django.http import JsonResponse
 from django.db.models import Q, Count, Case, When, IntegerField
 from django.contrib import messages
 from django.core.paginator import Paginator
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_GET,require_POST
 from django.core.cache import cache
 from django.db.models import Q, Count, Case, When, IntegerField, Max  # 【修改】添加 Max
 from .models import ImageItem, PromptGroup, Tag, AIModel, ReferenceItem
@@ -592,5 +592,76 @@ def remove_tag_from_group(request, pk):
         
         group.tags.remove(tag)
         return JsonResponse({'status': 'success'})
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': str(e)})
+    
+@require_GET
+def group_list_api(request):
+    """【新增】为合并弹窗提供数据列表 (支持搜索和分页)"""
+    query = request.GET.get('q', '')
+    page_num = request.GET.get('page', 1)
+    
+    queryset = PromptGroup.objects.all().order_by('-created_at')
+    
+    # 支持搜索
+    if query:
+        queryset = queryset.filter(
+            Q(title__icontains=query) |
+            Q(prompt_text__icontains=query) |
+            Q(tags__name__icontains=query)
+        ).distinct()
+    
+    paginator = Paginator(queryset, 20) # 每页加载20条
+    page = paginator.get_page(page_num)
+    
+    data = []
+    for group in page:
+        # 获取首张图的缩略图
+        cover_url = ""
+        if group.images.exists():
+            try:
+                cover_url = group.images.first().thumbnail.url
+            except:
+                pass
+        
+        data.append({
+            'id': group.id,
+            'title': group.title,
+            'prompt_text': group.prompt_text[:100] + '...' if len(group.prompt_text) > 100 else group.prompt_text,
+            'created_at': group.created_at.strftime('%Y-%m-%d'),
+            'cover_url': cover_url,
+            'model_info': group.model_info,
+            'group_id': str(group.group_id) # 用于前端识别是否已经是一伙的
+        })
+        
+    return JsonResponse({
+        'results': data,
+        'has_next': page.has_next(),
+        'next_page_number': page.next_page_number() if page.has_next() else None
+    })
+
+@require_POST
+def merge_groups(request):
+    """【新增】批量合并接口"""
+    try:
+        data = json.loads(request.body)
+        group_ids = data.get('group_ids', [])
+        
+        if len(group_ids) < 2:
+            return JsonResponse({'status': 'error', 'message': '请至少选择两个组进行合并'})
+            
+        groups = PromptGroup.objects.filter(id__in=group_ids)
+        if not groups.exists():
+            return JsonResponse({'status': 'error', 'message': '找不到选中的组'})
+            
+        # 以第一个组的 group_id 为准
+        target_group_id = groups.first().group_id
+        
+        count = groups.update(group_id=target_group_id)
+        
+        return JsonResponse({
+            'status': 'success', 
+            'message': f'成功将 {count} 个版本归为一类！'
+        })
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)})

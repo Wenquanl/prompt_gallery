@@ -29,4 +29,7 @@ urlpatterns = [
     path('update-prompts/<int:pk>/', views.update_group_prompts, name='update_group_prompts'),
     # 查重接口
     path('check-duplicates/', views.check_duplicates, name='check_duplicates'),
+    # 【新增】合并功能相关接口
+    path('api/groups/', views.group_list_api, name='group_list_api'),
+    path('api/merge-groups/', views.merge_groups, name='merge_groups'),
 ]

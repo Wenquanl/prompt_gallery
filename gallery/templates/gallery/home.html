@@ -383,14 +383,228 @@
         </div>
     </div>
 </div>
+<button class="btn-float-manage" onclick="openMergeModal()" title="版本合并管理" 
+        style="position: fixed; right: 20px; bottom: 140px; width: 50px; height: 50px; border-radius: 50%; background: #fff; box-shadow: 0 4px 12px rgba(0,0,0,0.15); border: none; z-index: 1030; display: flex; align-items: center; justify-content: center; transition: all 0.3s; color: #333;">
+    <i class="bi bi-intersect fs-4"></i>
+</button>
 
+<div class="modal fade" id="mergeManagerModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow-lg rounded-4" style="height: 80vh;">
+            <div class="modal-header border-bottom-0 pb-0">
+                <h5 class="modal-title fw-bold">
+                    <i class="bi bi-intersect text-primary me-2"></i>版本合并管理
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            
+            <div class="modal-body p-0 d-flex flex-column h-100">
+                <div class="p-3 bg-light border-bottom">
+                    <div class="row g-2 align-items-center">
+                        <div class="col">
+                            <div class="input-group">
+                                <span class="input-group-text bg-white border-end-0"><i class="bi bi-search text-muted"></i></span>
+                                <input type="text" id="mergeSearchInput" class="form-control border-start-0 ps-0" placeholder="搜索要合并的提示词组 (标题/Prompt)...">
+                            </div>
+                        </div>
+                        <div class="col-auto">
+                            <div class="text-muted small">
+                                已选中 <span id="mergeSelectedCount" class="fw-bold text-primary fs-5">0</span> 个
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex-grow-1 overflow-auto bg-light p-3" id="mergeListContainer">
+                    <div id="mergeListContent" class="d-flex flex-column gap-2">
+                        </div>
+                    
+                    <div id="mergeLoadMore" class="text-center py-3" style="display:none;">
+                        <button class="btn btn-sm btn-outline-secondary rounded-pill" onclick="loadMergeData(currentPage + 1)">加载更多</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-footer border-top-0 pt-0 pb-3 pe-4">
+                <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary rounded-pill px-4" onclick="submitMerge()">
+                    <i class="bi bi-check-lg me-1"></i>确认合并
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/masonry-layout@4.2.2/dist/masonry.pkgd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/imagesloaded@5.0.0/imagesloaded.pkgd.min.js"></script>
-
 <script src="{% static 'gallery/js/common.js' %}"></script>
 <script src="{% static 'gallery/js/check_duplicates.js' %}"></script>
+<script>
+    let mergeModal;
+    let selectedMergeIds = new Set(); // 存储选中的ID
+    let currentPage = 1;
+    let currentQuery = '';
+    let isLoading = false;
 
+    // 打开弹窗
+    function openMergeModal() {
+        if (!mergeModal) {
+            mergeModal = new bootstrap.Modal(document.getElementById('mergeManagerModal'));
+        }
+        mergeModal.show();
+        
+        // 首次打开加载第一页
+        if (document.getElementById('mergeListContent').children.length === 0) {
+            loadMergeData(1, true);
+        }
+    }
+
+    // 搜索监听 (防抖)
+    let debounceTimer;
+    document.getElementById('mergeSearchInput').addEventListener('input', function(e) {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+            currentQuery = e.target.value.trim();
+            loadMergeData(1, true);
+        }, 500);
+    });
+
+    // 加载数据核心函数
+    function loadMergeData(page, reset = false) {
+        if (isLoading) return;
+        isLoading = true;
+        
+        const container = document.getElementById('mergeListContent');
+        const loadMoreBtn = document.getElementById('mergeLoadMore');
+        
+        if (reset) {
+            container.innerHTML = '<div class="text-center py-5 text-muted"><i class="bi bi-hourglass-split me-2"></i>加载中...</div>';
+            currentPage = 1;
+        }
+
+        fetch(`api/groups/?page=${page}&q=${encodeURIComponent(currentQuery)}`)
+            .then(res => res.json())
+            .then(data => {
+                if (reset) container.innerHTML = '';
+                
+                if (data.results.length === 0 && reset) {
+                    container.innerHTML = '<div class="text-center py-5 text-muted">未找到相关内容</div>';
+                    loadMoreBtn.style.display = 'none';
+                    return;
+                }
+
+                data.results.forEach(item => {
+                    const isChecked = selectedMergeIds.has(String(item.id)) ? 'checked' : '';
+                    const activeClass = isChecked ? 'border-primary bg-primary bg-opacity-10' : 'border-0 bg-white';
+                    
+                    const html = `
+                        <div class="card shadow-sm merge-item-card ${activeClass}" 
+                             onclick="toggleMergeSelection(this, '${item.id}')" 
+                             style="cursor: pointer; transition: all 0.2s;">
+                            <div class="card-body p-2 d-flex align-items-center">
+                                <div class="me-3 ps-2">
+                                    <input type="checkbox" class="form-check-input merge-checkbox" 
+                                           ${isChecked} style="transform: scale(1.2); pointer-events: none;">
+                                </div>
+                                
+                                <div class="rounded overflow-hidden bg-secondary me-3" style="width: 60px; height: 60px; flex-shrink: 0;">
+                                    ${item.cover_url ? `<img src="${item.cover_url}" class="w-100 h-100 object-fit-cover">` : '<div class="w-100 h-100 d-flex align-items-center justify-content-center text-white"><i class="bi bi-image"></i></div>'}
+                                </div>
+                                
+                                <div class="flex-grow-1 overflow-hidden">
+                                    <div class="d-flex justify-content-between">
+                                        <h6 class="mb-1 text-truncate fw-bold text-dark">${item.title}</h6>
+                                        <span class="badge bg-light text-muted border fw-normal">${item.created_at}</span>
+                                    </div>
+                                    <div class="small text-muted text-truncate">${item.prompt_text}</div>
+                                    <div class="small text-primary mt-1">
+                                        <i class="bi bi-robot me-1"></i>${item.model_info || '未知模型'}
+                                        <span class="text-secondary ms-2" style="font-size: 0.7em;">ID: ${item.group_id.slice(0,8)}...</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    container.insertAdjacentHTML('beforeend', html);
+                });
+
+                // 处理分页按钮
+                if (data.has_next) {
+                    loadMoreBtn.style.display = 'block';
+                    currentPage = page;
+                } else {
+                    loadMoreBtn.style.display = 'none';
+                }
+            })
+            .catch(err => {
+                console.error(err);
+                if(reset) container.innerHTML = '<div class="text-center text-danger py-4">加载失败，请重试</div>';
+            })
+            .finally(() => {
+                isLoading = false;
+            });
+    }
+
+    // 切换选中状态
+    function toggleMergeSelection(card, id) {
+        const checkbox = card.querySelector('.merge-checkbox');
+        id = String(id);
+        
+        if (selectedMergeIds.has(id)) {
+            selectedMergeIds.delete(id);
+            checkbox.checked = false;
+            card.classList.remove('border-primary', 'bg-primary', 'bg-opacity-10');
+            card.classList.add('border-0', 'bg-white');
+        } else {
+            selectedMergeIds.add(id);
+            checkbox.checked = true;
+            card.classList.remove('border-0', 'bg-white');
+            card.classList.add('border-primary', 'bg-primary', 'bg-opacity-10');
+        }
+        
+        document.getElementById('mergeSelectedCount').textContent = selectedMergeIds.size;
+    }
+
+    // 提交合并
+    function submitMerge() {
+        if (selectedMergeIds.size < 2) {
+            Swal.fire('提示', '请至少选择两个组进行合并', 'warning');
+            return;
+        }
+
+        Swal.fire({
+            title: '确认合并?',
+            text: `确认将选中的 ${selectedMergeIds.size} 个版本归为同一类?`,
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonText: '确定',
+            cancelButtonText: '取消'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                fetch('/api/merge-groups/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCookie('csrftoken')
+                    },
+                    body: JSON.stringify({
+                        group_ids: Array.from(selectedMergeIds)
+                    })
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        Swal.fire('成功', data.message, 'success').then(() => {
+                            window.location.reload();
+                        });
+                    } else {
+                        Swal.fire('失败', data.message, 'error');
+                    }
+                });
+            }
+        });
+    }
+</script>
 <script>
     const IS_LIKED_FILTER = {% if current_filter == 'liked' %}true{% else %}false{% endif %};
 
@@ -449,5 +663,18 @@
         })
     });
 </script>
+<style>
+    /* 悬浮按钮悬停效果 */
+    .btn-float-manage:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 6px 16px rgba(0,0,0,0.2) !important;
+        background-color: #0d6efd !important;
+        color: white !important;
+    }
+    /* 列表项悬停 */
+    .merge-item-card:hover {
+        background-color: #f8f9fa;
+    }
+</style>
 </body>
 </html>
