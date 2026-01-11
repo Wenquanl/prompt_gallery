@@ -1,16 +1,16 @@
 /**
- * detail.js - 终极修复完整版 (V2)
- * 修复：版本关联搜索列表缩略图丢失问题
- * 包含：图片重叠修复、Masonry 布局塌陷修复、AJAX 上传、拖拽上传
+ * detail.js - 终极修复完整版 (V3)
+ * 更新：支持关联新版本时的多选、清除、批量提交
  */
 
 let currentIndex = 0;
 let imageModal = null; 
-// 独立存储详情页模态框中的文件
 let modalGenFiles = [];
 let modalRefFiles = [];
 
-// 初始化全局数据
+// === 多选关联状态 ===
+let selectedLinkIds = new Set();
+
 document.addEventListener('DOMContentLoaded', function() {
     const dataElement = document.getElementById('gallery-data');
     if (dataElement) {
@@ -19,22 +19,18 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 document.addEventListener('DOMContentLoaded', function() {
-    // 1. 初始化模态框
     const modalEl = document.getElementById('imageModal');
     if (modalEl) {
         imageModal = new bootstrap.Modal(modalEl);
     }
     
-    // 2. 初始化 Masonry 布局
     const grid = document.querySelector('#detail-masonry-grid');
     if (grid && typeof Masonry !== 'undefined') {
-        // 初始化
         window.msnry = new Masonry(grid, {
             itemSelector: '.grid-item',
             percentPosition: true
         });
 
-        // 初始加载也使用 imagesLoaded 防止刷新时重叠
         if (typeof imagesLoaded !== 'undefined') {
             imagesLoaded(grid).on('progress', function() {
                 window.msnry.layout();
@@ -42,7 +38,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // 3. 键盘事件监听
     document.addEventListener('keydown', function(event) {
         if (modalEl && modalEl.classList.contains('show')) {
             if (event.key === 'ArrowLeft') changeImage(-1);
@@ -51,7 +46,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // 4. 点击外部收起标签输入框
     document.addEventListener('click', function(event) {
         const container = document.getElementById('tagInputContainer');
         const addBtn = document.getElementById('btnAddTag');
@@ -64,11 +58,8 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // 5. 初始化内嵌拖拽区
     setupInlineDragDrop('inline-trigger-gen', 'addImagesModal', 'gen');
     setupInlineDragDrop('inline-trigger-ref', 'addReferenceModal', 'ref');
-
-    // 6. 初始化模态框内的拖拽逻辑
     setupDetailDragDrop('zone-modal-gen', 'input-modal-gen', 'preview-modal-gen', 'gen');
     setupDetailDragDrop('zone-modal-ref', 'input-modal-ref', 'preview-modal-ref', 'ref');
 });
@@ -125,7 +116,6 @@ function updateModalImage() {
     }
 }
 
-// 模态框点赞
 function toggleModalLike() {
     const currentImgData = galleryImages[currentIndex];
     const csrftoken = getCookie('csrftoken');
@@ -154,7 +144,6 @@ function toggleModalLike() {
     });
 }
 
-// 列表点赞
 function toggleImageLike(event, pk) {
     event.stopPropagation(); 
     const btn = event.currentTarget;
@@ -181,7 +170,6 @@ function toggleImageLike(event, pk) {
     });
 }
 
-// 删除确认
 function confirmDelete(event) {
     event.preventDefault(); 
     const form = event.target.closest('form');
@@ -386,15 +374,12 @@ function handleImageUpload(event) {
         submitBtn.disabled = false;
 
         if (data.status === 'success' || data.status === 'warning') {
-            // 1. 关闭模态框
             const modalId = (data.type === 'ref') ? 'addReferenceModal' : 'addImagesModal';
             const modalEl = document.getElementById(modalId);
             if (modalEl) bootstrap.Modal.getInstance(modalEl).hide();
 
-            // 2. 处理生成图
             if (data.type === 'gen') {
                 if (data.new_images_data && window.galleryImages) {
-                    // ID 正序的数据倒序插入，确保最新图在最前
                     data.new_images_data.forEach(img => window.galleryImages.unshift(img));
                 }
 
@@ -403,59 +388,37 @@ function handleImageUpload(event) {
                     const emptyPlaceholder = grid.querySelector('.alert.alert-light');
                     if (emptyPlaceholder) emptyPlaceholder.parentNode.remove();
 
-                    // A. 准备 DOM 元素
                     const tempDiv = document.createElement('div');
                     const newItems = [];
                     data.new_images_html.forEach(html => {
                         tempDiv.innerHTML = html;
                         const node = tempDiv.firstElementChild;
-                        
-                        // 【核心修复1】强制开启 eager 加载，让浏览器立刻请求图片
                         const img = node.querySelector('img');
                         if (img) img.setAttribute('loading', 'eager');
-                        
-                        grid.prepend(node); // 先插入到最前面
+                        grid.prepend(node);
                         newItems.push(node);
                     });
 
-                    // B. Masonry 重排逻辑
                     if (window.msnry) {
-                        // 1. 告知 Masonry 有新元素
                         window.msnry.prepended(newItems);
-                        
-                        // 2. 定义重排函数
                         const onLayout = () => { window.msnry.layout(); };
-
-                        // 3. 【核心修复2】使用 imagesLoaded 监听图片加载进度
                         if (typeof imagesLoaded !== 'undefined') {
                             imagesLoaded(newItems).on('progress', onLayout);
                         }
-
-                        // 4. 【核心修复3】使用 ResizeObserver 监听卡片尺寸变化
-                        // 这是防止塌陷的终极手段，只要图片撑开卡片，就立即重排
-                        const ro = new ResizeObserver(entries => {
-                            onLayout();
-                        });
+                        const ro = new ResizeObserver(entries => { onLayout(); });
                         newItems.forEach(item => {
                             ro.observe(item);
-                            // 监听内部图片本身
                             const img = item.querySelector('img');
                             if(img) ro.observe(img);
                         });
-                        
-                        // 5. 保底：立即排一次，延迟排几次
                         onLayout();
                         setTimeout(onLayout, 300);
                         setTimeout(onLayout, 1000);
                     }
-                    
-                    // 清空预览
                     modalGenFiles = [];
                     document.getElementById('preview-modal-gen').innerHTML = '';
                 }
-            } 
-            // 3. 处理参考图
-            else if (data.type === 'ref') {
+            } else if (data.type === 'ref') {
                 if (data.new_references_html && data.new_references_html.length > 0) {
                     const refGrid = document.getElementById('reference-grid');
                     if (refGrid) {
@@ -466,7 +429,6 @@ function handleImageUpload(event) {
                 }
             }
 
-            // 4. 显示结果
             if (data.status === 'warning') {
                 let listItems = data.duplicates.map(dup => `
                     <div class="duplicate-item">
@@ -476,7 +438,6 @@ function handleImageUpload(event) {
                             <div class="duplicate-badge">已拦截</div>
                         </div>
                     </div>`).join('');
-                    
                 Swal.fire({
                     title: '重复拦截报告',
                     html: `<div class="duplicate-scroll-container">${listItems}</div>
@@ -503,35 +464,17 @@ function handleImageUpload(event) {
 function setupInlineDragDrop(triggerId, modalId, type) {
     const trigger = document.getElementById(triggerId); if (!trigger) return;
     let dragCounter = 0;
-
     trigger.addEventListener('click', () => {
         const modalEl = document.getElementById(modalId);
         if (modalEl) bootstrap.Modal.getOrCreateInstance(modalEl).show();
     });
-
     ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-        trigger.addEventListener(eventName, (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-        }, false);
+        trigger.addEventListener(eventName, (e) => { e.preventDefault(); e.stopPropagation(); }, false);
     });
-
-    trigger.addEventListener('dragenter', () => {
-        dragCounter++;
-        trigger.classList.add('drag-over');
-    });
-
-    trigger.addEventListener('dragleave', () => {
-        dragCounter--;
-        if (dragCounter === 0) {
-            trigger.classList.remove('drag-over');
-        }
-    });
-
+    trigger.addEventListener('dragenter', () => { dragCounter++; trigger.classList.add('drag-over'); });
+    trigger.addEventListener('dragleave', () => { dragCounter--; if (dragCounter === 0) trigger.classList.remove('drag-over'); });
     trigger.addEventListener('drop', (e) => {
-        dragCounter = 0;
-        trigger.classList.remove('drag-over');
-        
+        dragCounter = 0; trigger.classList.remove('drag-over');
         const files = e.dataTransfer.files;
         if (files && files.length > 0) {
             const modalEl = document.getElementById(modalId);
@@ -539,56 +482,33 @@ function setupInlineDragDrop(triggerId, modalId, type) {
                 bootstrap.Modal.getOrCreateInstance(modalEl).show();
                 const input = document.getElementById(`input-modal-${type}`);
                 const previewContainer = document.getElementById(`preview-modal-${type}`);
-                if (input && previewContainer) {
-                    handleModalFiles(files, type, input, previewContainer);
-                }
+                if (input && previewContainer) handleModalFiles(files, type, input, previewContainer);
             }
         }
     });
 }
 
 function setupDetailDragDrop(zoneId, inputId, previewId, type) {
-    const zone = document.getElementById(zoneId);
-    if (!zone) return; 
-    
+    const zone = document.getElementById(zoneId); if (!zone) return; 
     const input = document.getElementById(inputId);
     const previewContainer = document.getElementById(previewId);
     let dragCounter = 0;
-
     ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-        zone.addEventListener(eventName, (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-        }, false);
+        zone.addEventListener(eventName, (e) => { e.preventDefault(); e.stopPropagation(); }, false);
     });
-
-    zone.addEventListener('dragenter', () => {
-        dragCounter++;
-        zone.classList.add('drag-over');
-    });
-    
-    zone.addEventListener('dragleave', () => {
-        dragCounter--;
-        if (dragCounter === 0) zone.classList.remove('drag-over');
-    });
-
+    zone.addEventListener('dragenter', () => { dragCounter++; zone.classList.add('drag-over'); });
+    zone.addEventListener('dragleave', () => { dragCounter--; if (dragCounter === 0) zone.classList.remove('drag-over'); });
     zone.addEventListener('drop', (e) => {
-        dragCounter = 0;
-        zone.classList.remove('drag-over');
+        dragCounter = 0; zone.classList.remove('drag-over');
         handleModalFiles(e.dataTransfer.files, type, input, previewContainer);
     });
-
     input.addEventListener('change', () => {
-        if (input.files.length > 0) {
-            handleModalFiles(input.files, type, input, previewContainer);
-        }
+        if (input.files.length > 0) handleModalFiles(input.files, type, input, previewContainer);
     });
 }
 
-// 辅助函数：文件处理
 function handleModalFiles(newFiles, type, input, previewContainer) {
     const fileArray = (type === 'gen') ? modalGenFiles : modalRefFiles;
-    
     Array.from(newFiles).forEach(file => {
         const exists = fileArray.some(f => f.name === file.name && f.size === file.size);
         if (!exists) {
@@ -630,7 +550,6 @@ function addModalPreviewItem(file, type, container, input) {
     createModalThumbnail(file).then(url => {
         const spinner = div.querySelector('.spinner-border');
         if (spinner) spinner.remove();
-        
         if (url) {
             const img = document.createElement('img');
             img.src = url;
@@ -664,7 +583,6 @@ function createModalThumbnail(file) {
     });
 }
 
-// ================= 导航栏滚动透明特效 =================
 document.addEventListener('DOMContentLoaded', function() {
     if (!document.body.classList.contains('detail-page')) return;
     const navbar = document.querySelector('.navbar-glass');
@@ -678,7 +596,8 @@ document.addEventListener('DOMContentLoaded', function() {
     document.querySelector('.detail-scroll-right')?.addEventListener('scroll', update);
 });
 
-// ================= 版本关联管理 =================
+// ================= 版本关联管理 (升级版：支持多选) =================
+
 function unlinkSibling(e, id) { 
     e.preventDefault(); e.stopPropagation(); 
     Swal.fire({title:'解除关联?',showCancelButton:true,confirmButtonText:'确定'}).then(r=>{
@@ -692,8 +611,49 @@ function unlinkSibling(e, id) {
 let linkModal;
 function openLinkModal() { 
     if(!linkModal) linkModal=new bootstrap.Modal(document.getElementById('linkVersionModal')); 
-    document.getElementById('linkSearchResults').innerHTML='<div class="text-center text-muted p-3">请输入关键词</div>'; 
+    
+    // 初始化清空状态
+    document.getElementById('linkSearchInput').value = '';
+    document.getElementById('linkSearchResults').innerHTML = '<div class="text-center text-muted p-3">请输入关键词</div>'; 
+    selectedLinkIds.clear();
+    updateLinkSelectionUI();
+    
     linkModal.show(); 
+}
+
+// 更新UI状态：选中计数、列表项高亮
+function updateLinkSelectionUI() {
+    document.getElementById('linkSelectedCount').textContent = selectedLinkIds.size;
+    
+    // 遍历当前显示的列表项，更新样式
+    document.querySelectorAll('.search-result-item').forEach(el => {
+        const id = parseInt(el.dataset.id);
+        const icon = el.querySelector('.select-icon');
+        
+        if (selectedLinkIds.has(id)) {
+            el.classList.add('bg-primary', 'bg-opacity-10', 'border-primary'); // 高亮背景
+            icon.classList.replace('bi-circle', 'bi-check-circle-fill');
+            icon.classList.add('text-primary');
+        } else {
+            el.classList.remove('bg-primary', 'bg-opacity-10', 'border-primary');
+            icon.classList.replace('bi-check-circle-fill', 'bi-circle');
+            icon.classList.remove('text-primary');
+        }
+    });
+}
+
+function toggleLinkSelection(id) {
+    if (selectedLinkIds.has(id)) {
+        selectedLinkIds.delete(id);
+    } else {
+        selectedLinkIds.add(id);
+    }
+    updateLinkSelectionUI();
+}
+
+function clearLinkSelection() {
+    selectedLinkIds.clear();
+    updateLinkSelectionUI();
 }
 
 let st; 
@@ -701,35 +661,82 @@ function debounceSearchLink() {
     clearTimeout(st); st=setTimeout(()=>{performLinkSearch(document.getElementById('linkSearchInput').value.trim())},500); 
 }
 
-// 【关键修复】恢复了搜索结果列表中的缩略图显示代码
+// 执行搜索并渲染
 function performLinkSearch(q) {
-    if(!q)return;
+    if(!q) return;
     fetch(`/api/groups/?q=${encodeURIComponent(q)}`).then(r=>r.json()).then(d=>{
         const c = document.getElementById('linkSearchResults'); c.innerHTML='';
         if(!d.results.length) { c.innerHTML='<div class="text-center text-muted">无结果</div>'; return; }
         
-        // 此处恢复了完整的 HTML 结构，包含缩略图 div
+        const currentPathParts = location.pathname.split('/');
+        const currentPk = parseInt(currentPathParts[currentPathParts.length-2] || currentPathParts[currentPathParts.length-1]);
+
         d.results.forEach(i => {
+            // 排除自己
+            if (i.id === currentPk) return;
+
+            // 渲染列表项
+            const isSelected = selectedLinkIds.has(i.id);
+            const bgClass = isSelected ? 'bg-primary bg-opacity-10 border-primary' : '';
+            const iconClass = isSelected ? 'bi-check-circle-fill text-primary' : 'bi-circle text-muted';
+
             const html = `
-                <div class="d-flex align-items-center p-2 border-bottom" onclick="confirmLinkGroup(${i.id},'${i.title.replace(/'/g, "\\'")}')" style="cursor:pointer">
+                <div class="d-flex align-items-center p-2 border-bottom search-result-item ${bgClass}" 
+                     data-id="${i.id}" 
+                     onclick="toggleLinkSelection(${i.id})" 
+                     style="cursor:pointer; transition: all 0.2s;">
+                    
+                    <div class="me-3">
+                        <i class="bi ${iconClass} select-icon fs-5"></i>
+                    </div>
+
                     <div class="rounded overflow-hidden bg-light me-3" style="width: 40px; height: 40px; flex-shrink: 0;">
                         ${i.cover_url ? `<img src="${i.cover_url}" class="w-100 h-100 object-fit-cover">` : ''}
                     </div>
+                    
                     <div class="flex-grow-1 overflow-hidden">
                         <div class="fw-bold text-truncate" style="font-size: 0.85rem;">${i.title}</div>
                         <div class="text-muted text-truncate small" style="font-size: 0.75rem;">${i.prompt_text.substring(0,30)}...</div>
                     </div>
-                    <i class="bi bi-plus-lg text-primary ms-2"></i>
                 </div>`;
             c.insertAdjacentHTML('beforeend', html);
         });
     });
 }
 
-function confirmLinkGroup(tid, ttitle) {
-    const parts=location.pathname.split('/'); const cid=parts[parts.length-2]||parts[parts.length-1];
-    if(cid==tid) { Swal.fire('不能关联自己'); return; }
-    Swal.fire({title:`关联 "${ttitle}"?`,showCancelButton:true}).then(r=>{
-        if(r.isConfirmed) fetch(`/api/link-group/${cid}/`,{method:'POST',body:JSON.stringify({target_id:tid}),headers:{'Content-Type':'application/json','X-CSRFToken':getCookie('csrftoken')}}).then(res=>res.json()).then(d=>{if(d.status==='success')location.reload();});
+// 批量提交
+function submitLinkSelection() {
+    if (selectedLinkIds.size === 0) {
+        Swal.fire('提示', '请至少选择一个版本', 'warning');
+        return;
+    }
+
+    const pathParts = window.location.pathname.split('/');
+    const currentPk = pathParts[pathParts.length - 2] || pathParts[pathParts.length - 1]; 
+
+    Swal.fire({
+        title: `确认关联 ${selectedLinkIds.size} 个版本?`,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: '确认关联'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            fetch(`/api/link-group/${currentPk}/`, {
+                method: 'POST',
+                body: JSON.stringify({ target_ids: Array.from(selectedLinkIds) }),
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCookie('csrftoken') 
+                }
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    Swal.fire('成功', '版本关联成功', 'success').then(() => location.reload());
+                } else {
+                    Swal.fire('失败', data.message, 'error');
+                }
+            });
+        }
     });
 }

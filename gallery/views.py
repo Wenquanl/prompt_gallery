@@ -809,20 +809,29 @@ def unlink_group_relation(request, pk):
     group.save()
     return JsonResponse({'status': 'success'})
 
-# 【新增】添加关联 API
+# 【新增】添加关联 API (支持多选)
 @require_POST
 def link_group_relation(request, pk):
-    """将目标组(target_id)合并到当前组(pk)的系列中"""
+    """将目标组(target_ids)合并到当前组(pk)的系列中"""
     current_group = get_object_or_404(PromptGroup, pk=pk)
     try:
         data = json.loads(request.body)
-        target_id = data.get('target_id')
-        target_group = get_object_or_404(PromptGroup, pk=target_id)
         
-        # 将目标组的 group_id 更新为当前组的 group_id
-        target_group.group_id = current_group.group_id
-        target_group.save()
+        # 兼容单选和多选
+        target_ids = data.get('target_ids', [])
+        if 'target_id' in data:
+            target_ids.append(data['target_id'])
+            
+        if not target_ids:
+             return JsonResponse({'status': 'error', 'message': '未选择任何版本'})
+
+        # 批量更新
+        # 排除自己，防止逻辑错误
+        target_groups = PromptGroup.objects.filter(id__in=target_ids).exclude(id=current_group.id)
         
-        return JsonResponse({'status': 'success'})
+        # 将所有选中组的 group_id 更新为当前组的 group_id
+        count = target_groups.update(group_id=current_group.group_id)
+        
+        return JsonResponse({'status': 'success', 'count': count})
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)})

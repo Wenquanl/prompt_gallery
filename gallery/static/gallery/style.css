@@ -1875,3 +1875,71 @@ a { text-decoration: none; }
 .upload-trigger-card.drag-over {
     color: var(--accent-color);
 }
+
+/* ================== 14. 详情页参考图交互样式 ================== */
+.ref-item-container {
+    border-radius: 12px; /* 圆角 */
+    overflow: hidden;    /* 限制图片放大溢出 */
+    border: 2px solid transparent; /* 预留边框位置 */
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.05); /* 基础阴影 */
+    background: #fff;
+}
+
+/* 悬停态：上浮 + 投影 + 边框高亮 */
+.ref-item-container:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 8px 20px rgba(0,0,0,0.12);
+    border-color: var(--accent-color); /* 使用主题色边框 */
+}
+
+/* 图片缩放动画 */
+.ref-item-container img {
+    transition: transform 0.5s ease;
+    will-change: transform;
+}
+
+.ref-item-container:hover img {
+    transform: scale(1.1); /* 图片轻微放大 */
+}
+
+/* 删除按钮优化：默认隐藏，悬停显示 */
+.ref-item-container .btn-delete-ref {
+    opacity: 0;
+    transform: scale(0.8);
+    transition: all 0.2s ease;
+}
+
+.ref-item-container:hover .btn-delete-ref {
+    opacity: 1;
+    transform: scale(1);
+}
+
+/* ================== 15. 关联按钮交互样式 ================== */
+.btn-link-interactive {
+    background: white;
+    border: 1px solid rgba(79, 172, 254, 0.3); /* 淡蓝边框 */
+    color: var(--accent-color);
+    font-weight: 600;
+    transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+}
+
+.btn-link-interactive:hover {
+    background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+    color: white !important; /* 强制变白 */
+    border-color: transparent;
+    transform: translateY(-2px) scale(1.05);
+    box-shadow: 0 6px 15px rgba(79, 172, 254, 0.3);
+}
+
+.btn-link-interactive:hover i {
+    transform: rotate(90deg); /* 图标旋转特效 */
+    display: inline-block;
+    transition: transform 0.3s ease;
+}
+
+.btn-link-interactive:active {
+    transform: translateY(0) scale(0.95);
+    box-shadow: 0 2px 5px rgba(79, 172, 254, 0.2);
+}
