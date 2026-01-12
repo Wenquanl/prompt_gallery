@@ -1,15 +1,23 @@
 /**
- * detail.js - 终极修复完整版 (V3)
- * 更新：支持关联新版本时的多选、清除、批量提交
+ * detail.js - 终极修复完整版 (V6)
+ * 修复：整组删除报错 404 问题
+ * 包含：多选关联、AJAX 上传、Masonry 布局、图片防重叠
  */
 
 let currentIndex = 0;
 let imageModal = null; 
+// 独立存储详情页模态框中的文件
 let modalGenFiles = [];
 let modalRefFiles = [];
 
 // === 多选关联状态 ===
 let selectedLinkIds = new Set();
+
+// === 辅助函数：精准获取当前作品 ID ===
+function getCurrentGroupId() {
+    const match = location.pathname.match(/\/detail\/(\d+)/);
+    return match ? parseInt(match[1]) : null;
+}
 
 document.addEventListener('DOMContentLoaded', function() {
     const dataElement = document.getElementById('gallery-data');
@@ -103,6 +111,7 @@ function updateModalImage() {
 
     if (downloadBtn) downloadBtn.href = currentImgData.url;
     if (deleteForm) deleteForm.action = `/delete-image/${currentImgData.id}/`;
+    
     if (counterElement) counterElement.innerText = `${currentIndex + 1} / ${galleryImages.length}`;
     
     if (likeBtn) {
@@ -170,9 +179,16 @@ function toggleImageLike(event, pk) {
     });
 }
 
+// 【核心修改】 AJAX 删除逻辑
 function confirmDelete(event) {
     event.preventDefault(); 
-    const form = event.target.closest('form');
+    const btn = event.currentTarget;
+    const form = btn.closest('form');
+    const url = form.action;
+    
+    const isModal = btn.closest('#imageModal') !== null;
+    const isReference = btn.closest('#reference-grid') !== null;
+
     Swal.fire({
         title: '确定要删除吗？',
         text: "此操作无法撤销！文件将被永久删除。",
@@ -184,7 +200,96 @@ function confirmDelete(event) {
         cancelButtonText: '取消',
         background: 'rgba(255, 255, 255, 0.95)', 
         customClass: { popup: 'rounded-4 shadow-lg border-0' }
-    }).then((result) => { if (result.isConfirmed) form.submit(); })
+    }).then((result) => { 
+        if (result.isConfirmed) {
+            const csrftoken = getCookie('csrftoken');
+            
+            const originalHtml = btn.innerHTML;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+            btn.disabled = true;
+
+            fetch(url, {
+                method: 'POST',
+                headers: { 
+                    'X-CSRFToken': csrftoken,
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    // 【核心修复】 处理整组删除 (跳转回首页)
+                    if (data.type === 'group') {
+                        window.location.href = '/'; 
+                        return;
+                    }
+                    
+                    const deletedId = parseInt(data.pk);
+
+                    // 1. 处理参考图删除
+                    if (isReference) {
+                        const col = btn.closest('.col');
+                        if (col) {
+                            col.style.transition = 'all 0.3s ease';
+                            col.style.transform = 'scale(0)';
+                            setTimeout(() => col.remove(), 300);
+                        }
+                    }
+                    // 2. 处理生成图删除 (Grid 或 Modal)
+                    else {
+                        if (window.galleryImages) {
+                            const idx = window.galleryImages.findIndex(img => img.id === deletedId);
+                            if (idx !== -1) {
+                                window.galleryImages.splice(idx, 1);
+                            }
+                        }
+
+                        const gridItem = document.getElementById(`img-anchor-${deletedId}`);
+                        if (gridItem) {
+                            if (window.msnry) {
+                                window.msnry.remove(gridItem);
+                                window.msnry.layout();
+                            } else {
+                                gridItem.remove();
+                            }
+                        }
+
+                        if (isModal) {
+                            if (!window.galleryImages || window.galleryImages.length === 0) {
+                                const modalInstance = bootstrap.Modal.getInstance(document.getElementById('imageModal'));
+                                if (modalInstance) modalInstance.hide();
+                            } else {
+                                if (currentIndex >= window.galleryImages.length) {
+                                    currentIndex = window.galleryImages.length - 1;
+                                }
+                                updateModalImage();
+                            }
+                        }
+                    }
+
+                    Swal.fire({
+                        icon: 'success',
+                        title: '已删除',
+                        toast: true,
+                        position: 'top-end',
+                        showConfirmButton: false,
+                        timer: 1500
+                    });
+
+                } else {
+                    btn.innerHTML = originalHtml;
+                    btn.disabled = false;
+                    Swal.fire('删除失败', data.message || '未知错误', 'error');
+                }
+            })
+            .catch(error => {
+                console.error(error);
+                btn.innerHTML = originalHtml;
+                btn.disabled = false;
+                Swal.fire('错误', '网络请求失败', 'error');
+            });
+        }
+    });
 }
 
 // ================= 提示词编辑逻辑 =================
@@ -351,7 +456,7 @@ function removeTag(groupPk, tagId, tagName) {
     });
 }
 
-// ================= 【核心修复】上传处理 =================
+// ================= 上传处理 =================
 
 function handleImageUpload(event) {
     event.preventDefault(); 
@@ -596,7 +701,7 @@ document.addEventListener('DOMContentLoaded', function() {
     document.querySelector('.detail-scroll-right')?.addEventListener('scroll', update);
 });
 
-// ================= 版本关联管理 (升级版：支持多选) =================
+// ================= 版本关联管理 (升级版：支持多选 & 精准ID获取) =================
 
 function unlinkSibling(e, id) { 
     e.preventDefault(); e.stopPropagation(); 
@@ -625,13 +730,12 @@ function openLinkModal() {
 function updateLinkSelectionUI() {
     document.getElementById('linkSelectedCount').textContent = selectedLinkIds.size;
     
-    // 遍历当前显示的列表项，更新样式
     document.querySelectorAll('.search-result-item').forEach(el => {
         const id = parseInt(el.dataset.id);
         const icon = el.querySelector('.select-icon');
         
         if (selectedLinkIds.has(id)) {
-            el.classList.add('bg-primary', 'bg-opacity-10', 'border-primary'); // 高亮背景
+            el.classList.add('bg-primary', 'bg-opacity-10', 'border-primary'); 
             icon.classList.replace('bi-circle', 'bi-check-circle-fill');
             icon.classList.add('text-primary');
         } else {
@@ -668,14 +772,12 @@ function performLinkSearch(q) {
         const c = document.getElementById('linkSearchResults'); c.innerHTML='';
         if(!d.results.length) { c.innerHTML='<div class="text-center text-muted">无结果</div>'; return; }
         
-        const currentPathParts = location.pathname.split('/');
-        const currentPk = parseInt(currentPathParts[currentPathParts.length-2] || currentPathParts[currentPathParts.length-1]);
+        // 【核心修复】精准获取当前 ID，防止把自己显示出来
+        const currentPk = getCurrentGroupId();
 
         d.results.forEach(i => {
-            // 排除自己
-            if (i.id === currentPk) return;
+            if (i.id === currentPk) return; // 排除自己
 
-            // 渲染列表项
             const isSelected = selectedLinkIds.has(i.id);
             const bgClass = isSelected ? 'bg-primary bg-opacity-10 border-primary' : '';
             const iconClass = isSelected ? 'bi-check-circle-fill text-primary' : 'bi-circle text-muted';
@@ -711,8 +813,12 @@ function submitLinkSelection() {
         return;
     }
 
-    const pathParts = window.location.pathname.split('/');
-    const currentPk = pathParts[pathParts.length - 2] || pathParts[pathParts.length - 1]; 
+    // 【核心修复】获取当前 ID，防止请求 URL 错误
+    const currentPk = getCurrentGroupId();
+    if (!currentPk) {
+        Swal.fire('错误', '无法确定当前作品 ID', 'error');
+        return;
+    }
 
     Swal.fire({
         title: `确认关联 ${selectedLinkIds.size} 个版本?`,

@@ -406,7 +406,8 @@ def upload(request):
                 'message': f"成功发布！包含 {len(created_image_ids)} 张图片"
             })
 
-        # return redirect('home')
+        # 【核心修复】取消注释，确保普通 POST 请求有返回值
+        return redirect('home')
 
     else:
         # === GET 请求：渲染上传页面 ===
@@ -634,8 +635,13 @@ def add_references_to_group(request, pk):
 
 
 def delete_group(request, pk):
+    """【修复版】支持 AJAX 删除整组"""
     group = get_object_or_404(PromptGroup, pk=pk)
     if request.method == 'POST':
+        # 检测 AJAX
+        is_ajax = request.headers.get('x-requested-with') == 'XMLHttpRequest' or \
+                  request.META.get('HTTP_X_REQUESTED_WITH') == 'XMLHttpRequest'
+
         for img in group.images.all():
             if img.image:
                 img.image.delete(save=False)
@@ -643,26 +649,63 @@ def delete_group(request, pk):
             if ref.image:
                 ref.image.delete(save=False)
         group.delete()
+        
+        # 1. AJAX 请求返回 JSON (type='group')
+        if is_ajax:
+            return JsonResponse({'status': 'success', 'type': 'group'})
+
+        # 2. 普通请求返回跳转
         messages.success(request, "已删除该组内容")
         return redirect('home')
+        
     return redirect('detail', pk=pk)
 
 
 def delete_image(request, pk):
+    """【修复版】支持 AJAX 删除"""
     image_item = get_object_or_404(ImageItem, pk=pk)
     group_pk = image_item.group.pk
+    
     if request.method == 'POST':
-        image_item.image.delete(save=False)
-        image_item.delete()
+        # 检测是否为 AJAX
+        is_ajax = request.headers.get('x-requested-with') == 'XMLHttpRequest' or \
+                  request.META.get('HTTP_X_REQUESTED_WITH') == 'XMLHttpRequest'
+                  
+        try:
+            image_item.image.delete(save=False)
+            image_item.delete()
+            
+            # AJAX 返回 JSON，防止页面刷新跳转
+            if is_ajax:
+                return JsonResponse({'status': 'success', 'pk': pk})
+        except Exception as e:
+            if is_ajax:
+                return JsonResponse({'status': 'error', 'message': str(e)})
+            
     return redirect('detail', pk=group_pk)
 
 
 def delete_reference(request, pk):
+    """【修复版】支持 AJAX 删除"""
     item = get_object_or_404(ReferenceItem, pk=pk)
     group_pk = item.group.pk
+    
     if request.method == 'POST':
-        item.image.delete(save=False)
-        item.delete()
+        # 检测是否为 AJAX
+        is_ajax = request.headers.get('x-requested-with') == 'XMLHttpRequest' or \
+                  request.META.get('HTTP_X_REQUESTED_WITH') == 'XMLHttpRequest'
+                  
+        try:
+            item.image.delete(save=False)
+            item.delete()
+            
+            # AJAX 返回 JSON
+            if is_ajax:
+                return JsonResponse({'status': 'success', 'pk': pk})
+        except Exception as e:
+            if is_ajax:
+                return JsonResponse({'status': 'error', 'message': str(e)})
+            
     return redirect('detail', pk=group_pk)
 
 
