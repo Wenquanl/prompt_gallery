@@ -26,7 +26,12 @@
     <div class="row gx-lg-5 detail-split-view">
         <div class="col-lg-8 mb-5 mb-lg-0 detail-scroll-left">
             <div class="d-flex justify-content-between align-items-start mb-3">
-                <h2 class="fw-bold text-dark mb-0">{{ group.title }}</h2>
+                <h2 class="fw-bold text-dark mb-0 flex-grow-1 p-2 rounded" 
+                    ondblclick="enableTitleEdit(this, {{ group.pk }})" 
+                    title="双击修改标题" 
+                    style="cursor: text; margin-left: -0.5rem; transition: background-color 0.2s;">
+                    {{ group.title }}
+                </h2>
             </div>
             <div class="upload-trigger-area mb-4" id="inline-trigger-gen" role="button">
                 <div class="trigger-content">
@@ -200,6 +205,24 @@
                                     </div>
                                     
                                     <div class="ms-2 flex-grow-1 overflow-hidden">
+                                        {% if sib.model_info %}
+                                            {% if sib.model_info != group.model_info %}
+                                                <div class="mb-1">
+                                                    <span class="badge rounded-pill border" 
+                                                        title="模型变更: 当前是 {{ group.model_info }}"
+                                                        style="background-color: #fff3cd; color: #856404; border-color: #ffeeba !important; font-weight: normal; font-size: 0.7rem;">
+                                                        <i class="bi bi-exclamation-triangle-fill me-1"></i>{{ sib.model_info }}
+                                                    </span>
+                                                </div>
+                                            {% else %}
+                                                <div class="mb-1">
+                                                    <span class="badge bg-light text-secondary border rounded-pill" 
+                                                        style="font-weight: normal; font-size: 0.7rem;">
+                                                        <i class="bi bi-robot me-1"></i>{{ sib.model_info }}
+                                                    </span>
+                                                </div>
+                                            {% endif %}
+                                        {% endif %}
                                         <div class="sibling-diff-wrapper custom-scrollbar">
                                             {{ sib.diff_html|safe }}
                                         </div>

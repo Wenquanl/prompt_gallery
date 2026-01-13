@@ -179,6 +179,93 @@ function toggleImageLike(event, pk) {
     });
 }
 
+// === 新增：标题双击编辑功能 ===
+function enableTitleEdit(element, pk) {
+    const originalText = element.innerText;
+    
+    // 启用编辑
+    element.contentEditable = "true";
+    element.focus();
+    element.style.outline = "2px solid #0d6efd"; // 添加一个明显的编辑框
+    element.style.borderRadius = "4px";
+    element.style.padding = "0 5px";
+
+    // 选中所有文本，方便直接修改
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+
+    // 定义保存逻辑
+    const save = () => {
+        // 移除事件监听，防止多次触发
+        element.onkeydown = null;
+        element.onblur = null;
+        
+        element.contentEditable = "false";
+        element.style.outline = "";
+        element.style.borderRadius = "";
+        element.style.padding = "";
+
+        const newText = element.innerText.trim();
+
+        // 如果内容未变或为空，还原
+        if (newText === originalText || newText === "") {
+            element.innerText = originalText;
+            if (newText === "") Swal.fire('提示', '标题不能为空', 'warning');
+            return;
+        }
+
+        // 提交修改
+        const csrftoken = getCookie('csrftoken');
+        fetch(`/update-prompts/${pk}/`, {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json', 
+                'X-CSRFToken': csrftoken 
+            },
+            body: JSON.stringify({ title: newText })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success') {
+                Swal.fire({
+                    icon: 'success', 
+                    title: '标题已更新', 
+                    toast: true, 
+                    position: 'top-end', 
+                    showConfirmButton: false, 
+                    timer: 1500
+                });
+            } else {
+                element.innerText = originalText;
+                Swal.fire('更新失败', data.message || '未知错误', 'error');
+            }
+        })
+        .catch(err => {
+            element.innerText = originalText;
+            console.error(err);
+            Swal.fire('错误', '网络请求失败', 'error');
+        });
+    };
+
+    // 监听回车键保存
+    element.onkeydown = (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault(); // 阻止换行
+            element.blur();     // 触发 blur 事件进行保存
+        } else if (e.key === 'Escape') {
+            // 按 ESC 取消修改
+            element.innerText = originalText;
+            element.blur();
+        }
+    };
+
+    // 监听失去焦点保存
+    element.onblur = save;
+}
+
 // 【核心修改】 AJAX 删除逻辑
 function confirmDelete(event) {
     event.preventDefault(); 

@@ -714,6 +714,8 @@ def update_group_prompts(request, pk):
     group = get_object_or_404(PromptGroup, pk=pk)
     try:
         data = json.loads(request.body)
+        if 'title' in data:
+            group.title = data['title']
         if 'prompt_text' in data:
             group.prompt_text = data['prompt_text']
         if 'prompt_text_zh' in data:
