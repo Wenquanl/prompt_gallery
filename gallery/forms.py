@@ -31,7 +31,6 @@ class PromptGroupForm(forms.ModelForm):
 
     class Meta:
         model = PromptGroup
-        # 【修改】添加了 prompt_text_zh 到 fields 列表
         fields = ['title', 'prompt_text', 'prompt_text_zh', 'negative_prompt', 'model_info', 'tags']
         widgets = {
             'title': forms.TextInput(attrs={
@@ -41,21 +40,30 @@ class PromptGroupForm(forms.ModelForm):
                 'autocomplete': 'off'
             }),
             'prompt_text': forms.Textarea(attrs={'class': 'form-control', 'rows': 4, 'placeholder': '输入正向提示词...'}),
-            # 【新增】中文/辅助提示词的控件配置
             'prompt_text_zh': forms.Textarea(attrs={'class': 'form-control', 'rows': 3, 'placeholder': '输入中文或辅助提示词 (可选)...'}),
             'negative_prompt': forms.Textarea(attrs={'class': 'form-control', 'rows': 3, 'placeholder': '输入负向提示词 (可选)...'}),
         }
 
     # 生成图上传
     upload_images = MultipleFileField(
-        widget=MultipleFileInput(attrs={'multiple': True, 'class': 'form-control'}),
-        label="批量上传生成图", required=True, help_text="支持批量选择 (必须)"
+        widget=MultipleFileInput(attrs={
+            'multiple': True, 
+            'class': 'form-control',
+            # 【修改】支持视频格式
+            'accept': 'image/*,video/*'
+        }),
+        label="批量上传生成图/视频", required=True, help_text="支持图片及视频 (必须)"
     )
 
     # 参考图上传
     upload_references = MultipleFileField(
-        widget=MultipleFileInput(attrs={'multiple': True, 'class': 'form-control'}),
-        label="批量上传参考图", required=False, help_text="支持批量选择 (可选)"
+        widget=MultipleFileInput(attrs={
+            'multiple': True, 
+            'class': 'form-control',
+            # 【修改】支持视频格式
+            'accept': 'image/*,video/*'
+        }),
+        label="批量上传参考图/视频", required=False, help_text="支持图片及视频 (可选)"
     )
 
     def clean_upload_images(self):

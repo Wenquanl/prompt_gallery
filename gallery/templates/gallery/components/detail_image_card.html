@@ -1,18 +1,43 @@
-<div class="grid-item mb-3" id="img-anchor-{{ img.pk }}">
+<div class="col-6 col-md-4 col-lg-3 mb-4 grid-item" id="img-anchor-{{ img.pk }}">
     <div class="detail-img-card shadow-sm position-relative" id="img-card-{{ img.pk }}" style="min-height: 200px; background-color: #f8f9fa;">
+        {% if img.image %}
         <span class="file-size-badge">{{ img.image.size|filesizeformat }}</span>
+        {% endif %}
         
-        <div class="position-relative" role="button" onclick="showModal({{ img.pk }})">
-            <img src="{{ img.thumbnail.url }}" class="thumb-img" alt="AI Artwork" style="width: 100%; display: block; min-height: 150px; object-fit: cover;">
-            <div class="hover-overlay"><i class="bi bi-zoom-in text-white fs-2"></i></div>
+        <div class="position-relative">
+            {% if img.is_video %}
+                <div class="ratio" style="--bs-aspect-ratio: 100%;">
+                    <video src="{{ img.image.url }}" class="thumb-img w-100 h-100" controls preload="metadata" style="object-fit: contain; background-color: #000; border-radius: 12px 12px 0 0;"></video>
+                </div>
+                <div class="position-absolute top-0 end-0 m-2">
+                    <span class="badge bg-dark bg-opacity-50 rounded-pill"><i class="bi bi-camera-reels-fill me-1"></i>Video</span>
+                </div>
+            {% else %}
+                <div role="button" onclick="showModal({{ img.pk }})">
+                    {% if img.thumbnail %}
+                        <img src="{{ img.thumbnail.url }}" class="thumb-img" alt="Artwork" style="width: 100%; display: block; min-height: 150px; object-fit: cover;">
+                    {% else %}
+                        <img src="{{ img.image.url }}" class="thumb-img" alt="Artwork" style="width: 100%; display: block; min-height: 150px; object-fit: cover;">
+                    {% endif %}
+                    <div class="hover-overlay"><i class="bi bi-zoom-in text-white fs-2"></i></div>
+                </div>
+            {% endif %}
         </div>
 
         <div class="img-action-bar">
-            <button type="button" class="action-btn like {% if img.is_liked %}active{% endif %}" id="like-btn-{{ img.pk }}" title="喜欢" onclick="toggleImageLike(event, {{ img.pk }})"><i class="bi {% if img.is_liked %}bi-heart-fill{% else %}bi-heart{% endif %}"></i></button>
-            <a href="{{ img.image.url }}" download class="action-btn download" title="下载原图"><i class="bi bi-download"></i></a>
+            <button type="button" class="action-btn like {% if img.is_liked %}active{% endif %}" id="like-btn-{{ img.pk }}" title="喜欢" onclick="toggleImageLike(event, {{ img.pk }})">
+                <i class="bi {% if img.is_liked %}bi-heart-fill{% else %}bi-heart{% endif %}"></i>
+            </button>
+            
+            <a href="{{ img.image.url }}" download class="action-btn download" title="下载原文件">
+                <i class="bi bi-download"></i>
+            </a>
+            
             <form action="{% url 'delete_image' img.pk %}" method="post" class="delete-form-confirm" style="display:inline;">
                 {% csrf_token %}
-                <button type="button" class="action-btn delete" title="删除图片" onclick="confirmDelete(event)"><i class="bi bi-trash3-fill"></i></button>
+                <button type="button" class="action-btn delete" title="删除" onclick="confirmDelete(event)">
+                    <i class="bi bi-trash3-fill"></i>
+                </button>
             </form>
         </div>
     </div>

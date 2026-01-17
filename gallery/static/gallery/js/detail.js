@@ -1,7 +1,6 @@
 /**
- * detail.js - 终极修复完整版 (V6)
- * 修复：整组删除报错 404 问题
- * 包含：多选关联、AJAX 上传、Masonry 布局、图片防重叠
+ * detail.js - 终极修复完整版 (V7)
+ * 包含：多选关联、AJAX 上传(无刷新)、Masonry 布局兼容、视频/图片分栏显示、图片防重叠
  */
 
 let currentIndex = 0;
@@ -19,33 +18,37 @@ function getCurrentGroupId() {
     return match ? parseInt(match[1]) : null;
 }
 
+// === 初始化逻辑 ===
 document.addEventListener('DOMContentLoaded', function() {
+    // 1. 读取相册数据
     const dataElement = document.getElementById('gallery-data');
     if (dataElement) {
         window.galleryImages = JSON.parse(dataElement.textContent);
     }
-});
 
-document.addEventListener('DOMContentLoaded', function() {
+    // 2. 初始化大图模态框
     const modalEl = document.getElementById('imageModal');
     if (modalEl) {
         imageModal = new bootstrap.Modal(modalEl);
     }
     
-    const grid = document.querySelector('#detail-masonry-grid');
-    if (grid && typeof Masonry !== 'undefined') {
-        window.msnry = new Masonry(grid, {
-            itemSelector: '.grid-item',
+    // 3. 初始化 Masonry (针对图片栏)
+    // 注意：HTML中ID已改为 detail-masonry-grid-images
+    const imgGrid = document.querySelector('#detail-masonry-grid-images');
+    if (imgGrid && typeof Masonry !== 'undefined') {
+        window.msnryImages = new Masonry(imgGrid, {
+            itemSelector: '.grid-item', // 确保 HTML item 有此类名
             percentPosition: true
         });
 
         if (typeof imagesLoaded !== 'undefined') {
-            imagesLoaded(grid).on('progress', function() {
-                window.msnry.layout();
+            imagesLoaded(imgGrid).on('progress', function() {
+                window.msnryImages.layout();
             });
         }
     }
 
+    // 4. 键盘事件
     document.addEventListener('keydown', function(event) {
         if (modalEl && modalEl.classList.contains('show')) {
             if (event.key === 'ArrowLeft') changeImage(-1);
@@ -54,6 +57,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
+    // 5. 点击外部关闭标签输入
     document.addEventListener('click', function(event) {
         const container = document.getElementById('tagInputContainer');
         const addBtn = document.getElementById('btnAddTag');
@@ -66,13 +70,33 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
+    // 6. 初始化拖拽上传
     setupInlineDragDrop('inline-trigger-gen', 'addImagesModal', 'gen');
     setupInlineDragDrop('inline-trigger-ref', 'addReferenceModal', 'ref');
     setupDetailDragDrop('zone-modal-gen', 'input-modal-gen', 'preview-modal-gen', 'gen');
     setupDetailDragDrop('zone-modal-ref', 'input-modal-ref', 'preview-modal-ref', 'ref');
 });
 
-// ================= 图片模态框逻辑 =================
+// ================= 图片模态框逻辑 (大图预览) =================
+
+function openModal(el, index) {
+    // 【核心修复】视频不打开大图预览
+    if (el.querySelector('video')) return;
+    
+    // 兼容：如果传入的是 DOM 元素，尝试获取 ID
+    // 如果传入的是 index (旧逻辑)，则直接使用
+    if (typeof el === 'object') {
+        // 这里只是为了阻止视频点击，实际打开逻辑复用 showModal 或直接往下走
+        // 假设 showModal(id) 是主入口
+    }
+    
+    // 如果直接传了 index
+    if (typeof index === 'number') {
+        currentIndex = index;
+        updateModalImage();
+        imageModal.show();
+    }
+}
 
 function showModal(id) {
     if (window.galleryImages) {
@@ -88,6 +112,7 @@ function showModal(id) {
 }
 
 function changeImage(direction) {
+    if (!window.galleryImages) return;
     currentIndex += direction;
     if (currentIndex >= galleryImages.length) { currentIndex = 0; } 
     else if (currentIndex < 0) { currentIndex = galleryImages.length - 1; }
@@ -173,33 +198,31 @@ function toggleImageLike(event, pk) {
                 btn.classList.remove('active');
                 icon.classList.remove('bi-heart-fill'); icon.classList.add('bi-heart');
             }
-            const imgData = galleryImages.find(img => img.id === pk);
-            if (imgData) { imgData.isLiked = data.is_liked; }
+            if (window.galleryImages) {
+                const imgData = galleryImages.find(img => img.id === pk);
+                if (imgData) { imgData.isLiked = data.is_liked; }
+            }
         }
     });
 }
 
-// === 新增：标题双击编辑功能 ===
+// === 标题双击编辑功能 ===
 function enableTitleEdit(element, pk) {
     const originalText = element.innerText;
     
-    // 启用编辑
     element.contentEditable = "true";
     element.focus();
-    element.style.outline = "2px solid #0d6efd"; // 添加一个明显的编辑框
+    element.style.outline = "2px solid #0d6efd"; 
     element.style.borderRadius = "4px";
     element.style.padding = "0 5px";
 
-    // 选中所有文本，方便直接修改
     const range = document.createRange();
     range.selectNodeContents(element);
     const sel = window.getSelection();
     sel.removeAllRanges();
     sel.addRange(range);
 
-    // 定义保存逻辑
     const save = () => {
-        // 移除事件监听，防止多次触发
         element.onkeydown = null;
         element.onblur = null;
         
@@ -210,33 +233,23 @@ function enableTitleEdit(element, pk) {
 
         const newText = element.innerText.trim();
 
-        // 如果内容未变或为空，还原
         if (newText === originalText || newText === "") {
             element.innerText = originalText;
             if (newText === "") Swal.fire('提示', '标题不能为空', 'warning');
             return;
         }
 
-        // 提交修改
         const csrftoken = getCookie('csrftoken');
         fetch(`/update-prompts/${pk}/`, {
             method: 'POST',
-            headers: { 
-                'Content-Type': 'application/json', 
-                'X-CSRFToken': csrftoken 
-            },
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrftoken },
             body: JSON.stringify({ title: newText })
         })
         .then(res => res.json())
         .then(data => {
             if (data.status === 'success') {
                 Swal.fire({
-                    icon: 'success', 
-                    title: '标题已更新', 
-                    toast: true, 
-                    position: 'top-end', 
-                    showConfirmButton: false, 
-                    timer: 1500
+                    icon: 'success', title: '标题已更新', toast: true, position: 'top-end', showConfirmButton: false, timer: 1500
                 });
             } else {
                 element.innerText = originalText;
@@ -250,23 +263,14 @@ function enableTitleEdit(element, pk) {
         });
     };
 
-    // 监听回车键保存
     element.onkeydown = (e) => {
-        if (e.key === 'Enter') {
-            e.preventDefault(); // 阻止换行
-            element.blur();     // 触发 blur 事件进行保存
-        } else if (e.key === 'Escape') {
-            // 按 ESC 取消修改
-            element.innerText = originalText;
-            element.blur();
-        }
+        if (e.key === 'Enter') { e.preventDefault(); element.blur(); }
+        else if (e.key === 'Escape') { element.innerText = originalText; element.blur(); }
     };
-
-    // 监听失去焦点保存
     element.onblur = save;
 }
 
-// 【核心修改】 AJAX 删除逻辑
+// === AJAX 删除逻辑 (兼容分栏) ===
 function confirmDelete(event) {
     event.preventDefault(); 
     const btn = event.currentTarget;
@@ -290,22 +294,18 @@ function confirmDelete(event) {
     }).then((result) => { 
         if (result.isConfirmed) {
             const csrftoken = getCookie('csrftoken');
-            
             const originalHtml = btn.innerHTML;
             btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
             btn.disabled = true;
 
             fetch(url, {
                 method: 'POST',
-                headers: { 
-                    'X-CSRFToken': csrftoken,
-                    'X-Requested-With': 'XMLHttpRequest'
-                }
+                headers: { 'X-CSRFToken': csrftoken, 'X-Requested-With': 'XMLHttpRequest' }
             })
             .then(response => response.json())
             .then(data => {
                 if (data.status === 'success') {
-                    // 【核心修复】 处理整组删除 (跳转回首页)
+                    // 处理整组删除
                     if (data.type === 'group') {
                         window.location.href = '/'; 
                         return;
@@ -322,21 +322,28 @@ function confirmDelete(event) {
                             setTimeout(() => col.remove(), 300);
                         }
                     }
-                    // 2. 处理生成图删除 (Grid 或 Modal)
+                    // 2. 处理生成图/视频删除
                     else {
                         if (window.galleryImages) {
                             const idx = window.galleryImages.findIndex(img => img.id === deletedId);
-                            if (idx !== -1) {
-                                window.galleryImages.splice(idx, 1);
-                            }
+                            if (idx !== -1) window.galleryImages.splice(idx, 1);
                         }
 
-                        const gridItem = document.getElementById(`img-anchor-${deletedId}`);
+                        // 查找元素 (兼容 ID)
+                        // 注意：HTML 中一般为 img-anchor-ID 或 card-img-ID
+                        let gridItem = document.getElementById(`img-anchor-${deletedId}`);
+                        if (!gridItem) gridItem = document.getElementById(`card-img-${deletedId}`);
+
                         if (gridItem) {
-                            if (window.msnry) {
-                                window.msnry.remove(gridItem);
-                                window.msnry.layout();
+                            // 判断是在图片栏还是视频栏
+                            const isVideoItem = gridItem.closest('#detail-masonry-grid-videos');
+                            
+                            // 只有图片栏可能启用了 Masonry
+                            if (!isVideoItem && window.msnryImages) {
+                                window.msnryImages.remove(gridItem);
+                                window.msnryImages.layout();
                             } else {
+                                // 视频栏或未启用 Masonry，直接 DOM 删除
                                 gridItem.remove();
                             }
                         }
@@ -355,12 +362,7 @@ function confirmDelete(event) {
                     }
 
                     Swal.fire({
-                        icon: 'success',
-                        title: '已删除',
-                        toast: true,
-                        position: 'top-end',
-                        showConfirmButton: false,
-                        timer: 1500
+                        icon: 'success', title: '已删除', toast: true, position: 'top-end', showConfirmButton: false, timer: 1500
                     });
 
                 } else {
@@ -543,7 +545,7 @@ function removeTag(groupPk, tagId, tagName) {
     });
 }
 
-// ================= 上传处理 =================
+// ================= 【核心修改】上传处理 (支持无刷新 + 分栏) =================
 
 function handleImageUpload(event) {
     event.preventDefault(); 
@@ -570,35 +572,55 @@ function handleImageUpload(event) {
             const modalEl = document.getElementById(modalId);
             if (modalEl) bootstrap.Modal.getInstance(modalEl).hide();
 
+            // === 生成内容处理 (图片/视频) ===
             if (data.type === 'gen') {
                 if (data.new_images_data && window.galleryImages) {
+                    // 更新大图预览数据
                     data.new_images_data.forEach(img => window.galleryImages.unshift(img));
                 }
 
                 if (data.new_images_html && data.new_images_html.length > 0) {
-                    const grid = document.getElementById('detail-masonry-grid');
-                    const emptyPlaceholder = grid.querySelector('.alert.alert-light');
-                    if (emptyPlaceholder) emptyPlaceholder.parentNode.remove();
+                    const imgContainer = document.getElementById('detail-masonry-grid-images');
+                    const vidContainer = document.getElementById('detail-masonry-grid-videos');
 
+                    // 临时容器用于解析 HTML
                     const tempDiv = document.createElement('div');
-                    const newItems = [];
-                    data.new_images_html.forEach(html => {
-                        tempDiv.innerHTML = html;
-                        const node = tempDiv.firstElementChild;
-                        const img = node.querySelector('img');
-                        if (img) img.setAttribute('loading', 'eager');
-                        grid.prepend(node);
-                        newItems.push(node);
+                    const newImages = [];
+                    
+                    data.new_images_html.forEach((html, index) => {
+                        const meta = data.new_images_data ? data.new_images_data[index] : null;
+                        if (!meta) return;
+
+                        // 【核心】根据 is_video 分流
+                        const targetContainer = meta.is_video ? vidContainer : imgContainer;
+                        
+                        if (targetContainer) {
+                             // 移除空状态占位
+                            const emptyPlaceholder = targetContainer.querySelector('.alert');
+                            if (emptyPlaceholder) emptyPlaceholder.parentNode.remove();
+
+                            tempDiv.innerHTML = html;
+                            const node = tempDiv.firstElementChild;
+                            const img = node.querySelector('img');
+                            if (img) img.setAttribute('loading', 'eager');
+                            
+                            // 插入最前面
+                            targetContainer.prepend(node);
+                            
+                            // 如果是图片且启用了 Masonry，记录下来
+                            if (!meta.is_video) newImages.push(node);
+                        }
                     });
 
-                    if (window.msnry) {
-                        window.msnry.prepended(newItems);
-                        const onLayout = () => { window.msnry.layout(); };
+                    // 刷新 Masonry (仅针对图片栏)
+                    if (window.msnryImages && newImages.length > 0) {
+                        window.msnryImages.prepended(newImages);
+                        const onLayout = () => { window.msnryImages.layout(); };
                         if (typeof imagesLoaded !== 'undefined') {
-                            imagesLoaded(newItems).on('progress', onLayout);
+                            imagesLoaded(newImages).on('progress', onLayout);
                         }
                         const ro = new ResizeObserver(entries => { onLayout(); });
-                        newItems.forEach(item => {
+                        newImages.forEach(item => {
                             ro.observe(item);
                             const img = item.querySelector('img');
                             if(img) ro.observe(img);
@@ -607,10 +629,13 @@ function handleImageUpload(event) {
                         setTimeout(onLayout, 300);
                         setTimeout(onLayout, 1000);
                     }
+                    
                     modalGenFiles = [];
                     document.getElementById('preview-modal-gen').innerHTML = '';
                 }
-            } else if (data.type === 'ref') {
+            } 
+            // === 参考图处理 ===
+            else if (data.type === 'ref') {
                 if (data.new_references_html && data.new_references_html.length > 0) {
                     const refGrid = document.getElementById('reference-grid');
                     if (refGrid) {
@@ -637,7 +662,7 @@ function handleImageUpload(event) {
                     width: '600px'
                 });
             } else {
-                Swal.fire({ icon: 'success', title: `已添加 ${data.uploaded_count} 张图片`, toast: true, position: 'top-end', showConfirmButton: false, timer: 2000 });
+                Swal.fire({ icon: 'success', title: data.message || `已添加 ${data.uploaded_count} 个文件`, toast: true, position: 'top-end', showConfirmButton: false, timer: 2000 });
             }
             form.reset();
         } else {
@@ -651,7 +676,7 @@ function handleImageUpload(event) {
     });
 }
 
-// ================= 拖拽上传辅助函数 =================
+// ================= 拖拽上传辅助函数 (修复 Video 预览) =================
 
 function setupInlineDragDrop(triggerId, modalId, type) {
     const trigger = document.getElementById(triggerId); if (!trigger) return;
@@ -721,11 +746,12 @@ function updateModalInputFiles(type, input) {
 function addModalPreviewItem(file, type, container, input) {
     const div = document.createElement('div');
     div.className = 'preview-item-modal';
-    div.innerHTML = '<div class="spinner-border text-secondary spinner-border-sm"></div>';
     
+    // 删除按钮
     const delBtn = document.createElement('div');
     delBtn.className = 'btn-remove-preview-modal';
     delBtn.innerHTML = '<i class="bi bi-x-lg"></i>';
+    delBtn.style.zIndex = '10'; // 确保在最上层
     delBtn.onclick = (e) => {
         e.stopPropagation();
         const fileArray = (type === 'gen') ? modalGenFiles : modalRefFiles;
@@ -739,17 +765,38 @@ function addModalPreviewItem(file, type, container, input) {
     div.appendChild(delBtn);
     container.appendChild(div);
 
-    createModalThumbnail(file).then(url => {
-        const spinner = div.querySelector('.spinner-border');
-        if (spinner) spinner.remove();
-        if (url) {
-            const img = document.createElement('img');
-            img.src = url;
-            div.insertBefore(img, delBtn);
-        } else {
-            div.innerHTML += '<span class="small text-danger">Error</span>';
-        }
-    });
+    // 【核心】支持视频预览
+    if (file.type.startsWith('video/') || file.name.match(/\.(mp4|mov|avi|webm|mkv)$/i)) {
+        const video = document.createElement('video');
+        video.src = URL.createObjectURL(file);
+        video.muted = true;
+        video.className = 'w-100 h-100 object-fit-cover';
+        video.preload = 'metadata';
+        
+        // 视频图标
+        const icon = document.createElement('div');
+        icon.className = 'position-absolute top-50 start-50 translate-middle text-white';
+        icon.innerHTML = '<i class="bi bi-camera-video-fill fs-4" style="text-shadow:0 0 5px rgba(0,0,0,0.5)"></i>';
+        icon.style.zIndex = '5';
+        
+        div.appendChild(icon);
+        div.appendChild(video);
+    } else {
+        // 图片逻辑
+        div.innerHTML += '<div class="spinner-border text-secondary spinner-border-sm position-absolute top-50 start-50"></div>';
+        createModalThumbnail(file).then(url => {
+            const spinner = div.querySelector('.spinner-border');
+            if (spinner) spinner.remove();
+            if (url) {
+                const img = document.createElement('img');
+                img.src = url;
+                img.className = 'w-100 h-100 object-fit-cover';
+                div.insertBefore(img, delBtn);
+            } else {
+                div.innerHTML += '<span class="small text-danger">Error</span>';
+            }
+        });
+    }
 }
 
 function createModalThumbnail(file) {
@@ -788,7 +835,7 @@ document.addEventListener('DOMContentLoaded', function() {
     document.querySelector('.detail-scroll-right')?.addEventListener('scroll', update);
 });
 
-// ================= 版本关联管理 (升级版：支持多选 & 精准ID获取) =================
+// ================= 版本关联管理 (支持多选) =================
 
 function unlinkSibling(e, id) { 
     e.preventDefault(); e.stopPropagation(); 
@@ -803,24 +850,18 @@ function unlinkSibling(e, id) {
 let linkModal;
 function openLinkModal() { 
     if(!linkModal) linkModal=new bootstrap.Modal(document.getElementById('linkVersionModal')); 
-    
-    // 初始化清空状态
     document.getElementById('linkSearchInput').value = '';
     document.getElementById('linkSearchResults').innerHTML = '<div class="text-center text-muted p-3">请输入关键词</div>'; 
     selectedLinkIds.clear();
     updateLinkSelectionUI();
-    
     linkModal.show(); 
 }
 
-// 更新UI状态：选中计数、列表项高亮
 function updateLinkSelectionUI() {
     document.getElementById('linkSelectedCount').textContent = selectedLinkIds.size;
-    
     document.querySelectorAll('.search-result-item').forEach(el => {
         const id = parseInt(el.dataset.id);
         const icon = el.querySelector('.select-icon');
-        
         if (selectedLinkIds.has(id)) {
             el.classList.add('bg-primary', 'bg-opacity-10', 'border-primary'); 
             icon.classList.replace('bi-circle', 'bi-check-circle-fill');
@@ -834,17 +875,12 @@ function updateLinkSelectionUI() {
 }
 
 function toggleLinkSelection(id) {
-    if (selectedLinkIds.has(id)) {
-        selectedLinkIds.delete(id);
-    } else {
-        selectedLinkIds.add(id);
-    }
+    if (selectedLinkIds.has(id)) { selectedLinkIds.delete(id); } else { selectedLinkIds.add(id); }
     updateLinkSelectionUI();
 }
 
 function clearLinkSelection() {
-    selectedLinkIds.clear();
-    updateLinkSelectionUI();
+    selectedLinkIds.clear(); updateLinkSelectionUI();
 }
 
 let st; 
@@ -852,18 +888,15 @@ function debounceSearchLink() {
     clearTimeout(st); st=setTimeout(()=>{performLinkSearch(document.getElementById('linkSearchInput').value.trim())},500); 
 }
 
-// 执行搜索并渲染
 function performLinkSearch(q) {
     if(!q) return;
     fetch(`/api/groups/?q=${encodeURIComponent(q)}`).then(r=>r.json()).then(d=>{
         const c = document.getElementById('linkSearchResults'); c.innerHTML='';
         if(!d.results.length) { c.innerHTML='<div class="text-center text-muted">无结果</div>'; return; }
         
-        // 【核心修复】精准获取当前 ID，防止把自己显示出来
         const currentPk = getCurrentGroupId();
-
         d.results.forEach(i => {
-            if (i.id === currentPk) return; // 排除自己
+            if (i.id === currentPk) return; 
 
             const isSelected = selectedLinkIds.has(i.id);
             const bgClass = isSelected ? 'bg-primary bg-opacity-10 border-primary' : '';
@@ -874,15 +907,10 @@ function performLinkSearch(q) {
                      data-id="${i.id}" 
                      onclick="toggleLinkSelection(${i.id})" 
                      style="cursor:pointer; transition: all 0.2s;">
-                    
-                    <div class="me-3">
-                        <i class="bi ${iconClass} select-icon fs-5"></i>
-                    </div>
-
+                    <div class="me-3"><i class="bi ${iconClass} select-icon fs-5"></i></div>
                     <div class="rounded overflow-hidden bg-light me-3" style="width: 40px; height: 40px; flex-shrink: 0;">
                         ${i.cover_url ? `<img src="${i.cover_url}" class="w-100 h-100 object-fit-cover">` : ''}
                     </div>
-                    
                     <div class="flex-grow-1 overflow-hidden">
                         <div class="fw-bold text-truncate" style="font-size: 0.85rem;">${i.title}</div>
                         <div class="text-muted text-truncate small" style="font-size: 0.75rem;">${i.prompt_text.substring(0,30)}...</div>
@@ -893,42 +921,25 @@ function performLinkSearch(q) {
     });
 }
 
-// 批量提交
 function submitLinkSelection() {
-    if (selectedLinkIds.size === 0) {
-        Swal.fire('提示', '请至少选择一个版本', 'warning');
-        return;
-    }
-
-    // 【核心修复】获取当前 ID，防止请求 URL 错误
+    if (selectedLinkIds.size === 0) { Swal.fire('提示', '请至少选择一个版本', 'warning'); return; }
     const currentPk = getCurrentGroupId();
-    if (!currentPk) {
-        Swal.fire('错误', '无法确定当前作品 ID', 'error');
-        return;
-    }
+    if (!currentPk) { Swal.fire('错误', '无法确定当前作品 ID', 'error'); return; }
 
     Swal.fire({
-        title: `确认关联 ${selectedLinkIds.size} 个版本?`,
-        icon: 'question',
-        showCancelButton: true,
-        confirmButtonText: '确认关联'
+        title: `确认关联 ${selectedLinkIds.size} 个版本?`, icon: 'question', showCancelButton: true, confirmButtonText: '确认关联'
     }).then((result) => {
         if (result.isConfirmed) {
             fetch(`/api/link-group/${currentPk}/`, {
                 method: 'POST',
                 body: JSON.stringify({ target_ids: Array.from(selectedLinkIds) }),
-                headers: { 
-                    'Content-Type': 'application/json',
-                    'X-CSRFToken': getCookie('csrftoken') 
-                }
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') }
             })
             .then(res => res.json())
             .then(data => {
                 if (data.status === 'success') {
                     Swal.fire('成功', '版本关联成功', 'success').then(() => location.reload());
-                } else {
-                    Swal.fire('失败', data.message, 'error');
-                }
+                } else { Swal.fire('失败', data.message, 'error'); }
             });
         }
     });

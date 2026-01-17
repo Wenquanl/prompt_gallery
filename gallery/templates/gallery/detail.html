@@ -33,12 +33,13 @@
                     {{ group.title }}
                 </h2>
             </div>
+            
             <div class="upload-trigger-area mb-4" id="inline-trigger-gen" role="button">
                 <div class="trigger-content">
                     <div class="icon-wrapper mb-2">
                         <i class="bi bi-cloud-arrow-up-fill"></i>
                     </div>
-                    <div class="fw-bold text-dark">点击或拖拽上传生成图</div>
+                    <div class="fw-bold text-dark">点击或拖拽上传图片/视频</div>
                     <div class="small text-muted mt-1">支持批量上传 / 自动去重</div>
                 </div>
             </div>
@@ -63,11 +64,29 @@
                 </div>
             </div>
 
-            <div id="detail-masonry-grid" class="row">
-                {% for img in group.images.all %}
+            <div class="section-divider mb-3 pb-2 border-bottom d-flex align-items-center">
+                <h5 class="fw-bold text-secondary mb-0"><i class="bi bi-images me-2"></i>图片</h5>
+                <span class="ms-2 badge bg-light text-secondary border">{{ images_list|length }}</span>
+            </div>
+            
+            <div id="detail-masonry-grid-images" class="row mb-5">
+                {% for img in images_list %}
                     {% include 'gallery/components/detail_image_card.html' with img=img index=forloop.counter0 %}
                 {% empty %}
-                <div class="col-12"><div class="alert alert-light border text-center py-5 text-muted rounded-3" style="background: rgba(255,255,255,0.5)"><i class="bi bi-image fs-1 d-block mb-3 opacity-50"></i>暂无图片</div></div>
+                <div class="col-12"><div class="alert alert-light border text-center py-4 text-muted rounded-3" style="background: rgba(255,255,255,0.5)"><i class="bi bi-image fs-1 d-block mb-3 opacity-50"></i>暂无图片</div></div>
+                {% endfor %}
+            </div>
+
+            <div class="section-divider mb-3 pb-2 border-bottom d-flex align-items-center">
+                <h5 class="fw-bold text-secondary mb-0"><i class="bi bi-camera-reels me-2"></i>视频</h5>
+                <span class="ms-2 badge bg-light text-secondary border">{{ videos_list|length }}</span>
+            </div>
+
+            <div id="detail-masonry-grid-videos" class="row">
+                {% for img in videos_list %}
+                    {% include 'gallery/components/detail_image_card.html' with img=img %}
+                {% empty %}
+                <div class="col-12"><div class="alert alert-light border text-center py-4 text-muted rounded-3" style="background: rgba(255,255,255,0.5)"><i class="bi bi-film fs-1 d-block mb-3 opacity-50"></i>暂无视频</div></div>
                 {% endfor %}
             </div>
 
@@ -82,7 +101,11 @@
                                 <div class="horizontal-img-wrapper">
                                     {% with cover=related.images.first %}
                                         {% if cover %}
-                                            <img src="{{ cover.thumbnail.url }}" alt="{{ related.title }}" loading="lazy">
+                                            {% if cover.is_video %}
+                                                <div class="d-flex align-items-center justify-content-center h-100 w-100 bg-dark text-white"><i class="bi bi-play-circle fs-1"></i></div>
+                                            {% else %}
+                                                <img src="{{ cover.thumbnail.url }}" alt="{{ related.title }}" loading="lazy">
+                                            {% endif %}
                                         {% else %}
                                             <div class="d-flex align-items-center justify-content-center h-100 w-100 text-secondary bg-light bg-opacity-50">
                                                 <i class="bi bi-image fs-1 opacity-50"></i>
@@ -198,7 +221,11 @@
                                 <a href="{% url 'detail' sib.pk %}" class="d-flex align-items-center p-2 bg-white rounded-3 border text-decoration-none shadow-sm sibling-card">
                                     <div class="sibling-thumb-wrapper">
                                         {% if sib.images.first %}
-                                        <img src="{{ sib.images.first.thumbnail.url }}" class="sibling-thumb">
+                                            {% if sib.images.first.is_video %}
+                                            <div class="sibling-empty-thumb bg-dark text-white"><i class="bi bi-play-fill"></i></div>
+                                            {% else %}
+                                            <img src="{{ sib.images.first.thumbnail.url }}" class="sibling-thumb">
+                                            {% endif %}
                                         {% else %}
                                         <div class="sibling-empty-thumb"><i class="bi bi-image"></i></div>
                                         {% endif %}
@@ -311,8 +338,8 @@
                 <form id="addImagesForm" action="{% url 'add_images' group.pk %}" method="post" enctype="multipart/form-data" onsubmit="handleImageUpload(event)">
                     {% csrf_token %}
                     <div id="zone-modal-gen" class="upload-zone-modal">
-                        <i class="bi bi-cloud-arrow-up"></i><p>点击或将图片拖拽至此 (生成图)</p>
-                        <input type="file" name="new_images" id="input-modal-gen" multiple accept="image/*">
+                        <i class="bi bi-cloud-arrow-up"></i><p>点击或将图片/视频拖拽至此</p>
+                        <input type="file" name="new_images" id="input-modal-gen" multiple accept="image/*,video/*">
                     </div>
                     <div id="preview-modal-gen" class="preview-container-modal"></div>
                     <div class="d-grid">

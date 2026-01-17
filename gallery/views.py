@@ -38,7 +38,6 @@ def get_tags_bar_data():
         )
     ).order_by('is_model', '-use_count')
 
-# 【核心修改】智能 Tag 差异对比函数
 def generate_diff_html(base_text, compare_text):
     """
     比较 compare_text (其他版本) 相对于 base_text (当前版本) 的差异。
@@ -47,11 +46,8 @@ def generate_diff_html(base_text, compare_text):
     if base_text is None: base_text = ""
     if compare_text is None: compare_text = ""
     
-    # 1. 智能拆分 Tag (支持 英文逗号, 中文逗号，换行符)
     def parse_tags_to_dict(text):
-        # 正则分割：逗号(,)、中文逗号(，)、换行(\n)
         parts = re.split(r'[,\uff0c\n]+', text)
-        # 生成 {小写key: 原始写法value} 的映射，用于忽略大小写比对但展示原始拼写
         return {p.strip().lower(): p.strip() for p in parts if p.strip()}
 
     base_map = parse_tags_to_dict(base_text)
@@ -60,32 +56,22 @@ def generate_diff_html(base_text, compare_text):
     base_keys = set(base_map.keys())
     comp_keys = set(comp_map.keys())
     
-    # 2. 提取差异集合
-    # 新增的 = 对方有 - 我没有
     added_keys = comp_keys - base_keys
-    # 移除的 = 我有 - 对方没有
     removed_keys = base_keys - comp_keys
     
-    # 如果没有检测到任何 Tag 差异
     if not added_keys and not removed_keys:
         return '<span class="no-diff">无提示词差异</span>'
     
     html_parts = []
     
-    # 3. 生成 HTML
-    # 策略：先展示【新增】的（通常用户更关心这个版本多了什么），再展示【减少】的
-    
-    # A. 展示新增 (Green)
     for k in added_keys:
         val = comp_map[k]
-        # 截断超长 Tag 防止破坏布局
         display_val = (val[:20] + '..') if len(val) > 20 else val
         html_parts.append(
             f'<span class="diff-tag diff-add" title="相对于当前版本，此处新增了: {val}">'
             f'<i class="bi bi-plus"></i>{display_val}</span>'
         )
         
-    # B. 展示移除 (Red/Grey)
     for k in removed_keys:
         val = base_map[k]
         display_val = (val[:20] + '..') if len(val) > 20 else val
@@ -270,7 +256,6 @@ def liked_images_gallery(request):
 
 
 def detail(request, pk):
-    # 【核心修改】Prefetch 预取时按 ID 倒序，确保最新图在最前
     group = get_object_or_404(
         PromptGroup.objects.prefetch_related(
             'tags', 
@@ -280,6 +265,11 @@ def detail(request, pk):
         pk=pk
     )
     
+    # 拆分图片和视频
+    all_items = group.images.all()
+    images_list = [item for item in all_items if not item.is_video]
+    videos_list = [item for item in all_items if item.is_video]
+    
     tags_list = list(group.tags.all())
     model_name = group.model_info
     if model_name:
@@ -287,7 +277,6 @@ def detail(request, pk):
     
     all_tags = Tag.objects.annotate(usage_count=Count('promptgroup')).order_by('-usage_count', 'name')[:500]
 
-    # 【修改】获取同系列其他版本，并计算差异
     siblings_qs = PromptGroup.objects.filter(
         group_id=group.group_id
     ).exclude(pk=group.pk).order_by('-created_at')
@@ -297,8 +286,6 @@ def detail(request, pk):
     
     for sib in siblings_qs:
         sib_prompt = sib.prompt_text or ""
-        # 动态添加 diff_html 属性供模板使用
-        # 这里计算：sibling 相对 current 的差异
         sib.diff_html = generate_diff_html(current_prompt, sib_prompt)
         siblings.append(sib)
 
@@ -315,7 +302,10 @@ def detail(request, pk):
         'siblings': siblings,
         'related_groups': related_groups,
         'tags_bar': tags_bar,
-        'search_query': request.GET.get('q')
+        'search_query': request.GET.get('q'),
+        # 确保传递这两个列表
+        'images_list': images_list,
+        'videos_list': videos_list,
     })
 
 
@@ -362,14 +352,12 @@ def upload(request):
 
         created_image_ids = []
         
-        # 处理本地文件
         direct_files = request.FILES.getlist('upload_images')
         for f in direct_files:
             img_item = ImageItem(group=group, image=f)
             img_item.save()
             created_image_ids.append(img_item.id)
 
-        # 处理服务器暂存文件
         batch_id = request.POST.get('batch_id')
         server_file_names = request.POST.getlist('selected_files')
         
@@ -377,36 +365,30 @@ def upload(request):
             temp_ids = confirm_upload_images(batch_id, server_file_names, group)
             created_image_ids.extend(temp_ids)
             
-        # 处理参考图
         ref_files = request.FILES.getlist('upload_references')
         for rf in ref_files:
             ReferenceItem.objects.create(group=group, image=rf)
 
         if not created_image_ids:
-            # messages.warning(request, "虽然发布了作品，但未上传任何生成图。"
             pass
         else:
             trigger_background_processing(created_image_ids)
-            messages.success(request, f"成功发布！包含 {len(created_image_ids)} 张图片，系统正在后台处理索引。")
+            messages.success(request, f"成功发布！包含 {len(created_image_ids)} 个文件，系统正在后台处理索引。")
 
-        # 判断是否为 AJAX (上传模态框可能也会用到类似逻辑，虽此处主要为页面提交)
         is_ajax = request.headers.get('x-requested-with') == 'XMLHttpRequest' or \
                   request.META.get('HTTP_X_REQUESTED_WITH') == 'XMLHttpRequest'
 
         if is_ajax:
-            # 渲染新卡片 HTML
-            # 伪造一个 version_count = 1
             group.version_count = 1 
             html = render_to_string('gallery/components/home_group_card.html', {
                 'group': group,
-            }, request=request) # 传递 request 确保 tag 渲染正常
+            }, request=request)
             return JsonResponse({
                 'status': 'success',
                 'html': html,
-                'message': f"成功发布！包含 {len(created_image_ids)} 张图片"
+                'message': f"成功发布！包含 {len(created_image_ids)} 个文件"
             })
 
-        # 【核心修复】取消注释，确保普通 POST 请求有返回值
         return redirect('home')
 
     else:
@@ -434,8 +416,6 @@ def upload(request):
         existing_titles = PromptGroup.objects.values_list('title', flat=True).distinct().order_by('title')
         all_models = AIModel.objects.all()
 
-        # 【核心修正】将 Python 列表转为 JSON 字符串
-        # 否则模板中使用 {{ temp_files }} 输出的是单引号的 Python 格式，JS 无法解析
         temp_files_json = json.dumps(temp_files_preview)
 
         return render(request, 'gallery/upload.html', {
@@ -443,7 +423,7 @@ def upload(request):
             'existing_titles': existing_titles,
             'all_models': all_models,
             'batch_id': batch_id,
-            'temp_files': temp_files_json  # 传过去 JSON 字符串
+            'temp_files': temp_files_json
         })
 
 
@@ -470,20 +450,32 @@ def check_duplicates(request):
             
             existing = ImageItem.objects.filter(image_hash=f_hash).select_related('group').first()
             
+            # 构造预览URL
+            preview_url = f"{settings.MEDIA_URL}temp_uploads/{batch_id}/{safe_name}"
+
             if existing:
                 has_duplicate = True
+                
+                # 【修正】如果是视频，直接用原图URL；如果是图片，尝试用缩略图
+                existing_thumb = existing.image.url
+                try:
+                    if not existing.is_video and existing.thumbnail:
+                        existing_thumb = existing.thumbnail.url
+                except:
+                    pass
+
                 results.append({
                     'status': 'duplicate',
                     'filename': safe_name,
                     'existing_group_title': existing.group.title,
                     'existing_group_id': existing.group.id,
-                    'thumbnail_url': existing.thumbnail.url if existing.thumbnail else existing.image.url
+                    'thumbnail_url': existing_thumb
                 })
             else:
                 results.append({
                     'status': 'pass',
                     'filename': safe_name,
-                    'thumbnail_url': f"{settings.MEDIA_URL}temp_uploads/{batch_id}/{safe_name}" 
+                    'thumbnail_url': preview_url
                 })
         
         return JsonResponse({
@@ -510,11 +502,9 @@ def toggle_like_image(request, pk):
     return JsonResponse({'status': 'success', 'is_liked': image.is_liked})
 
 def add_images_to_group(request, pk):
-    """【修复版】添加生成图：支持 AJAX JSON 返回"""
     group = get_object_or_404(PromptGroup, pk=pk)
     
     if request.method == 'POST':
-        # 检测是否为 AJAX 请求（兼容旧版 Django 和各类代理）
         is_ajax = request.headers.get('x-requested-with') == 'XMLHttpRequest' or \
                   request.META.get('HTTP_X_REQUESTED_WITH') == 'XMLHttpRequest'
                   
@@ -533,7 +523,7 @@ def add_images_to_group(request, pk):
                         duplicates.append({
                             'name': f.name,
                             'existing_group_title': existing_img.group.title,
-                            'existing_url': existing_img.thumbnail.url if existing_img.thumbnail else existing_img.image.url
+                            'existing_url': existing_img.image.url
                         })
                     else:
                         img_item = ImageItem(group=group, image=f)
@@ -542,51 +532,48 @@ def add_images_to_group(request, pk):
                         created_ids.append(img_item.id)
                         uploaded_count += 1
             
-            # 触发后台处理
             if created_ids:
                 trigger_background_processing(created_ids)
 
-            # === [关键修复] AJAX 请求返回 JSON，不跳转 ===
             if is_ajax:
-                # 获取新上传的图片，按 ID 正序排列（前端 unshift 时正好变成倒序）
                 new_images = ImageItem.objects.filter(id__in=created_ids).order_by('id')
-                
                 new_images_data = []
                 html_list = []
                 
                 for img in new_images:
-                    # 1. 构造前端需要的 JSON 数据
                     new_images_data.append({
                         'id': img.pk,
                         'url': img.image.url,
-                        'isLiked': img.is_liked
+                        'isLiked': img.is_liked,
+                        # 【修改点】增加 is_video 字段，供前端判断插入位置
+                        'is_video': img.is_video 
                     })
                     
-                    # 2. 渲染 HTML 卡片
-                    # 注意：detail_image_card.html 必须使用 img.pk 而不是 index
                     html = render_to_string('gallery/components/detail_image_card.html', {
                         'img': img, 
-                        # 'index': ... 不需要了，改用 ID
                     }, request=request)
                     html_list.append(html)
 
+                msg = f"成功添加 {uploaded_count} 个文件"
+                if duplicates:
+                    msg += f"，忽略 {len(duplicates)} 个重复文件"
+
                 return JsonResponse({
                     'status': 'success' if not duplicates else 'warning',
+                    'message': msg,
                     'uploaded_count': uploaded_count,
                     'duplicates': duplicates,
                     'new_images_html': html_list,
-                    'new_images_data': new_images_data, # 返回数据供前端更新
+                    'new_images_data': new_images_data,
                     'type': 'gen'
                 })
             
-            # 普通表单提交的回退处理
             if duplicates:
-                messages.warning(request, f"成功添加 {uploaded_count} 张，忽略 {len(duplicates)} 张重复图片")
+                messages.warning(request, f"成功添加 {uploaded_count} 个文件，忽略 {len(duplicates)} 个重复文件")
             else:
-                messages.success(request, f"成功添加 {uploaded_count} 张图片")
+                messages.success(request, f"成功添加 {uploaded_count} 个文件")
         
         except Exception as e:
-            # 如果是 AJAX 请求发生异常，返回 JSON 错误而不是让前端解析 HTML 失败
             if is_ajax:
                 return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
             raise e
@@ -595,11 +582,9 @@ def add_images_to_group(request, pk):
 
 
 def add_references_to_group(request, pk):
-    """【修复版】添加参考图：支持 AJAX JSON 返回"""
     group = get_object_or_404(PromptGroup, pk=pk)
     
     if request.method == 'POST':
-        # 检测 AJAX
         is_ajax = request.headers.get('x-requested-with') == 'XMLHttpRequest' or \
                   request.META.get('HTTP_X_REQUESTED_WITH') == 'XMLHttpRequest'
 
@@ -611,7 +596,6 @@ def add_references_to_group(request, pk):
                     ref = ReferenceItem.objects.create(group=group, image=f)
                     new_refs.append(ref)
             
-            # === [关键修复] AJAX 请求返回 JSON，包含新图片的 HTML ===
             if is_ajax:
                 html_list = []
                 for ref in new_refs:
@@ -622,9 +606,10 @@ def add_references_to_group(request, pk):
                 
                 return JsonResponse({
                     'status': 'success',
+                    'message': f"成功添加 {len(new_refs)} 个参考文件",
                     'uploaded_count': len(new_refs),
                     'new_references_html': html_list,
-                    'type': 'ref'  # 标记类型为参考图
+                    'type': 'ref'
                 })
         except Exception as e:
             if is_ajax:
@@ -635,10 +620,8 @@ def add_references_to_group(request, pk):
 
 
 def delete_group(request, pk):
-    """【修复版】支持 AJAX 删除整组"""
     group = get_object_or_404(PromptGroup, pk=pk)
     if request.method == 'POST':
-        # 检测 AJAX
         is_ajax = request.headers.get('x-requested-with') == 'XMLHttpRequest' or \
                   request.META.get('HTTP_X_REQUESTED_WITH') == 'XMLHttpRequest'
 
@@ -650,11 +633,9 @@ def delete_group(request, pk):
                 ref.image.delete(save=False)
         group.delete()
         
-        # 1. AJAX 请求返回 JSON (type='group')
         if is_ajax:
             return JsonResponse({'status': 'success', 'type': 'group'})
 
-        # 2. 普通请求返回跳转
         messages.success(request, "已删除该组内容")
         return redirect('home')
         
@@ -662,12 +643,10 @@ def delete_group(request, pk):
 
 
 def delete_image(request, pk):
-    """【修复版】支持 AJAX 删除"""
     image_item = get_object_or_404(ImageItem, pk=pk)
     group_pk = image_item.group.pk
     
     if request.method == 'POST':
-        # 检测是否为 AJAX
         is_ajax = request.headers.get('x-requested-with') == 'XMLHttpRequest' or \
                   request.META.get('HTTP_X_REQUESTED_WITH') == 'XMLHttpRequest'
                   
@@ -675,7 +654,6 @@ def delete_image(request, pk):
             image_item.image.delete(save=False)
             image_item.delete()
             
-            # AJAX 返回 JSON，防止页面刷新跳转
             if is_ajax:
                 return JsonResponse({'status': 'success', 'pk': pk})
         except Exception as e:
@@ -686,12 +664,10 @@ def delete_image(request, pk):
 
 
 def delete_reference(request, pk):
-    """【修复版】支持 AJAX 删除"""
     item = get_object_or_404(ReferenceItem, pk=pk)
     group_pk = item.group.pk
     
     if request.method == 'POST':
-        # 检测是否为 AJAX
         is_ajax = request.headers.get('x-requested-with') == 'XMLHttpRequest' or \
                   request.META.get('HTTP_X_REQUESTED_WITH') == 'XMLHttpRequest'
                   
@@ -699,7 +675,6 @@ def delete_reference(request, pk):
             item.image.delete(save=False)
             item.delete()
             
-            # AJAX 返回 JSON
             if is_ajax:
                 return JsonResponse({'status': 'success', 'pk': pk})
         except Exception as e:
@@ -794,9 +769,27 @@ def group_list_api(request):
     data = []
     for group in page:
         cover_url = ""
-        if group.images.exists():
+        # 【关键修复】封面图逻辑：优先取第一张非视频图
+        images = group.images.all()
+        cover_img = None
+        
+        # 优先找图片
+        for img in images:
+            if not img.is_video:
+                cover_img = img
+                break
+        
+        # 如果没有图片，才被迫用视频（可能无法显示缩略图）或者用第一张
+        if not cover_img and images.exists():
+            cover_img = images.first()
+
+        if cover_img:
             try:
-                cover_url = group.images.first().thumbnail.url
+                # 再次检测，防止视频调用 thumbnail 报错
+                if not cover_img.is_video and cover_img.thumbnail:
+                    cover_url = cover_img.thumbnail.url
+                else:
+                    cover_url = cover_img.image.url
             except:
                 pass
         
@@ -819,7 +812,6 @@ def group_list_api(request):
 
 @require_POST
 def merge_groups(request):
-    """【升级版】按家族进行合并"""
     try:
         data = json.loads(request.body)
         representative_ids = data.get('group_ids', [])
@@ -844,25 +836,19 @@ def merge_groups(request):
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)})
     
-# 【新增】解除关联 API
 @require_POST
 def unlink_group_relation(request, pk):
-    """将指定组(pk)从当前系列中移除（赋予新的 group_id）"""
     group = get_object_or_404(PromptGroup, pk=pk)
-    # 生成新的 UUID，使其独立
     group.group_id = uuid.uuid4()
     group.save()
     return JsonResponse({'status': 'success'})
 
-# 【新增】添加关联 API (支持多选)
 @require_POST
 def link_group_relation(request, pk):
-    """将目标组(target_ids)合并到当前组(pk)的系列中"""
     current_group = get_object_or_404(PromptGroup, pk=pk)
     try:
         data = json.loads(request.body)
         
-        # 兼容单选和多选
         target_ids = data.get('target_ids', [])
         if 'target_id' in data:
             target_ids.append(data['target_id'])
@@ -870,11 +856,8 @@ def link_group_relation(request, pk):
         if not target_ids:
              return JsonResponse({'status': 'error', 'message': '未选择任何版本'})
 
-        # 批量更新
-        # 排除自己，防止逻辑错误
         target_groups = PromptGroup.objects.filter(id__in=target_ids).exclude(id=current_group.id)
         
-        # 将所有选中组的 group_id 更新为当前组的 group_id
         count = target_groups.update(group_id=current_group.group_id)
         
         return JsonResponse({'status': 'success', 'count': count})

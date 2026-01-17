@@ -51,11 +51,34 @@ function initServerFiles(files) {
         div.className = 'preview-item server-file'; // 标记为服务器文件
         div.dataset.filename = file.name;
         
-        // 图片
-        const img = document.createElement('img');
-        img.src = file.url;
-        img.className = 'loaded';
-        div.appendChild(img);
+        // 【修正】判断是否为视频，如果是则显示视频标签，防止裂图
+        const isVideo = file.name.match(/\.(mp4|mov|avi|webm|mkv)$/i);
+        let mediaEl;
+
+        if (isVideo) {
+            mediaEl = document.createElement('video');
+            mediaEl.src = file.url;
+            mediaEl.className = 'loaded w-100 h-100 object-fit-cover';
+            mediaEl.muted = true;
+            mediaEl.preload = 'metadata'; // 仅加载第一帧
+            
+            // 鼠标悬停播放
+            div.addEventListener('mouseenter', () => mediaEl.play().catch(()=>{}));
+            div.addEventListener('mouseleave', () => { mediaEl.pause(); mediaEl.currentTime = 0; });
+
+            // 视频角标
+            const badge = document.createElement('div');
+            badge.className = 'position-absolute top-50 start-50 translate-middle text-white';
+            badge.style.pointerEvents = 'none';
+            badge.innerHTML = '<i class="bi bi-play-circle-fill fs-4" style="text-shadow: 0 2px 4px rgba(0,0,0,0.5);"></i>';
+            div.appendChild(badge);
+        } else {
+            mediaEl = document.createElement('img');
+            mediaEl.src = file.url;
+            mediaEl.className = 'loaded';
+        }
+
+        div.appendChild(mediaEl);
         
         // 删除按钮
         const delBtn = document.createElement('div');
@@ -215,7 +238,7 @@ function checkDuplicates(files, container) {
                 const toast = Swal.mixin({
                     toast: true, position: 'top-end', showConfirmButton: false, timer: 3000
                 });
-                toast.fire({ icon: 'warning', title: '发现重复图片，已标红' });
+                toast.fire({ icon: 'warning', title: '发现重复内容，已标红' });
             }
         }
     })
@@ -234,7 +257,7 @@ function markAsDuplicate(filename, container, groupTitle) {
                 const badge = document.createElement('div');
                 badge.className = 'duplicate-badge';
                 badge.innerHTML = '<i class="bi bi-exclamation-circle-fill me-1"></i>已存在';
-                badge.title = `系统中已存在该图 (位于: ${groupTitle})`;
+                badge.title = `系统中已存在该内容 (位于: ${groupTitle})`;
                 item.appendChild(badge);
             }
         }
@@ -261,18 +284,49 @@ function addPreviewItem(file, type, container) {
     div.className = 'preview-item';
     div.dataset.filename = file.name; 
     
+    // 初始显示 Loading
     div.innerHTML = '<div class="spinner-border text-secondary spinner-border-sm"></div>';
     
     const delBtn = document.createElement('div');
     delBtn.className = 'btn-remove-preview';
     delBtn.innerHTML = '<i class="bi bi-x-lg"></i>';
-    delBtn.title = '移除此图';
+    delBtn.title = '移除此文件';
     delBtn.onclick = (e) => {
         e.stopPropagation();
         removeFileItem(e.target, type, container);
     };
     div.appendChild(delBtn);
     container.appendChild(div);
+
+    // 【修正】优先检查视频类型，避免生成缩略图失败
+    if (file.type.startsWith('video/') || file.name.match(/\.(mp4|mov|avi|webm|mkv)$/i)) {
+        const video = document.createElement('video');
+        video.src = URL.createObjectURL(file);
+        video.muted = true;
+        video.autoplay = false;
+        video.controls = false; // 小预览不显示控件
+        video.preload = 'metadata'; 
+        video.className = 'w-100 h-100 object-fit-cover loaded';
+        
+        // 简单交互
+        div.addEventListener('mouseenter', () => video.play().catch(()=>{}));
+        div.addEventListener('mouseleave', () => { video.pause(); video.currentTime = 0; });
+
+        // 移除 loading
+        const spinner = div.querySelector('.spinner-border');
+        if(spinner) spinner.remove();
+
+        div.insertBefore(video, delBtn);
+        
+        // 视频角标
+        const badge = document.createElement('div');
+        badge.className = 'position-absolute top-50 start-50 translate-middle text-white';
+        badge.style.pointerEvents = 'none';
+        badge.innerHTML = '<i class="bi bi-play-circle-fill fs-4" style="text-shadow: 0 2px 4px rgba(0,0,0,0.5);"></i>';
+        div.appendChild(badge);
+        
+        return; // 视频处理完毕，退出
+    }
 
     createThumbnail(file).then(thumbnailUrl => {
         const spinner = div.querySelector('.spinner-border');
@@ -285,7 +339,8 @@ function addPreviewItem(file, type, container) {
             setTimeout(() => img.classList.add('loaded'), 50);
             div.insertBefore(img, delBtn);
         } else {
-            div.innerHTML = '<i class="bi bi-file-earmark-x text-danger"></i>';
+            // 生成失败或非图片非视频
+            div.innerHTML = '<i class="bi bi-file-earmark-x text-danger fs-3"></i>';
             div.appendChild(delBtn);
         }
     });
@@ -321,7 +376,7 @@ function removeFileItem(target, type, container) {
 }
 
 /**
- * 生成高质量缩略图
+ * 生成高质量缩略图 (仅图片)
  */
 function createThumbnail(file) {
     return new Promise((resolve) => {

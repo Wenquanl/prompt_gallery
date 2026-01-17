@@ -1,14 +1,25 @@
-<div class="col">
-    <div class="ratio ratio-1x1 position-relative ref-item-container">
-        <img src="{{ ref.thumbnail.url }}" class="w-100 h-100 object-fit-cover" alt="Reference" style="cursor: zoom-in;" onclick="window.open('{{ ref.image.url }}', '_blank')">
+<div class="col position-relative group-ref-item">
+    <div class="ratio ratio-1x1 border rounded overflow-hidden position-relative bg-light">
+        {% if ref.is_video %}
+            <div class="w-100 h-100 d-flex align-items-center justify-content-center bg-dark bg-opacity-10">
+                <i class="bi bi-play-circle-fill fs-2 text-dark opacity-75"></i>
+                <video src="{{ ref.image.url }}" class="position-absolute top-0 start-0 w-100 h-100 object-fit-cover" style="opacity: 0.01;"></video>
+            </div>
+        {% else %}
+            <img src="{{ ref.thumbnail.url }}" class="w-100 h-100 object-fit-cover" alt="reference" 
+                 loading="lazy" 
+                 style="cursor: pointer;"
+                 onclick="window.open('{{ ref.image.url }}', '_blank')">
+        {% endif %}
         
-        <form action="{% url 'delete_reference' ref.pk %}" method="post" class="position-absolute top-0 end-0 m-1" style="z-index: 10;">
-            {% csrf_token %}
-            <button type="button" class="btn btn-dark bg-opacity-50 btn-sm p-0 rounded-circle d-flex align-items-center justify-content-center border-0 btn-delete-ref" 
-                    style="width: 24px; height: 24px; backdrop-filter: blur(2px);" 
-                    onclick="confirmDelete(event)" title="删除">
-                <i class="bi bi-x text-white"></i>
-            </button>
-        </form>
+        <div class="position-absolute top-0 end-0 p-1">
+            <form action="{% url 'delete_reference' ref.pk %}" method="post" onsubmit="return confirm('删除此参考图?');">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-xs btn-danger rounded-circle p-0 d-flex align-items-center justify-content-center shadow-sm" 
+                        style="width:20px;height:20px;" title="删除">
+                    <i class="bi bi-x"></i>
+                </button>
+            </form>
+        </div>
     </div>
 </div>

@@ -38,15 +38,15 @@
                     </div>
 
                     <div class="mb-4">
-                        <label class="form-label fw-bold">上传生成图 <span class="text-danger">*</span></label>
+                        <label class="form-label fw-bold">上传生成内容 <span class="text-danger">*</span></label>
                         <div class="d-flex justify-content-between align-items-center mb-1">
-                            <span class="text-muted small">点击多次选择或拖拽图片 (JPG, PNG)</span>
+                            <span class="text-muted small">点击多次选择或拖拽图片/视频</span>
                             <span class="badge bg-light text-secondary border fw-normal"><i class="bi bi-shield-check me-1"></i>自动查重开启</span>
                         </div>
 
                         <div class="drag-drop-zone" id="zone-gen">
-                            <i class="bi bi-images display-6 text-muted mb-2"></i>
-                            <div class="text-muted small">拖拽图片到这里</div>
+                            <i class="bi bi-collection-play display-6 text-muted mb-2"></i>
+                            <div class="text-muted small">拖拽图片或视频到这里</div>
                             {{ form.upload_images }}
                         </div>
                         <div class="preview-list" id="preview-gen"></div>
@@ -55,10 +55,10 @@
                     </div>
                     
                     <div class="mb-4">
-                        <label class="form-label fw-bold">上传参考图 <span class="text-muted small fw-normal">(可选)</span></label>
+                        <label class="form-label fw-bold">上传参考内容 <span class="text-muted small fw-normal">(可选)</span></label>
                         <div class="drag-drop-zone" id="zone-ref">
-                            <i class="bi bi-image display-6 text-muted mb-2"></i>
-                            <div class="text-muted small">拖拽参考图 (垫图)</div>
+                            <i class="bi bi-folder-plus display-6 text-muted mb-2"></i>
+                            <div class="text-muted small">拖拽参考图/视频</div>
                             {{ form.upload_references }}
                         </div>
                         <div class="preview-list" id="preview-ref"></div>
