@@ -159,7 +159,11 @@
         <div class="grid-item mb-3">
             <div class="liked-img-card" id="card-img-{{ img.id }}">
                 <a href="{% url 'detail' img.group.pk %}?from={% if is_home_search %}home_search{% else %}liked{% endif %}&page={{ page_obj.number|default:1 }}&source_img_id={{ img.id }}{% if current_search_id %}&search_id={{ current_search_id }}{% endif %}" class="text-white text-decoration-none">
-                    <img src="{{ img.thumbnail.url }}" alt="Image">
+                    {% if img.is_video %}
+                        <video src="{{ img.image.url }}" class="w-100" autoplay muted loop style="display: block; object-fit: cover; pointer-events: none;"></video>
+                    {% else %}
+                        <img src="{{ img.thumbnail.url }}" alt="Image">
+                    {% endif %}
                     
                     {% if search_mode == 'image' and img.similarity_score %}
                         {% if img.similarity_score >= 80 %}

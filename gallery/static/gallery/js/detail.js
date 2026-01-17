@@ -14,8 +14,45 @@ let selectedLinkIds = new Set();
 
 // === 辅助函数：精准获取当前作品 ID ===
 function getCurrentGroupId() {
-    const match = location.pathname.match(/\/detail\/(\d+)/);
+    // 【修改】正则表达式改为同时支持 /detail/ 和 /image/ 路径
+    const match = location.pathname.match(/\/(?:detail|image)\/(\d+)/);
     return match ? parseInt(match[1]) : null;
+}
+
+// === 新增：视频布局自适应函数 ===
+function adjustVideoLayout(video) {
+    if (video.videoWidth > 0 && video.videoHeight > 0) {
+        // 1. 计算视频实际宽高比
+        const ratioPercent = (video.videoHeight / video.videoWidth) * 100;
+        const isVertical = video.videoHeight > video.videoWidth;
+        
+        const card = video.closest('.grid-item');
+        const ratioContainer = video.closest('.ratio'); // 获取视频外层的容器
+
+        // 2. 调整容器比例，消除黑边
+        if (ratioContainer) {
+            // 将容器的比例设置为视频的真实比例
+            ratioContainer.style.setProperty('--bs-aspect-ratio', `${ratioPercent}%`);
+        }
+
+        // 3. 调整卡片宽度 (横屏全宽，竖屏窄卡片)
+        if (card) {
+            if (isVertical) {
+                // 竖屏：窄卡片 (1/3 或 1/4 宽)
+                card.classList.remove('video-wide-item', 'col-12');
+                card.classList.add('col-6', 'col-md-4', 'col-lg-3');
+            } else {
+                // 横屏：全宽 (100% 宽)
+                card.classList.add('video-wide-item', 'col-12');
+                card.classList.remove('col-6', 'col-md-4', 'col-lg-3');
+            }
+        }
+        
+        // 4. 通知 Masonry 重新布局 (防止卡片重叠)
+        if (window.msnryImages) {
+            window.msnryImages.layout();
+        }
+    }
 }
 
 // === 初始化逻辑 ===
@@ -30,6 +67,12 @@ document.addEventListener('DOMContentLoaded', function() {
     const modalEl = document.getElementById('imageModal');
     if (modalEl) {
         imageModal = new bootstrap.Modal(modalEl);
+        
+        // 【新增】监听模态框关闭事件，关闭时自动暂停视频
+        modalEl.addEventListener('hidden.bs.modal', function () {
+            const vid = document.getElementById('previewVideo');
+            if (vid) vid.pause();
+        });
     }
     
     // 3. 初始化 Masonry (针对图片栏)
@@ -47,6 +90,16 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         }
     }
+
+    //  视频布局自动调整 (针对页面加载时已存在的视频)
+    const videos = document.querySelectorAll('#detail-masonry-grid-videos video');
+    videos.forEach(vid => {
+        if (vid.readyState >= 1) {
+            adjustVideoLayout(vid);
+        } else {
+            vid.addEventListener('loadedmetadata', () => adjustVideoLayout(vid));
+        }
+    });
 
     // 4. 键盘事件
     document.addEventListener('keydown', function(event) {
@@ -75,13 +128,37 @@ document.addEventListener('DOMContentLoaded', function() {
     setupInlineDragDrop('inline-trigger-ref', 'addReferenceModal', 'ref');
     setupDetailDragDrop('zone-modal-gen', 'input-modal-gen', 'preview-modal-gen', 'gen');
     setupDetailDragDrop('zone-modal-ref', 'input-modal-ref', 'preview-modal-ref', 'ref');
+
+    // 8. 【新增】进入详情页时，如果有 source_img_id，则直接定位到该图片
+    const urlParams = new URLSearchParams(window.location.search);
+    const sourceId = urlParams.get('source_img_id');
+    
+    if (sourceId) {
+        // 尝试找到目标元素的锚点 (ID 为 img-anchor-数字)
+        const targetEl = document.getElementById(`img-anchor-${sourceId}`);
+        if (targetEl) {
+            // 使用 setTimeout 确保页面DOM已渲染
+            setTimeout(() => {
+                // 【核心】behavior: 'auto' 确保是瞬间跳转 (无滚动动画)
+                // block: 'center' 确保目标位于屏幕中间
+                targetEl.scrollIntoView({ behavior: 'auto', block: 'center' });
+                
+                // 【可选】添加高亮闪烁效果，方便用户在杂乱的图中一眼看到 (利用 style.css 已有的动画类)
+                const card = targetEl.querySelector('.detail-img-card');
+                if (card) {
+                    card.classList.add('highlight-pulse');
+                    setTimeout(() => card.classList.remove('highlight-pulse'), 2000);
+                }
+            }, 100); 
+        }
+    }
+
 });
 
 // ================= 图片模态框逻辑 (大图预览) =================
 
 function openModal(el, index) {
-    // 【核心修复】视频不打开大图预览
-    if (el.querySelector('video')) return;
+    
     
     // 兼容：如果传入的是 DOM 元素，尝试获取 ID
     // 如果传入的是 index (旧逻辑)，则直接使用
@@ -121,6 +198,7 @@ function changeImage(direction) {
 
 function updateModalImage() {
     const imgElement = document.getElementById('previewImage');
+    const vidElement = document.getElementById('previewVideo'); // 必须能在 HTML 中找到这个 ID
     const downloadBtn = document.getElementById('modalDownloadBtn');
     const deleteForm = document.getElementById('modalDeleteForm');
     const counterElement = document.getElementById('imageCounter');
@@ -130,13 +208,47 @@ function updateModalImage() {
 
     const currentImgData = galleryImages[currentIndex];
 
-    imgElement.style.opacity = '0.5';
-    imgElement.src = currentImgData.url;
-    imgElement.onload = function() { imgElement.style.opacity = '1'; };
+    // === 核心修改：区分视频和图片 ===
+    if (currentImgData.isVideo) {
+        // 1. 如果是视频
+        if (imgElement) {
+            imgElement.style.display = 'none';
+            imgElement.src = ""; // 停止加载图片
+        }
+        
+        if (vidElement) {
+            vidElement.style.display = 'block';
+            vidElement.src = currentImgData.url;
+            vidElement.load(); // 【关键】强制重载视频，防止一直转圈
+            
+            // 尝试自动播放
+            const playPromise = vidElement.play();
+            if (playPromise !== undefined) {
+                playPromise.catch(error => {
+                    console.log("自动播放被拦截:", error);
+                });
+            }
+        }
+    } else {
+        // 2. 如果是图片
+        if (vidElement) {
+            vidElement.style.display = 'none';
+            vidElement.pause();
+            vidElement.removeAttribute('src'); // 清除视频源
+            vidElement.load(); // 停止视频缓冲
+        }
+        
+        if (imgElement) {
+            imgElement.style.display = 'block';
+            imgElement.style.opacity = '0.5';
+            imgElement.src = currentImgData.url;
+            imgElement.onload = function() { imgElement.style.opacity = '1'; };
+        }
+    }
 
+    // 更新按钮链接和状态
     if (downloadBtn) downloadBtn.href = currentImgData.url;
     if (deleteForm) deleteForm.action = `/delete-image/${currentImgData.id}/`;
-    
     if (counterElement) counterElement.innerText = `${currentIndex + 1} / ${galleryImages.length}`;
     
     if (likeBtn) {
@@ -335,11 +447,25 @@ function confirmDelete(event) {
                         if (!gridItem) gridItem = document.getElementById(`card-img-${deletedId}`);
 
                         if (gridItem) {
-                            // 判断是在图片栏还是视频栏
-                            const isVideoItem = gridItem.closest('#detail-masonry-grid-videos');
-                            
+                            // === 【新增】实时更新数量统计 (删除逻辑) ===
+                            // 通过判断父容器 ID 来确定是视频还是图片
+                            const isVideoContainer = gridItem.closest('#detail-masonry-grid-videos');
+                            const badgeId = isVideoContainer ? 'video-count-badge' : 'image-count-badge';
+                            const badge = document.getElementById(badgeId);
+
+                            if (badge) {
+                                let currentCount = parseInt(badge.innerText) || 0;
+                                if (currentCount > 0) {
+                                    badge.innerText = currentCount - 1;
+                                    // 删除时用红色闪烁提示一下
+                                    badge.classList.add('text-danger'); 
+                                    setTimeout(() => badge.classList.remove('text-danger'), 2000);
+                                }
+                            }
+                            // ===========================================
+
                             // 只有图片栏可能启用了 Masonry
-                            if (!isVideoItem && window.msnryImages) {
+                            if (!isVideoContainer && window.msnryImages) {
                                 window.msnryImages.remove(gridItem);
                                 window.msnryImages.layout();
                             } else {
@@ -574,57 +700,91 @@ function handleImageUpload(event) {
 
             // === 生成内容处理 (图片/视频) ===
             if (data.type === 'gen') {
+                
+                // 1. 更新数量统计
+                let addedImages = 0;
+                let addedVideos = 0;
+                
                 if (data.new_images_data && window.galleryImages) {
-                    // 更新大图预览数据
-                    data.new_images_data.forEach(img => window.galleryImages.unshift(img));
+                    // 【修复】将新数据正确合并到全局数据源，防止大图预览报错
+                    // 使用 reverse() 确保插入顺序正确（因为 unshift 是插入头部）
+                    [...data.new_images_data].reverse().forEach(img => {
+                        // 确保字段兼容性
+                        img.isVideo = img.is_video || img.isVideo || false;
+                        window.galleryImages.unshift(img);
+                        
+                        if (img.isVideo) addedVideos++; else addedImages++;
+                    });
                 }
 
+                // 2. 更新徽章数字
+                const imgBadge = document.getElementById('image-count-badge');
+                if (imgBadge && addedImages > 0) {
+                    imgBadge.innerText = (parseInt(imgBadge.innerText) || 0) + addedImages;
+                    imgBadge.classList.add('text-primary'); setTimeout(() => imgBadge.classList.remove('text-primary'), 2000);
+                }
+                const vidBadge = document.getElementById('video-count-badge');
+                if (vidBadge && addedVideos > 0) {
+                    vidBadge.innerText = (parseInt(vidBadge.innerText) || 0) + addedVideos;
+                    vidBadge.classList.add('text-primary'); setTimeout(() => vidBadge.classList.remove('text-primary'), 2000);
+                }
+
+                // 3. 插入 HTML 卡片
                 if (data.new_images_html && data.new_images_html.length > 0) {
                     const imgContainer = document.getElementById('detail-masonry-grid-images');
                     const vidContainer = document.getElementById('detail-masonry-grid-videos');
 
-                    // 临时容器用于解析 HTML
                     const tempDiv = document.createElement('div');
-                    const newImages = [];
+                    const newImagesNodes = [];
                     
                     data.new_images_html.forEach((html, index) => {
                         const meta = data.new_images_data ? data.new_images_data[index] : null;
-                        if (!meta) return;
-
-                        // 【核心】根据 is_video 分流
-                        const targetContainer = meta.is_video ? vidContainer : imgContainer;
+                        const isVideo = meta ? (meta.is_video || meta.isVideo) : false;
+                        const targetContainer = isVideo ? vidContainer : imgContainer;
                         
                         if (targetContainer) {
-                             // 移除空状态占位
                             const emptyPlaceholder = targetContainer.querySelector('.alert');
                             if (emptyPlaceholder) emptyPlaceholder.parentNode.remove();
 
                             tempDiv.innerHTML = html;
                             const node = tempDiv.firstElementChild;
-                            const img = node.querySelector('img');
-                            if (img) img.setAttribute('loading', 'eager');
                             
-                            // 插入最前面
+                            // 【核心修复】只设置 eager 加载，绝对不要隐藏图片！
+                            const img = node.querySelector('img');
+                            if (img) {
+                                img.setAttribute('loading', 'eager');
+                                // img.onerror = ... <--- 删除了这行会导致白图的罪魁祸首
+                                
+                                // 可选：如果加载失败，尝试重新加载一次原图 (增强稳定性)
+                                img.onerror = function() {
+                                    if (!this.dataset.retried) {
+                                        this.dataset.retried = true;
+                                        this.src = meta.url; // 尝试加载原图
+                                    }
+                                };
+                            }
+                            
                             targetContainer.prepend(node);
                             
-                            // 如果是图片且启用了 Masonry，记录下来
-                            if (!meta.is_video) newImages.push(node);
+                            if (isVideo) {
+                                const newVid = node.querySelector('video');
+                                if (newVid) newVid.addEventListener('loadedmetadata', () => adjustVideoLayout(newVid));
+                            } else {
+                                newImagesNodes.push(node);
+                            }
                         }
                     });
 
-                    // 刷新 Masonry (仅针对图片栏)
-                    if (window.msnryImages && newImages.length > 0) {
-                        window.msnryImages.prepended(newImages);
+                    // 4. 刷新 Masonry (仅针对图片栏)
+                    if (window.msnryImages && newImagesNodes.length > 0) {
+                        window.msnryImages.prepended(newImagesNodes);
+                        
                         const onLayout = () => { window.msnryImages.layout(); };
                         if (typeof imagesLoaded !== 'undefined') {
-                            imagesLoaded(newImages).on('progress', onLayout);
+                            imagesLoaded(newImagesNodes).on('progress', onLayout);
                         }
-                        const ro = new ResizeObserver(entries => { onLayout(); });
-                        newImages.forEach(item => {
-                            ro.observe(item);
-                            const img = item.querySelector('img');
-                            if(img) ro.observe(img);
-                        });
+                        
+                        // 多重延时布局，防止图片加载慢导致重叠
                         onLayout();
                         setTimeout(onLayout, 300);
                         setTimeout(onLayout, 1000);
@@ -636,7 +796,7 @@ function handleImageUpload(event) {
             } 
             // === 参考图处理 ===
             else if (data.type === 'ref') {
-                if (data.new_references_html && data.new_references_html.length > 0) {
+                 if (data.new_references_html && data.new_references_html.length > 0) {
                     const refGrid = document.getElementById('reference-grid');
                     if (refGrid) {
                         data.new_references_html.forEach(html => refGrid.insertAdjacentHTML('beforeend', html));
@@ -672,6 +832,7 @@ function handleImageUpload(event) {
     .catch(error => {
         submitBtn.innerHTML = originalBtnContent;
         submitBtn.disabled = false;
+        console.error(error);
         Swal.fire({ icon: 'error', title: '上传错误', text: error.message });
     });
 }

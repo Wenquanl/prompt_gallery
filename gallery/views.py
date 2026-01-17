@@ -517,6 +517,7 @@ def add_images_to_group(request, pk):
             if files:
                 for f in files:
                     file_hash = calculate_file_hash(f)
+                    # 检查组内排重
                     existing_img = ImageItem.objects.filter(group=group, image_hash=file_hash).first()
                     
                     if existing_img:
@@ -536,21 +537,36 @@ def add_images_to_group(request, pk):
                 trigger_background_processing(created_ids)
 
             if is_ajax:
+                # 重新查询以确保数据完整
                 new_images = ImageItem.objects.filter(id__in=created_ids).order_by('id')
                 new_images_data = []
                 html_list = []
                 
                 for img in new_images:
+                    # 【核心修复】计算一个必定能访问的 URL
+                    safe_url = ""
+                    try:
+                        # 如果是图片，尝试获取缩略图 URL
+                        if not img.is_video and img.thumbnail:
+                            safe_url = img.thumbnail.url
+                        else:
+                            # 视频或缩略图未生成时，使用原图
+                            safe_url = img.image.url
+                    except Exception:
+                        # 发生任何错误（如文件锁、IOError），兜底使用原图
+                        safe_url = img.image.url if img.image else ""
+
                     new_images_data.append({
                         'id': img.pk,
-                        'url': img.image.url,
+                        'url': img.image.url, 
                         'isLiked': img.is_liked,
-                        # 【修改点】增加 is_video 字段，供前端判断插入位置
-                        'is_video': img.is_video 
+                        'is_video': img.is_video,
+                        'isVideo': img.is_video 
                     })
-                    
+                    # 【核心修复】将 safe_url 作为 force_image_url 传给模板
                     html = render_to_string('gallery/components/detail_image_card.html', {
                         'img': img, 
+                        'force_image_url': safe_url 
                     }, request=request)
                     html_list.append(html)
 
@@ -568,6 +584,7 @@ def add_images_to_group(request, pk):
                     'type': 'gen'
                 })
             
+            # 非 AJAX 请求的回退
             if duplicates:
                 messages.warning(request, f"成功添加 {uploaded_count} 个文件，忽略 {len(duplicates)} 个重复文件")
             else:

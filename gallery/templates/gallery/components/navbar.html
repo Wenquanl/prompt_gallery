@@ -52,6 +52,8 @@
             </div>
             {% endif %}
 
+            {% load static %}
+
             <div class="dropdown">
                 <button class="btn btn-sm rounded-pill nav-toolbox-btn dropdown-toggle" 
                         type="button" data-bs-toggle="dropdown" aria-expanded="false">
@@ -59,13 +61,51 @@
                 </button>
                 <ul class="dropdown-menu toolbox-dropdown-menu">
                     <li><h6 class="toolbox-header">图像生成</h6></li>
-                    <li><a class="dropdown-item toolbox-item" href="https://jimeng.jianying.com/" target="_blank"><i class="bi bi-palette2 text-danger"></i>即梦 AI</a></li>
-                    <li><a class="dropdown-item toolbox-item" href="https://dreamina.capcut.com/ai-tool/home/" target="_blank"><i class="bi bi-magic text-warning"></i>Dreamina</a></li>
+                    <li>
+                        <a class="dropdown-item toolbox-item" href="https://jimeng.jianying.com/" target="_blank">
+                            <img src="{% static 'gallery/img/jimeng.ico' %}" alt="Jimeng" style="width: 18px; height: 18px; object-fit: contain; margin-right: 18px;">即梦 AI
+                        </a>
+                    </li>
+                    <li>
+                        <a class="dropdown-item toolbox-item" href="https://dreamina.capcut.com/ai-tool/home/" target="_blank">
+                            <img src="{% static 'gallery/img/dreamina.ico' %}" alt="Dreamina" style="width: 18px; height: 18px; object-fit: contain; margin-right: 18px;">Dreamina
+                        </a>
+                    </li>
+                    
                     <li><hr class="toolbox-divider"></li>
                     <li><h6 class="toolbox-header">大语言模型</h6></li>
-                    <li><a class="dropdown-item toolbox-item" href="https://www.doubao.com/" target="_blank"><i class="bi bi-chat-quote-fill text-success"></i>豆包 (Doubao)</a></li>
-                    <li><a class="dropdown-item toolbox-item" href="https://gemini.google.com/" target="_blank"><i class="bi bi-google text-primary"></i>Google Gemini</a></li>
-                    <li><a class="dropdown-item toolbox-item" href="https://aistudio.google.com/" target="_blank"><i class="bi bi-code-square text-info"></i>AI Studio</a></li>
+                    
+                    <li>
+                        <a class="dropdown-item toolbox-item" href="https://www.doubao.com/" target="_blank">
+                            <img src="{% static 'gallery/img/doubao.ico' %}" alt="Doubao" style="width: 18px; height: 18px; object-fit: contain; margin-right: 18px;">豆包
+                        </a>
+                    </li>
+                    <li>
+                        <a class="dropdown-item toolbox-item" href="https://gemini.google.com/" target="_blank">
+                            <img src="{% static 'gallery/img/gemini.png' %}" alt="Gemini" style="width: 18px; height: 18px; object-fit: contain; margin-right: 18px;">Google Gemini
+                        </a>
+                    </li>
+                    <li>
+                        <a class="dropdown-item toolbox-item" href="https://aistudio.google.com/" target="_blank">
+                            <img src="{% static 'gallery/img/aistudio.ico' %}" alt="AI Studio" style="width: 18px; height: 18px; object-fit: contain; margin-right: 18px;">Google AI Studio
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a class="dropdown-item toolbox-item" href="https://grok.com/" target="_blank">
+                            <img src="{% static 'gallery/img/grok.ico' %}" alt="Grok" style="width: 18px; height: 18px; object-fit: contain; margin-right: 18px;">Grok
+                        </a>
+                    </li>
+                    <li>
+                        <a class="dropdown-item toolbox-item" href="https://tongyi.aliyun.com/" target="_blank">
+                            <img src="{% static 'gallery/img/qwen.png' %}" alt="Qwen" style="width: 18px; height: 18px; object-fit: contain; margin-right: 18px; border-radius: 4px;">通义千问
+                        </a>
+                    </li>
+                    <li>
+                        <a class="dropdown-item toolbox-item" href="https://yuanbao.tencent.com/" target="_blank">
+                            <img src="{% static 'gallery/img/yuanbao.ico' %}" alt="Yuanbao" style="width: 18px; height: 18px; object-fit: contain; margin-right: 18px;">腾讯元宝
+                        </a>
+                    </li>
                 </ul>
             </div>
             

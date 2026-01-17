@@ -259,6 +259,12 @@ a { text-decoration: none; }
     border-radius: var(--radius-md); overflow: hidden; position: relative; 
     background: white; border: 1px solid rgba(0,0,0,0.05);
     box-shadow: var(--shadow-sm); transition: all 0.3s ease; 
+    /* 1. 强制创建一个新的堆叠上下文，防止渲染溢出 */
+    isolation: isolate; 
+    /* 2. 修复 Safari/Chrome 在圆角变换时的溢出 bug */
+    -webkit-mask-image: -webkit-radial-gradient(white, black);
+    /* 3. 告诉浏览器这个元素会动，提前优化渲染，防止撕裂 */
+    will-change: transform;
 }
 .detail-img-card:hover { box-shadow: var(--shadow-hover); transform: translateY(-3px); }
 .thumb-img { width: 100%; height: auto; display: block; object-fit: contain; cursor: zoom-in; }
@@ -1974,4 +1980,17 @@ a { text-decoration: none; }
 .btn-link-interactive:active {
     transform: translateY(0) scale(0.95);
     box-shadow: 0 2px 5px rgba(79, 172, 254, 0.2);
+}
+/* ================== 修复视频卡片宽度 ================== */
+/* 强制让带有 video-wide-item 类的卡片占满 100% 宽度 */
+/* 必须加 !important 以覆盖 .grid-item 的全局宽度设置 */
+.grid-item.video-wide-item {
+    width: 100% !important;
+}
+
+/* 移动端适配：保持 100% */
+@media (max-width: 576px) {
+    .grid-item.video-wide-item {
+        width: 100% !important;
+    }
 }

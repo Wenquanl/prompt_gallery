@@ -1,4 +1,4 @@
-<div class="col-6 col-md-4 col-lg-3 mb-4 grid-item" id="img-anchor-{{ img.pk }}">
+<div class="{% if img.is_video %}col-12 video-wide-item{% else %}col-6 col-md-4 col-lg-3{% endif %} mb-4 grid-item" id="img-anchor-{{ img.pk }}">
     <div class="detail-img-card shadow-sm position-relative" id="img-card-{{ img.pk }}" style="min-height: 200px; background-color: #f8f9fa;">
         {% if img.image %}
         <span class="file-size-badge">{{ img.image.size|filesizeformat }}</span>
@@ -6,15 +6,23 @@
         
         <div class="position-relative">
             {% if img.is_video %}
-                <div class="ratio" style="--bs-aspect-ratio: 100%;">
-                    <video src="{{ img.image.url }}" class="thumb-img w-100 h-100" controls preload="metadata" style="object-fit: contain; background-color: #000; border-radius: 12px 12px 0 0;"></video>
+                <div class="ratio" style="--bs-aspect-ratio: 56.25%;">
+                    <video src="{{ img.image.url }}" class="thumb-img w-100 h-100" controls preload="metadata" style="object-fit: contain; background-color: transparent; border-radius: 12px 12px 0 0; cursor: default;"></video>
                 </div>
-                <div class="position-absolute top-0 end-0 m-2">
+                <div class="position-absolute top-0 end-0 m-2 d-flex gap-2">
+                    <button type="button" class="btn btn-sm btn-dark bg-opacity-75 rounded-circle border-0 d-flex align-items-center justify-content-center" 
+                            style="width: 24px; height: 24px;" 
+                            onclick="showModal({{ img.pk }})" 
+                            title="全屏预览">
+                        <i class="bi bi-arrows-fullscreen" style="font-size: 0.8rem;"></i>
+                    </button>
                     <span class="badge bg-dark bg-opacity-50 rounded-pill"><i class="bi bi-camera-reels-fill me-1"></i>Video</span>
                 </div>
             {% else %}
                 <div role="button" onclick="showModal({{ img.pk }})">
-                    {% if img.thumbnail %}
+                    {% if force_image_url %}
+                        <img src="{{ force_image_url }}" class="thumb-img" alt="Artwork" style="width: 100%; display: block; min-height: 150px; object-fit: cover;">
+                    {% elif img.thumbnail %}
                         <img src="{{ img.thumbnail.url }}" class="thumb-img" alt="Artwork" style="width: 100%; display: block; min-height: 150px; object-fit: cover;">
                     {% else %}
                         <img src="{{ img.image.url }}" class="thumb-img" alt="Artwork" style="width: 100%; display: block; min-height: 150px; object-fit: cover;">

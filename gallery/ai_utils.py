@@ -3,6 +3,8 @@ from PIL import Image
 from sentence_transformers import SentenceTransformer
 import torch
 import os
+import cv2  # 【新增】引入 OpenCV 处理视频
+import tempfile # 【新增】处理上传的视频流
 
 # 全局变量存储模型 (单例模式)
 _model = None
@@ -34,16 +36,54 @@ def get_model():
 def generate_image_embedding(image_path_or_file):
     """
     输入图片路径或文件对象，返回 bytes 格式的向量
+    支持：图片文件、视频文件 (自动提取第一帧)
     """
     model = get_model()
     if model is None:
         return None
         
+    temp_video_path = None
+    
     try:
-        # 如果是路径字符串，打开图片；如果是文件对象，直接使用
-        img = Image.open(image_path_or_file)
+        img = None
+        is_video = False
+        file_path = ""
+
+        # 1. 判断是否为视频
+        if isinstance(image_path_or_file, str):
+            # 情况A: 传入的是文件路径
+            file_path = image_path_or_file
+            ext = os.path.splitext(file_path)[1].lower()
+            if ext in ['.mp4', '.mov', '.avi', '.webm', '.mkv']:
+                is_video = True
+        elif hasattr(image_path_or_file, 'name'):
+            # 情况B: 传入的是上传的文件对象
+            ext = os.path.splitext(image_path_or_file.name)[1].lower()
+            if ext in ['.mp4', '.mov', '.avi', '.webm', '.mkv']:
+                is_video = True
+                # OpenCV 无法直接读取内存文件流，需写入临时文件
+                with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
+                    if hasattr(image_path_or_file, 'seek'): image_path_or_file.seek(0)
+                    tmp.write(image_path_or_file.read())
+                    temp_video_path = tmp.name
+                    file_path = tmp.name
+
+        # 2. 如果是视频，提取第一帧
+        if is_video:
+            cap = cv2.VideoCapture(file_path)
+            ret, frame = cap.read()
+            cap.release()
+            
+            if ret:
+                # OpenCV 默认是 BGR，CLIP 需要 RGB
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                img = Image.fromarray(frame)
         
-        # 转换为向量
+        # 3. 如果不是视频或提取失败，尝试作为普通图片打开
+        if img is None:
+            img = Image.open(image_path_or_file)
+        
+        # 4. 转换为向量
         embedding = model.encode(img)
         
         # 归一化 (方便后续计算余弦相似度)
@@ -53,9 +93,17 @@ def generate_image_embedding(image_path_or_file):
             
         # 转为 bytes 存储到数据库
         return embedding.astype(np.float32).tobytes()
+        
     except Exception as e:
-        print(f"生成向量失败: {e}")
+        # print(f"生成向量失败: {e}") # 生产环境可取消注释
         return None
+    finally:
+        # 清理临时文件
+        if temp_video_path and os.path.exists(temp_video_path):
+            try:
+                os.remove(temp_video_path)
+            except:
+                pass
 
 def search_similar_images(query_image_file, queryset, top_k=50):
     """
