@@ -543,18 +543,9 @@ def add_images_to_group(request, pk):
                 html_list = []
                 
                 for img in new_images:
-                    # 【核心修复】计算一个必定能访问的 URL
-                    safe_url = ""
-                    try:
-                        # 如果是图片，尝试获取缩略图 URL
-                        if not img.is_video and img.thumbnail:
-                            safe_url = img.thumbnail.url
-                        else:
-                            # 视频或缩略图未生成时，使用原图
-                            safe_url = img.image.url
-                    except Exception:
-                        # 发生任何错误（如文件锁、IOError），兜底使用原图
-                        safe_url = img.image.url if img.image else ""
+                    # 【核心修复】上传后立即显示时，直接使用原图 URL，避免缩略图未生成导致的白图
+                    # 原来的 try-except 逻辑虽然有兜底，但 ImageKit 可能会返回一个存在的空文件路径导致白图
+                    safe_url = img.image.url if img.image else ""
 
                     new_images_data.append({
                         'id': img.pk,
@@ -563,10 +554,10 @@ def add_images_to_group(request, pk):
                         'is_video': img.is_video,
                         'isVideo': img.is_video 
                     })
-                    # 【核心修复】将 safe_url 作为 force_image_url 传给模板
+                    
                     html = render_to_string('gallery/components/detail_image_card.html', {
                         'img': img, 
-                        'force_image_url': safe_url 
+                        'force_image_url': safe_url  # 强制传入原图 URL
                     }, request=request)
                     html_list.append(html)
 

@@ -390,6 +390,7 @@ function confirmDelete(event) {
     const url = form.action;
     
     const isModal = btn.closest('#imageModal') !== null;
+    // 关键判断：当前点击的是否为参考图区域
     const isReference = btn.closest('#reference-grid') !== null;
 
     Swal.fire({
@@ -425,7 +426,9 @@ function confirmDelete(event) {
                     
                     const deletedId = parseInt(data.pk);
 
-                    // 1. 处理参考图删除
+                    // ===========================================
+                    // 1. 处理参考图删除 (您丢失的逻辑补回来了)
+                    // ===========================================
                     if (isReference) {
                         const col = btn.closest('.col');
                         if (col) {
@@ -434,21 +437,21 @@ function confirmDelete(event) {
                             setTimeout(() => col.remove(), 300);
                         }
                     }
-                    // 2. 处理生成图/视频删除
+                    // ===========================================
+                    // 2. 处理生成图/视频删除 (包含之前的强制修复)
+                    // ===========================================
                     else {
                         if (window.galleryImages) {
                             const idx = window.galleryImages.findIndex(img => img.id === deletedId);
                             if (idx !== -1) window.galleryImages.splice(idx, 1);
                         }
 
-                        // 查找元素 (兼容 ID)
-                        // 注意：HTML 中一般为 img-anchor-ID 或 card-img-ID
+                        // 查找元素
                         let gridItem = document.getElementById(`img-anchor-${deletedId}`);
                         if (!gridItem) gridItem = document.getElementById(`card-img-${deletedId}`);
 
                         if (gridItem) {
-                            // === 【新增】实时更新数量统计 (删除逻辑) ===
-                            // 通过判断父容器 ID 来确定是视频还是图片
+                            // 更新数量角标
                             const isVideoContainer = gridItem.closest('#detail-masonry-grid-videos');
                             const badgeId = isVideoContainer ? 'video-count-badge' : 'image-count-badge';
                             const badge = document.getElementById(badgeId);
@@ -457,20 +460,21 @@ function confirmDelete(event) {
                                 let currentCount = parseInt(badge.innerText) || 0;
                                 if (currentCount > 0) {
                                     badge.innerText = currentCount - 1;
-                                    // 删除时用红色闪烁提示一下
                                     badge.classList.add('text-danger'); 
                                     setTimeout(() => badge.classList.remove('text-danger'), 2000);
                                 }
                             }
-                            // ===========================================
 
-                            // 只有图片栏可能启用了 Masonry
+                            // 强制删除逻辑
                             if (!isVideoContainer && window.msnryImages) {
-                                window.msnryImages.remove(gridItem);
+                                try { window.msnryImages.remove(gridItem); } catch (e) {}
+                            }
+                            
+                            // 无论如何强制从 DOM 移除
+                            gridItem.remove();
+
+                            if (!isVideoContainer && window.msnryImages) {
                                 window.msnryImages.layout();
-                            } else {
-                                // 视频栏或未启用 Masonry，直接 DOM 删除
-                                gridItem.remove();
                             }
                         }
 
@@ -908,11 +912,11 @@ function addModalPreviewItem(file, type, container, input) {
     const div = document.createElement('div');
     div.className = 'preview-item-modal';
     
-    // 删除按钮
+    // 1. 创建删除按钮 (先不添加到 DOM，等内容添加完再放最后，确保在最上层)
     const delBtn = document.createElement('div');
     delBtn.className = 'btn-remove-preview-modal';
     delBtn.innerHTML = '<i class="bi bi-x-lg"></i>';
-    delBtn.style.zIndex = '10'; // 确保在最上层
+    delBtn.style.zIndex = '10'; 
     delBtn.onclick = (e) => {
         e.stopPropagation();
         const fileArray = (type === 'gen') ? modalGenFiles : modalRefFiles;
@@ -923,10 +927,10 @@ function addModalPreviewItem(file, type, container, input) {
             updateModalInputFiles(type, input);
         }
     };
-    div.appendChild(delBtn);
+
     container.appendChild(div);
 
-    // 【核心】支持视频预览
+    // 2. 根据类型添加内容
     if (file.type.startsWith('video/') || file.name.match(/\.(mp4|mov|avi|webm|mkv)$/i)) {
         const video = document.createElement('video');
         video.src = URL.createObjectURL(file);
@@ -934,7 +938,6 @@ function addModalPreviewItem(file, type, container, input) {
         video.className = 'w-100 h-100 object-fit-cover';
         video.preload = 'metadata';
         
-        // 视频图标
         const icon = document.createElement('div');
         icon.className = 'position-absolute top-50 start-50 translate-middle text-white';
         icon.innerHTML = '<i class="bi bi-camera-video-fill fs-4" style="text-shadow:0 0 5px rgba(0,0,0,0.5)"></i>';
@@ -942,19 +945,31 @@ function addModalPreviewItem(file, type, container, input) {
         
         div.appendChild(icon);
         div.appendChild(video);
+        // 【关键修复】视频最后添加按钮，确保按钮在视频图层之上
+        div.appendChild(delBtn); 
     } else {
         // 图片逻辑
-        div.innerHTML += '<div class="spinner-border text-secondary spinner-border-sm position-absolute top-50 start-50"></div>';
+        // 【关键修复】不要使用 innerHTML +=，这会销毁 delBtn 的事件绑定
+        const spinner = document.createElement('div');
+        spinner.className = 'spinner-border text-secondary spinner-border-sm position-absolute top-50 start-50';
+        div.appendChild(spinner);
+        
+        // 先把按钮加上去 (确保 loading 时也能删除)
+        div.appendChild(delBtn); 
+
         createModalThumbnail(file).then(url => {
-            const spinner = div.querySelector('.spinner-border');
-            if (spinner) spinner.remove();
+            spinner.remove();
             if (url) {
                 const img = document.createElement('img');
                 img.src = url;
                 img.className = 'w-100 h-100 object-fit-cover';
+                // 使用 insertBefore 将图片插在按钮之前，保证按钮依旧在最上面
                 div.insertBefore(img, delBtn);
             } else {
-                div.innerHTML += '<span class="small text-danger">Error</span>';
+                const err = document.createElement('span');
+                err.className = 'small text-danger position-absolute top-50 start-50 translate-middle';
+                err.innerText = 'Error';
+                div.insertBefore(err, delBtn);
             }
         });
     }

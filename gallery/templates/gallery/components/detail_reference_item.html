@@ -12,11 +12,11 @@
                  onclick="window.open('{{ ref.image.url }}', '_blank')">
         {% endif %}
         
-        <div class="position-absolute top-0 end-0 p-1">
-            <form action="{% url 'delete_reference' ref.pk %}" method="post" onsubmit="return confirm('删除此参考图?');">
+        <div class="position-absolute top-0 end-0 p-1" style="z-index: 10;">
+            <form action="{% url 'delete_reference' ref.pk %}" method="post" class="delete-form-confirm">
                 {% csrf_token %}
-                <button type="submit" class="btn btn-xs btn-danger rounded-circle p-0 d-flex align-items-center justify-content-center shadow-sm" 
-                        style="width:20px;height:20px;" title="删除">
+                <button type="button" class="btn btn-xs btn-danger rounded-circle p-0 d-flex align-items-center justify-content-center shadow-sm" 
+                        style="width:20px;height:20px;" title="删除" onclick="confirmDelete(event)">
                     <i class="bi bi-x"></i>
                 </button>
             </form>
