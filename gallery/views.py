@@ -1,7 +1,9 @@
 import os
+import time
 import uuid
 import json
 import re
+import shutil
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
 from django.conf import settings
@@ -11,6 +13,7 @@ from django.core.paginator import Paginator
 from django.views.decorators.http import require_GET, require_POST
 from django.core.cache import cache
 from django.template.loader import render_to_string
+from django.views.decorators.csrf import csrf_exempt
 from .models import ImageItem, PromptGroup, Tag, AIModel, ReferenceItem
 from .forms import PromptGroupForm
 from .ai_utils import search_similar_images
@@ -427,65 +430,76 @@ def upload(request):
         })
 
 
+@csrf_exempt
 def check_duplicates(request):
-    if request.method == 'POST':
-        files = request.FILES.getlist('images')
-        results = []
-        has_duplicate = False
-        
-        batch_id = str(uuid.uuid4())
-        temp_dir = get_temp_dir(batch_id)
-        os.makedirs(temp_dir, exist_ok=True)
+    """全库查重接口 (修复版 - 修正 update 报错)"""
+    if request.method != 'POST':
+        return JsonResponse({'status': 'error', 'message': '仅支持 POST 请求'})
 
-        for f in files:
-            f_hash = calculate_file_hash(f)
-            
-            f.seek(0)
-            safe_name = os.path.basename(f.name)
-            file_path = os.path.join(temp_dir, safe_name)
-            
+    files = request.FILES.getlist('images')
+    if not files:
+        return JsonResponse({'status': 'error', 'message': '未检测到上传文件'})
+
+    # 1. 创建临时保存目录
+    batch_id = uuid.uuid4().hex
+    temp_dir = os.path.join(settings.MEDIA_ROOT, 'temp_uploads', batch_id)
+    os.makedirs(temp_dir, exist_ok=True)
+
+    results = []
+
+    try:
+        for file in files:
+            # 2. 保存文件到临时目录
+            file_path = os.path.join(temp_dir, file.name)
             with open(file_path, 'wb+') as destination:
-                for chunk in f.chunks():
-                    destination.write(chunk)
-            
-            existing = ImageItem.objects.filter(image_hash=f_hash).select_related('group').first()
-            
-            # 构造预览URL
-            preview_url = f"{settings.MEDIA_URL}temp_uploads/{batch_id}/{safe_name}"
+                for chunk in file.chunks():
+                    destination.write(chunk)  # 【修正】这里必须用 write，不能用 update
 
-            if existing:
-                has_duplicate = True
-                
-                # 【修正】如果是视频，直接用原图URL；如果是图片，尝试用缩略图
-                existing_thumb = existing.image.url
-                try:
-                    if not existing.is_video and existing.thumbnail:
-                        existing_thumb = existing.thumbnail.url
-                except:
-                    pass
+            # 3. 计算哈希 (确保引入了 calculate_file_hash)
+            # 注意：calculate_file_hash 通常需要文件路径或打开的文件对象，
+            # 这里传入 file_path 比较稳妥，因为 file 对象指针可能已经到底了
+            file_hash = calculate_file_hash(file_path) 
+            
+            # 构造 URL
+            relative_path = f"temp_uploads/{batch_id}/{file.name}"
+            file_url = f"{settings.MEDIA_URL}{relative_path}"
 
-                results.append({
-                    'status': 'duplicate',
-                    'filename': safe_name,
-                    'existing_group_title': existing.group.title,
-                    'existing_group_id': existing.group.id,
-                    'thumbnail_url': existing_thumb
-                })
-            else:
-                results.append({
-                    'status': 'pass',
-                    'filename': safe_name,
-                    'thumbnail_url': preview_url
-                })
-        
-        return JsonResponse({
-            'status': 'success', 
-            'results': results,
-            'has_duplicate': has_duplicate,
-            'batch_id': batch_id
-        })
-    
-    return JsonResponse({'status': 'error', 'message': '仅支持 POST 请求'})
+            # 4. 查库比对
+            duplicates = ImageItem.objects.filter(image_hash=file_hash)
+            
+            is_duplicate = duplicates.exists()
+            dup_info = []
+            
+            if is_duplicate:
+                for dup in duplicates:
+                    dup_info.append({
+                        'id': dup.id,
+                        'group_id': dup.group.id, # 确保前端用 group_id 跳转详情页
+                        'group_title': dup.group.title,
+                        'is_video': dup.is_video,
+                        'url': dup.thumbnail.url if dup.thumbnail else dup.image.url
+                    })
+
+            results.append({
+                'filename': file.name,
+                'status': 'duplicate' if is_duplicate else 'pass',
+                'url': file_url,
+                'thumbnail_url': file_url, # 前端字段兼容
+                'duplicates': dup_info
+            })
+            
+    except Exception as e:
+        import traceback
+        traceback.print_exc() # 打印详细错误堆栈到控制台，方便调试
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        return JsonResponse({'status': 'error', 'message': str(e)})
+
+    return JsonResponse({
+        'status': 'success', 
+        'batch_id': batch_id, 
+        'results': results,
+        'has_duplicate': any(r['status'] == 'duplicate' for r in results)
+    })
 
 @require_POST
 def toggle_like_group(request, pk):

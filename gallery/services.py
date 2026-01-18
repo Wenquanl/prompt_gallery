@@ -28,14 +28,36 @@ def get_temp_dir(batch_id):
     return os.path.join(settings.MEDIA_ROOT, 'temp_uploads', batch_id)
 
 def calculate_file_hash(file_obj):
-    """计算文件的 MD5 哈希值"""
+    """计算文件的 MD5 哈希值 (增强版：支持文件对象或路径字符串)"""
     md5 = hashlib.md5()
+    
+    # === 情况 1: 传入的是文件路径字符串 ===
+    if isinstance(file_obj, str):
+        if os.path.exists(file_obj):
+            with open(file_obj, 'rb') as f:
+                # 分块读取，防止大文件撑爆内存
+                for chunk in iter(lambda: f.read(4096), b""):
+                    md5.update(chunk)
+        return md5.hexdigest()
+
+    # === 情况 2: 传入的是 Django 文件对象 ===
+    # 先重置指针到开头
     if hasattr(file_obj, 'seek'):
         file_obj.seek(0)
-    for chunk in file_obj.chunks():
-        md5.update(chunk)
+    
+    # 优先使用 chunks() 方法 (Django UploadedFile)
+    if hasattr(file_obj, 'chunks'):
+        for chunk in file_obj.chunks():
+            md5.update(chunk)
+    else:
+        # Fallback: 普通文件流
+        for chunk in iter(lambda: file_obj.read(4096), b""):
+            md5.update(chunk)
+            
+    # 计算完后重置指针，方便后续再次读取
     if hasattr(file_obj, 'seek'):
         file_obj.seek(0)
+        
     return md5.hexdigest()
 
 def process_images_background(image_ids):
