@@ -7,7 +7,16 @@
         <div class="position-relative">
             {% if img.is_video %}
                 <div class="ratio" style="--bs-aspect-ratio: 56.25%;">
-                    <video src="{{ img.image.url }}" class="thumb-img w-100 h-100" controls preload="metadata" style="object-fit: contain; background-color: transparent; border-radius: 12px 12px 0 0; cursor: default;"></video>
+                    <video 
+                        src="{{ img.image.url }}" 
+                        class="thumb-img w-100 h-100" 
+                        controls 
+                        preload="metadata" 
+                        disablePictureInPicture
+                        controlsList="nodownload noremoteplayback noplaybackrate"
+                        oncontextmenu="return false;"
+                        style="object-fit: contain; background-color: transparent; border-radius: 12px 12px 0 0; cursor: default;">
+                    </video>
                 </div>
                 <div class="position-absolute top-0 end-0 m-2 d-flex gap-2">
                     <button type="button" class="btn btn-sm btn-dark bg-opacity-75 rounded-circle border-0 d-flex align-items-center justify-content-center" 

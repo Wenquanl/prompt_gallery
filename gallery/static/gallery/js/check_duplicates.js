@@ -1,6 +1,6 @@
 /**
- * 全库查重功能逻辑 (最终修复版)
- * 修复点：不再通过后缀名猜测视频，而是依据 MIME 类型和后端字段，彻底解决裂图。
+ * 全库查重功能逻辑 (透明遮罩终极版)
+ * 核心原理：在视频上覆盖一层透明 div，彻底阻断浏览器对视频的鼠标捕捉。
  */
 
 let checkModalInstance;
@@ -124,8 +124,7 @@ function handleCheckUpload(files) {
     });
 }
 
-// === 4. 生成媒体 HTML (核心修复) ===
-// 增加 explicitIsVideo 参数，不再只靠猜
+// === 4. 生成媒体 HTML (透明遮罩终极版) ===
 function getMediaHtml(url, explicitIsVideo, isSmall = false) {
     const sizeStyle = isSmall 
         ? 'width:30px; height:30px;' 
@@ -133,10 +132,30 @@ function getMediaHtml(url, explicitIsVideo, isSmall = false) {
     const borderClass = isSmall ? 'border-danger' : 'border-success';
 
     if (explicitIsVideo) {
+        // 【关键修复】
+        // 1. container: 负责监听鼠标事件
+        // 2. video: 在底层，负责播放
+        // 3. mask: 透明遮罩层，z-index: 10，盖在视频上，阻挡鼠标直接接触视频
+        // 4. icon: z-index: 20，最上层显示图标
         return `
-            <div class="overflow-hidden rounded bg-dark position-relative d-inline-block border ${isSmall ? '' : borderClass}" style="${sizeStyle}">
-                <video src="${url}" class="w-100 h-100 object-fit-cover" muted loop onmouseover="this.play()" onmouseout="this.pause()"></video>
-                <i class="bi bi-play-circle-fill position-absolute top-50 start-50 translate-middle text-white opacity-75" style="font-size: ${isSmall?'10px':'20px'}; pointer-events: none;"></i>
+            <div class="overflow-hidden rounded bg-dark position-relative d-inline-block border ${isSmall ? '' : borderClass}" 
+                 style="${sizeStyle}"
+                 onmouseenter="let v=this.querySelector('video'); if(v) v.play()" 
+                 onmouseleave="let v=this.querySelector('video'); if(v) v.pause()">
+                 
+                <video 
+                    src="${url}" 
+                    class="w-100 h-100 object-fit-cover position-absolute top-0 start-0" 
+                    muted 
+                    loop 
+                    playsinline
+                    style="z-index: 0;">
+                </video>
+                
+                <div class="position-absolute top-0 start-0 w-100 h-100" style="z-index: 10; background: transparent;"></div>
+                
+                <i class="bi bi-play-circle-fill position-absolute top-50 start-50 translate-middle text-white opacity-75" 
+                   style="font-size: ${isSmall?'10px':'20px'}; z-index: 20; pointer-events: none;"></i>
             </div>
         `;
     } else {
@@ -162,14 +181,11 @@ function renderCheckResults(results, hasDuplicate, fileMap) {
         let displayUrl = item.thumbnail_url;
         let isVideo = false;
         
-        // 优先用本地文件对象，精准判断类型
         if (fileMap && fileMap[item.filename]) {
             const file = fileMap[item.filename];
             displayUrl = URL.createObjectURL(file);
-            // 【核心】使用浏览器识别的 MIME 类型
             isVideo = file.type.startsWith('video/'); 
         } else {
-            // 兜底：如果文件名有视频后缀，认为是视频
             isVideo = !!item.filename.match(/\.(mp4|mov|avi|webm|mkv|m4v)$/i);
         }
         
@@ -183,7 +199,6 @@ function renderCheckResults(results, hasDuplicate, fileMap) {
             let existingThumbsHtml = '';
             if (item.duplicates && item.duplicates.length > 0) {
                  existingThumbsHtml = item.duplicates.map(d => {
-                    // 【核心】使用后端返回的 is_video 字段
                     return `
                         <a href="${detailUrlPrefix}${d.group_id}/" target="_blank" class="me-1" title="查看 ID:${d.id}">
                             ${getMediaHtml(d.url, d.is_video, true)}
