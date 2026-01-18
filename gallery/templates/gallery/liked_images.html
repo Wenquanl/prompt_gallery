@@ -110,8 +110,8 @@
     <div class="container text-center">
         <form id="searchForm" action="{% url 'liked_images_gallery' %}" method="get" class="wall-search-container" enctype="multipart/form-data">
             {% csrf_token %}
-            <input type="text" name="q" id="textInput" class="wall-search-input" placeholder="输入关键词，或点击右侧相机上传图片..." autocomplete="off" value="{% if search_mode == 'text' %}{{ search_query|default:'' }}{% endif %}">
-            <input type="file" name="image_query" id="fileInput" accept="image/*" style="display: none;" onchange="handleImageUpload()">
+            <input type="text" name="q" id="textInput" class="wall-search-input" placeholder="输入关键词，或拖拽/点击相机上传图片或视频..." autocomplete="off" value="{% if search_mode == 'text' %}{{ search_query|default:'' }}{% endif %}">
+            <input type="file" name="image_query" id="fileInput" accept="image/*,video/*" style="display: none;" onchange="handleImageUpload()">
             <div class="position-absolute top-50 end-0 translate-middle-y d-flex align-items-center pe-2 gap-2">
                 <button type="button" class="btn btn-light rounded-circle shadow-sm d-flex align-items-center justify-content-center" 
                         style="width: 40px; height: 40px; border: 1px solid rgba(0,0,0,0.1);"
@@ -267,6 +267,59 @@
                 }
             });
         }
+
+        // === 新增：搜索框拖拽上传逻辑 ===
+        const searchForm = document.getElementById('searchForm');
+        const fileInput = document.getElementById('fileInput');
+
+        if (searchForm) {
+            // 1. 阻止默认行为
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                searchForm.addEventListener(eventName, (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                }, false);
+            });
+
+            // 2. 拖拽进入时的视觉反馈
+            ['dragenter', 'dragover'].forEach(eventName => {
+                searchForm.addEventListener(eventName, () => {
+                    searchForm.style.border = '2px dashed #0d6efd'; 
+                    searchForm.style.backgroundColor = 'rgba(13, 110, 253, 0.05)';
+                    searchForm.style.transform = 'scale(1.02)';
+                }, false);
+            });
+
+            // 3. 拖拽离开或放下后的样式复原
+            ['dragleave', 'drop'].forEach(eventName => {
+                searchForm.addEventListener(eventName, () => {
+                    searchForm.style.border = ''; 
+                    searchForm.style.backgroundColor = '';
+                    searchForm.style.transform = '';
+                }, false);
+            });
+
+            // 4. 处理文件放下
+            searchForm.addEventListener('drop', (e) => {
+                const dt = e.dataTransfer;
+                const files = dt.files;
+
+                if (files.length > 0) {
+                    const file = files[0];
+                    if (file.type.startsWith('image/') || file.type.startsWith('video/')) {
+                        fileInput.files = files; 
+                        handleImageUpload(); 
+                    } else {
+                        Swal.fire({
+                            icon: 'error',
+                            title: '格式不支持',
+                            text: '请拖入图片或视频文件',
+                            confirmButtonColor: '#0d6efd'
+                        });
+                    }
+                }
+            }, false);
+        }
     });
 
     function handleImageUpload() {
@@ -276,7 +329,7 @@
         
         if (fileInput.files.length > 0) {
             form.method = 'post';
-            textInput.value = "正在分析图片...";
+            textInput.value = "正在分析文件..."; // 修改提示文案
             textInput.disabled = true;
             form.submit();
         }
@@ -303,9 +356,16 @@
                         card.style.opacity = '0';
                         setTimeout(() => {
                             card.remove();
-                            // 删除元素后，重新触发布局
-                            var msnry = Masonry.data(document.querySelector('#masonry-grid'));
-                            if(msnry) msnry.layout();
+                            
+                            // === 修复开始：使用 reloadItems ===
+                            var grid = document.querySelector('#masonry-grid');
+                            var msnry = Masonry.data(grid);
+                            if(msnry) {
+                                msnry.reloadItems(); // 重新扫描 DOM 节点
+                                msnry.layout();      // 重新布局
+                            }
+                            // === 修复结束 ===
+
                         }, 300);
                     } else {
                         btn.style.opacity = '0.3';
