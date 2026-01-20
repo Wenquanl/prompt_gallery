@@ -75,23 +75,28 @@ class PromptGroup(models.Model):
         if len(my_content) < 5:
             return
 
-        candidates = PromptGroup.objects.order_by('-id')[:50]
+        candidates = PromptGroup.objects.order_by('-id')[:500]
         
         best_ratio = 0
         best_group_id = None
-
+        best_match_title = None
+        
+        print(f"DEBUG: 正在为 [{self.title}] 查找相似提示词...")
         for other in candidates:
             other_content = (other.prompt_text or "").strip().lower()
             if abs(len(my_content) - len(other_content)) > len(my_content) * 0.4:
                 continue
 
             ratio = difflib.SequenceMatcher(None, my_content, other_content).ratio()
-            if ratio > 0.85 and ratio > best_ratio:
+            if ratio > 0.80 and ratio > best_ratio:
                 best_ratio = ratio
                 best_group_id = other.group_id
         
         if best_group_id:
+            print(f"DEBUG: 匹配成功！关联到 [{best_match_title}]，相似度: {best_ratio:.2f}")
             self.group_id = best_group_id
+        else:
+            print(f"DEBUG: 未找到相似度 > 0.8 的组，创建新组。")
 
 # === 4. 生成图 (作品单图/视频) ===
 class ImageItem(models.Model):
