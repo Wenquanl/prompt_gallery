@@ -267,7 +267,22 @@ def detail(request, pk):
         ), 
         pk=pk
     )
+    # === 新增逻辑开始：计算上一篇/下一篇 ===
+    # 获取所有主题的最新 ID
+    latest_ids = PromptGroup.objects.values('group_id').annotate(max_id=Max('id')).values_list('max_id', flat=True)
     
+    # 上一篇 (ID比当前大 = 更新的时间)
+    prev_group = PromptGroup.objects.filter(
+        id__in=latest_ids, 
+        id__gt=pk
+    ).exclude(group_id=group.group_id).order_by('id').first()
+    
+    # 下一篇 (ID比当前小 = 更旧的时间)
+    next_group = PromptGroup.objects.filter(
+        id__in=latest_ids, 
+        id__lt=pk
+    ).exclude(group_id=group.group_id).order_by('-id').first()
+
     # 拆分图片和视频
     all_items = group.images.all()
     images_list = [item for item in all_items if not item.is_video]
@@ -306,9 +321,11 @@ def detail(request, pk):
         'related_groups': related_groups,
         'tags_bar': tags_bar,
         'search_query': request.GET.get('q'),
-        # 确保传递这两个列表
         'images_list': images_list,
         'videos_list': videos_list,
+        # === 传递给模板 ===
+        'prev_group': prev_group,
+        'next_group': next_group,
     })
 
 

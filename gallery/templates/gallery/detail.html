@@ -4,6 +4,242 @@
 {% block body_class %}detail-page{% endblock %}
 
 {% block content %}
+<style>
+    /* === 1. 悬浮喜欢按钮 (New) === */
+    .fab-like-btn {
+        position: fixed;
+        bottom: 40px;
+        right: 40px;
+        width: 64px;
+        height: 64px;
+        border-radius: 50%;
+        background: white;
+        border: 1px solid rgba(0,0,0,0.05);
+        box-shadow: 0 6px 20px rgba(0,0,0,0.12);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1020; /* 略高于导航，低于 Modal */
+        cursor: pointer;
+        transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+        outline: none;
+        padding: 0;
+    }
+    
+    /* 悬停效果 */
+    .fab-like-btn:hover {
+        transform: scale(1.1) translateY(-2px);
+        box-shadow: 0 10px 25px rgba(0,0,0,0.18);
+    }
+    
+    /* 图标样式 */
+    .fab-like-btn i {
+        font-size: 1.8rem;
+        transition: all 0.3s ease;
+        line-height: 1;
+        margin-top: 2px; /* 视觉微调居中 */
+    }
+    
+    /* 未喜欢状态 */
+    .fab-like-btn:not(.liked) {
+        color: #6c757d;
+    }
+    .fab-like-btn:not(.liked):hover i {
+        color: #dc3545; /* 悬停暗示红色 */
+        transform: scale(1.1);
+    }
+
+    /* 已喜欢状态 */
+    .fab-like-btn.liked {
+        background: #fff0f0; /* 浅粉色背景 */
+        color: #dc3545;      /* 红色图标 */
+        border-color: rgba(220, 53, 69, 0.1);
+        box-shadow: 0 6px 20px rgba(220, 53, 69, 0.25);
+    }
+    .fab-like-btn.liked:hover {
+        box-shadow: 0 10px 30px rgba(220, 53, 69, 0.35);
+    }
+    
+    /* 点击动画 */
+    .fab-like-btn:active {
+        transform: scale(0.95);
+    }
+    
+    /* 移动端适配 */
+    @media (max-width: 768px) {
+        .fab-like-btn {
+            width: 50px;
+            height: 50px;
+            bottom: 20px;
+            right: 20px;
+        }
+        .fab-like-btn i { font-size: 1.4rem; }
+    }
+
+    /* === 2. 侧边抽屉导航 (保持之前的优化样式 V4) === */
+    .nav-drawer {
+        position: fixed;
+        top: 50%;
+        width: 340px; 
+        height: auto;
+        min-height: 120px;
+        background: white;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.25); 
+        border-radius: 12px;
+        z-index: 1000;
+        transition: transform 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+        text-decoration: none !important;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden; 
+        border: 1px solid rgba(0,0,0,0.05);
+    }
+    
+    .nav-drawer:hover {
+        transform: translate(0, -50%) !important;
+        z-index: 1010;
+        box-shadow: 0 15px 50px rgba(0,0,0,0.3);
+    }
+
+    /* 上一篇 (左侧) */
+    .nav-drawer.prev { left: 0; transform: translate(calc(-100% + 60px), -50%); }
+    .nav-drawer.prev .drawer-edge-indicator {
+        position: absolute; right: 0; top: 0; bottom: 0; width: 60px;
+        background: linear-gradient(to right, transparent, rgba(0,0,0,0.02)); 
+        display: flex; align-items: center; justify-content: center;
+        z-index: 1002; color: rgba(255, 255, 255, 0.9); font-size: 1.8rem; cursor: pointer;
+        text-shadow: 0 2px 5px rgba(0,0,0,0.6); 
+    }
+
+    /* 下一篇 (右侧) */
+    .nav-drawer.next { right: 0; transform: translate(calc(100% - 60px), -50%); }
+    .nav-drawer.next .drawer-edge-indicator {
+        position: absolute; left: 0; top: 0; bottom: 0; width: 60px;
+        background: linear-gradient(to left, transparent, rgba(0,0,0,0.02));
+        display: flex; align-items: center; justify-content: center;
+        z-index: 1002; color: rgba(255, 255, 255, 0.9); font-size: 1.8rem; cursor: pointer;
+        text-shadow: 0 2px 5px rgba(0,0,0,0.6);
+    }
+
+    .nav-drawer:hover .drawer-edge-indicator { opacity: 0.3; transition: opacity 0.3s; }
+    .nav-drawer:hover .drawer-edge-indicator:hover { opacity: 1; }
+
+    .drawer-img-wrapper {
+        width: 100%; height: auto; max-height: 500px; 
+        background: #212529; position: relative;
+        display: flex; align-items: center; justify-content: center;
+        padding: 0; overflow: hidden;
+    }
+    .drawer-img-wrapper img {
+        width: 100%; height: auto; max-height: 500px; 
+        object-fit: cover; display: block; 
+    }
+    .drawer-video-badge {
+        position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+        z-index: 10; color: rgba(255,255,255,0.9); font-size: 3rem;
+        text-shadow: 0 4px 15px rgba(0,0,0,0.5); pointer-events: none;
+    }
+    .drawer-info {
+        padding: 12px 16px; background: #fff;
+        border-top: 1px solid rgba(0,0,0,0.05); min-height: 60px; 
+    }
+    .drawer-title {
+        font-size: 1rem; font-weight: 700; color: #212529; margin-bottom: 6px;
+        display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+        overflow: hidden; line-height: 1.4;
+    }
+    .drawer-tags { display: flex; flex-wrap: wrap; gap: 4px; opacity: 0.8; }
+    .drawer-tag {
+        font-size: 0.7rem; background: #f1f3f5; color: #6c757d;
+        padding: 2px 8px; border-radius: 4px; white-space: nowrap;
+    }
+    @media (max-width: 768px) {
+        .nav-drawer { width: 50px; height: 50px; min-height: 0; border-radius: 50%; top: auto; bottom: 120px; transform: none !important; background: rgba(255,255,255,0.95); overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.15); }
+        .nav-drawer:hover { transform: scale(1.1) !important; }
+        .drawer-img-wrapper, .drawer-info { display: none; }
+        .drawer-edge-indicator { width: 100% !important; position: static !important; background: transparent !important; color: #333 !important; text-shadow: none !important; font-size: 1.2rem !important; opacity: 1 !important; }
+        .nav-drawer.prev { left: 15px; }
+        .nav-drawer.next { right: 15px; }
+    }
+</style>
+
+<button class="fab-like-btn {% if group.is_liked %}liked{% endif %}" 
+        onclick="toggleGroupLike(this, {{ group.pk }})"
+        title="{% if group.is_liked %}取消喜欢{% else %}喜欢此作品{% endif %}"
+        data-bs-toggle="tooltip" 
+        data-bs-placement="left">
+    <i class="bi {% if group.is_liked %}bi-heart-fill{% else %}bi-heart{% endif %}"></i>
+</button>
+
+{% if prev_group %}
+<a href="{% url 'detail' prev_group.id %}" class="nav-drawer prev">
+    <div class="drawer-edge-indicator"><i class="bi bi-chevron-left"></i></div>
+    <div class="drawer-img-wrapper">
+        {% with cover=prev_group.images.first %}
+            {% if cover %}
+                {% if cover.is_video %}
+                    <i class="bi bi-play-circle-fill drawer-video-badge"></i>
+                    {% if cover.thumbnail %}
+                         <img src="{{ cover.thumbnail.url }}" alt="Cover">
+                    {% else %}
+                         <div style="width:100%; height:200px; background:#111;"></div>
+                    {% endif %}
+                {% else %}
+                    <img src="{{ cover.image.url }}" alt="Cover">
+                {% endif %}
+            {% else %}
+                <div class="d-flex align-items-center justify-content-center" style="width:100%; height:150px; background:#f8f9fa; color:#adb5bd;">
+                    <i class="bi bi-image fs-1 opacity-50"></i>
+                </div>
+            {% endif %}
+        {% endwith %}
+    </div>
+    <div class="drawer-info">
+        <div class="drawer-title">{{ prev_group.title }}</div>
+        <div class="drawer-tags">
+            {% for tag in prev_group.tags.all|slice:":3" %}
+                <span class="drawer-tag">#{{ tag.name }}</span>
+            {% endfor %}
+        </div>
+    </div>
+</a>
+{% endif %}
+
+{% if next_group %}
+<a href="{% url 'detail' next_group.id %}" class="nav-drawer next">
+    <div class="drawer-edge-indicator"><i class="bi bi-chevron-right"></i></div>
+    <div class="drawer-img-wrapper">
+        {% with cover=next_group.images.first %}
+            {% if cover %}
+                {% if cover.is_video %}
+                    <i class="bi bi-play-circle-fill drawer-video-badge"></i>
+                    {% if cover.thumbnail %}
+                         <img src="{{ cover.thumbnail.url }}" alt="Cover">
+                    {% else %}
+                        <div style="width:100%; height:200px; background:#111;"></div>
+                    {% endif %}
+                {% else %}
+                    <img src="{{ cover.image.url }}" alt="Cover">
+                {% endif %}
+            {% else %}
+                <div class="d-flex align-items-center justify-content-center" style="width:100%; height:150px; background:#f8f9fa; color:#adb5bd;">
+                    <i class="bi bi-image fs-1 opacity-50"></i>
+                </div>
+            {% endif %}
+        {% endwith %}
+    </div>
+    <div class="drawer-info">
+        <div class="drawer-title">{{ next_group.title }}</div>
+        <div class="drawer-tags">
+            {% for tag in next_group.tags.all|slice:":3" %}
+                <span class="drawer-tag">#{{ tag.name }}</span>
+            {% endfor %}
+        </div>
+    </div>
+</a>
+{% endif %}
+
+
 <div class="container mt-0 mb-4">
     <div class="mb-4">
         {% with from_view=request.GET.from|default:'home' page_num=request.GET.page|default:'1' q_val=request.GET.q|default:'' filter_val=request.GET.filter|default:'' source_id=request.GET.source_img_id back_to_id=request.GET.back_to_detail_id search_id=request.GET.search_id %}
@@ -25,6 +261,7 @@
 
     <div class="row gx-lg-5 detail-split-view">
         <div class="col-lg-8 mb-5 mb-lg-0 detail-scroll-left">
+            
             <div class="d-flex justify-content-between align-items-start mb-3">
                 <h2 class="fw-bold text-dark mb-0 flex-grow-1 p-2 rounded" 
                     ondblclick="enableTitleEdit(this, {{ group.pk }})" 
@@ -392,4 +629,65 @@
     ]
     </script>
     <script src="{% static 'gallery/js/detail.js' %}"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
+            var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+                return new bootstrap.Tooltip(tooltipTriggerEl)
+            })
+        });
+
+        // 悬浮按钮点击逻辑
+        function toggleGroupLike(btn, groupId) {
+            const icon = btn.querySelector('i');
+            const isLiked = btn.classList.contains('liked');
+            
+            // 乐观更新 UI
+            btn.classList.toggle('liked');
+            if (!isLiked) {
+                // 变喜欢
+                icon.classList.remove('bi-heart');
+                icon.classList.add('bi-heart-fill');
+                btn.setAttribute('data-bs-original-title', '取消喜欢');
+                // 动画
+                icon.style.transform = 'scale(1.4)';
+                setTimeout(() => icon.style.transform = 'scale(1)', 200);
+            } else {
+                // 取消喜欢
+                icon.classList.remove('bi-heart-fill');
+                icon.classList.add('bi-heart');
+                btn.setAttribute('data-bs-original-title', '喜欢此作品');
+            }
+            
+            // 刷新 tooltip 文字
+            const tooltip = bootstrap.Tooltip.getInstance(btn);
+            if (tooltip) tooltip.hide();
+
+            // 发送请求
+            const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+            fetch(`/toggle-like-group/${groupId}/`, {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': csrfToken,
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.status !== 'success') {
+                    // 失败回滚
+                    btn.classList.toggle('liked');
+                    if (!isLiked) {
+                        icon.classList.remove('bi-heart-fill');
+                        icon.classList.add('bi-heart');
+                    } else {
+                        icon.classList.remove('bi-heart');
+                        icon.classList.add('bi-heart-fill');
+                    }
+                    alert('操作失败');
+                }
+            })
+            .catch(err => console.error(err));
+        }
+    </script>
 {% endblock %}
