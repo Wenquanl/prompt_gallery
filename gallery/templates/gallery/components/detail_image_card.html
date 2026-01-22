@@ -1,10 +1,20 @@
-<div class="{% if img.is_video %}col-12 video-wide-item{% else %}col-6 col-md-4 col-lg-3{% endif %} mb-4 grid-item" id="img-anchor-{{ img.pk }}">
+<div class="{% if img.is_video %}col-12 video-wide-item{% else %}col-6 col-md-4 col-lg-3{% endif %} mb-4 grid-item item-card" 
+     id="img-anchor-{{ img.pk }}" 
+     data-img-id="{{ img.pk }}" 
+     data-img-url="{{ img.image.url }}">
+     
     <div class="detail-img-card shadow-sm position-relative" id="img-card-{{ img.pk }}" style="min-height: 200px; background-color: #f8f9fa;">
         {% if img.image %}
         <span class="file-size-badge">{{ img.image.size|filesizeformat }}</span>
         {% endif %}
         
         <div class="position-relative">
+            <div class="batch-select-overlay">
+                <div class="custom-checkbox">
+                    <i class="bi bi-check-lg"></i>
+                </div>
+            </div>
+
             {% if img.is_video %}
                 <div class="ratio" style="--bs-aspect-ratio: 56.25%;">
                     <video 
@@ -18,7 +28,7 @@
                         style="object-fit: contain; background-color: transparent; border-radius: 12px 12px 0 0; cursor: default;">
                     </video>
                 </div>
-                <div class="position-absolute top-0 end-0 m-2 d-flex gap-2">
+                <div class="position-absolute top-0 end-0 m-2 d-flex gap-2" style="z-index: 5;">
                     <button type="button" class="btn btn-sm btn-dark bg-opacity-75 rounded-circle border-0 d-flex align-items-center justify-content-center" 
                             style="width: 24px; height: 24px;" 
                             onclick="showModal({{ img.pk }})" 

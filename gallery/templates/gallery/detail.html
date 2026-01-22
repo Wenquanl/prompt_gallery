@@ -161,6 +161,287 @@
         .nav-drawer.prev { left: 15px; }
         .nav-drawer.next { right: 15px; }
     }
+
+    /* === 3. 批量管理模式样式 (优化版：悬浮灵动岛) === */
+    .batch-bar {
+        position: fixed;
+        bottom: 40px; /* 距离底部留出悬浮空隙 */
+        left: 50%;
+        /* 默认隐藏在屏幕下方，居中定位 */
+        transform: translateX(-50%) translateY(200%); 
+        
+        width: auto;
+        min-width: 600px; /* 保证最小宽度 */
+        max-width: 90vw;  /* 移动端不超宽 */
+        height: auto;
+        padding: 10px 15px 10px 25px; /* 胶囊内边距 */
+        
+        /* 核心：玻璃拟态背景 (与导航栏一致) */
+        background: rgba(255, 255, 255, 0.85);
+        backdrop-filter: blur(20px) saturate(180%);
+        -webkit-backdrop-filter: blur(20px) saturate(180%);
+        border: 1px solid rgba(255, 255, 255, 0.9);
+        box-shadow: 0 20px 50px -12px rgba(0, 0, 0, 0.15), 0 5px 15px -5px rgba(0,0,0,0.05);
+        border-radius: 100px; /* 胶囊圆角 */
+        
+        z-index: 1050;
+        /* 弹性弹跳动画 */
+        transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1); 
+        
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .batch-bar.active {
+        /* 激活时弹起归位 */
+        transform: translateX(-50%) translateY(0);
+    }
+    
+    /* 选中计数器 */
+    .batch-info-text {
+        font-weight: 600;
+        color: #334155; /* 深灰文字 */
+        font-size: 0.95rem;
+        display: flex; align-items: center;
+    }
+    .batch-count-badge {
+        background: var(--accent-color); /* 主题蓝 */
+        color: white;
+        padding: 2px 10px;
+        border-radius: 20px;
+        margin: 0 6px;
+        font-family: 'Poppins', sans-serif;
+        font-size: 1.1rem;
+        font-weight: 700;
+        box-shadow: 0 2px 6px rgba(79, 172, 254, 0.4);
+    }
+
+    /* 按钮组样式优化 */
+    .btn-batch-action {
+        border-radius: 50px;
+        font-weight: 600;
+        padding: 8px 24px;
+        font-size: 0.9rem;
+        border: none;
+        transition: all 0.2s ease;
+        display: inline-flex; align-items: center;
+    }
+    
+    /* 下载按钮：主题渐变色 */
+    .btn-batch-download {
+        background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+        color: white;
+        box-shadow: 0 4px 12px rgba(79, 172, 254, 0.3);
+    }
+    .btn-batch-download:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 20px rgba(79, 172, 254, 0.5);
+        color: white;
+    }
+
+    /* 删除按钮：柔和红 */
+    .btn-batch-delete {
+        background: #fff0f0;
+        color: #dc3545;
+        border: 1px solid rgba(220, 53, 69, 0.1);
+    }
+    .btn-batch-delete:hover {
+        background: #dc3545;
+        color: white;
+        box-shadow: 0 4px 12px rgba(220, 53, 69, 0.3);
+    }
+
+    /* 退出按钮：极简灰 */
+    .btn-batch-exit {
+        background: transparent;
+        color: #94a3b8;
+        padding: 8px 16px;
+    }
+    .btn-batch-exit:hover {
+        color: #334155;
+        background: rgba(0,0,0,0.05);
+    }
+    
+    /* 全选文字按钮 */
+    .btn-batch-select-all {
+        color: #64748b;
+        font-weight: 500;
+        text-decoration: none;
+        font-size: 0.9rem;
+        transition: color 0.2s;
+        background: none; border: none; padding: 0;
+    }
+    .btn-batch-select-all:hover { color: var(--accent-color); }
+
+    /* ================= 批量模式卡片样式 (去雾化/清晰版) ================= */
+    
+    .item-card { position: relative; transition: transform 0.2s; user-select: none; }
+    
+    /* 遮罩层：默认全透明，不模糊 */
+    .batch-select-overlay {
+        position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+        background: transparent; /* 【关键修改】完全透明 */
+        backdrop-filter: none;   /* 【关键修改】去除模糊 */
+        opacity: 0;
+        pointer-events: none;
+        transition: all 0.2s ease;
+        z-index: 10;
+        border-radius: 12px;
+        border: 2px solid transparent;
+    }
+    
+    /* 进入批量模式：显示遮罩层（此时是透明的，仅用于接收点击） */
+    body.batch-mode .batch-select-overlay {
+        opacity: 1;
+        pointer-events: auto;
+        cursor: pointer;
+    }
+    
+    /* 悬停效果：鼠标移上去时，显示淡淡的黑底，提示可点击 */
+    body.batch-mode .item-card:hover .batch-select-overlay {
+        background: rgba(0, 0, 0, 0.05);
+        border-color: rgba(0, 0, 0, 0.1);
+    }
+    
+    /* 选中状态：显示明显的蓝色高亮边框和浅蓝背景 */
+    .item-card.selected .batch-select-overlay {
+        background: rgba(13, 110, 253, 0.2) !important; /* 加深一点蓝色，更明显 */
+        border-color: var(--accent-color);
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.3); /* 内发光增加质感 */
+    }
+    
+    /* 复选框：右上角的小圆圈 (基础样式) */
+    .custom-checkbox {
+        position: absolute; top: 12px; right: 12px;
+        width: 24px; height: 24px;
+        
+        /* 默认：半透明白底+深色边框 */
+        background: rgba(255, 255, 255, 0.85); 
+        border: 1.5px solid #94a3b8; 
+        
+        border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
+        transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+        box-shadow: 0 2px 4px rgba(0,0,0,0.15);
+        transform: scale(0.9);
+    }
+    
+    /* 【修复重点 1】悬停 未选中 的卡片：复选框变白，提示“点击选中” */
+    body.batch-mode .item-card:not(.selected):hover .custom-checkbox {
+        transform: scale(1.1);
+        border-color: var(--accent-color);
+        background: white; /* 只有没被选中时，hover才变白 */
+    }
+    
+    /* 【修复重点 2】悬停 已选中 的卡片：保持蓝色，提示“点击取消” */
+    body.batch-mode .item-card.selected:hover .custom-checkbox {
+        transform: scale(1.1);
+        background: var(--accent-color); /* 强制保持蓝色 */
+        border-color: var(--accent-color);
+        filter: brightness(1.1); /* 微微变亮，增加交互感 */
+    }
+    
+    /* 选中状态的复选框 (静止状态) */
+    .item-card.selected .custom-checkbox {
+        background: var(--accent-color);
+        border-color: var(--accent-color);
+        transform: scale(1.1);
+        box-shadow: 0 4px 10px rgba(79, 172, 254, 0.4);
+    }
+    
+    .custom-checkbox i { display: none; font-size: 14px; color: white; font-weight: bold; }
+    .item-card.selected .custom-checkbox i { display: block; }
+
+    /* === 4. 框选区域样式 (New) === */
+    .selection-area-box {
+        position: fixed;
+        background: rgba(13, 110, 253, 0.2);
+        border: 1px solid #0d6efd;
+        z-index: 9999;
+        pointer-events: none; /* 不阻挡事件 */
+        display: none;
+    }
+    /* ================= 美化版模态框 (Nice Modals) ================= */
+    .custom-modal-content {
+        background: rgba(255, 255, 255, 0.95);
+        backdrop-filter: blur(20px);
+        border: 1px solid white;
+        border-radius: 28px; /* 大圆角 */
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+        padding: 30px 20px;
+        text-align: center;
+        overflow: hidden;
+    }
+    
+    /* 顶部大图标 */
+    .modal-icon-wrapper {
+        width: 80px; height: 80px;
+        border-radius: 50%;
+        margin: 0 auto 20px auto;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 2.5rem;
+        position: relative;
+    }
+    /* 动效：图标微动 */
+    .modal.show .modal-icon-wrapper {
+        animation: bounceIn 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+    
+    @keyframes bounceIn {
+        0% { transform: scale(0.5); opacity: 0; }
+        100% { transform: scale(1); opacity: 1; }
+    }
+    
+    /* 危险配色 (删除) */
+    .icon-danger { background: #fee2e2; color: #dc2626; }
+    .icon-danger::after {
+        content: ''; position: absolute; inset: 0; border-radius: 50%;
+        border: 4px solid #fecaca; opacity: 0.5; animation: pulseRed 2s infinite;
+    }
+    
+    /* 提示配色 (下载) */
+    .icon-info { background: #e0f2fe; color: #0284c7; }
+    .icon-info::after {
+        content: ''; position: absolute; inset: 0; border-radius: 50%;
+        border: 4px solid #bae6fd; opacity: 0.5; animation: pulseBlue 2s infinite;
+    }
+
+    @keyframes pulseRed { 0% { transform: scale(1); opacity: 0.5; } 100% { transform: scale(1.3); opacity: 0; } }
+    @keyframes pulseBlue { 0% { transform: scale(1); opacity: 0.5; } 100% { transform: scale(1.3); opacity: 0; } }
+
+    .modal-title-custom {
+        font-weight: 800; font-size: 1.5rem; color: #1e293b;
+        margin-bottom: 12px; letter-spacing: -0.5px;
+    }
+    
+    .modal-text-custom {
+        color: #64748b; font-size: 1rem; line-height: 1.6;
+        margin-bottom: 32px; max-width: 80%; margin-left: auto; margin-right: auto;
+    }
+    
+    /* 按钮组 */
+    .modal-actions { display: flex; gap: 12px; justify-content: center; }
+    
+    .btn-modal-cancel {
+        border: 1px solid #e2e8f0; background: white; color: #64748b;
+        padding: 10px 24px; border-radius: 50px; font-weight: 600;
+        transition: all 0.2s;
+    }
+    .btn-modal-cancel:hover { background: #f8fafc; color: #334155; border-color: #cbd5e1; }
+    
+    .btn-modal-confirm {
+        padding: 10px 32px; border-radius: 50px; font-weight: 600;
+        color: white; border: none; box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        transition: all 0.2s;
+    }
+    .btn-modal-confirm:hover { transform: translateY(-2px); box-shadow: 0 8px 16px rgba(0,0,0,0.2); }
+    
+    .btn-confirm-delete { background: #ef4444; }
+    .btn-confirm-delete:hover { background: #dc2626; box-shadow: 0 8px 16px rgba(239, 68, 68, 0.3); }
+    
+    .btn-confirm-download { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); }
+    .btn-confirm-download:hover { box-shadow: 0 8px 16px rgba(79, 172, 254, 0.4); }
 </style>
 
 <button class="fab-like-btn {% if group.is_liked %}liked{% endif %}" 
@@ -269,6 +550,9 @@
                     style="cursor: text; margin-left: -0.5rem; transition: background-color 0.2s;">
                     {{ group.title }}
                 </h2>
+                <button id="btn-enter-batch" class="btn btn-outline-secondary btn-sm ms-2 rounded-pill px-3" style="margin-top: 8px;">
+                    <i class="bi bi-check2-square me-1"></i>批量管理
+                </button>
             </div>
             
             <div class="upload-trigger-area mb-4" id="inline-trigger-gen" role="button">
@@ -564,6 +848,70 @@
     </div>
 </div>
 
+<div id="batch-action-bar" class="batch-bar">
+    <div class="d-flex align-items-center gap-3">
+        <div class="batch-info-text">
+            已选 <span id="selected-count" class="batch-count-badge">0</span> 张
+        </div>
+        <div style="width: 1px; height: 20px; background: #e2e8f0;"></div>
+        <button id="btn-select-all" class="btn-batch-select-all">
+            <i class="bi bi-check-all me-1"></i>全选
+        </button>
+    </div>
+
+    <div class="d-flex align-items-center gap-2">
+        <button id="btn-batch-download" class="btn-batch-action btn-batch-download">
+            <i class="bi bi-cloud-download-fill me-2"></i>下载
+        </button>
+        <button id="btn-batch-delete-trigger" class="btn-batch-action btn-batch-delete">
+            <i class="bi bi-trash3-fill me-2"></i>删除
+        </button>
+        <button id="btn-exit-batch" class="btn-batch-action btn-batch-exit ms-1">
+            <i class="bi bi-x-lg"></i>
+        </button>
+    </div>
+</div>
+
+<div class="modal fade" id="batchDeleteModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content custom-modal-content border-0">
+            <div class="modal-icon-wrapper icon-danger">
+                <i class="bi bi-trash3"></i>
+            </div>
+            <h3 class="modal-title-custom">确认删除?</h3>
+            <p class="modal-text-custom">
+                即将永久删除 <span id="modal-delete-count" class="text-danger fw-bold fs-5">0</span> 个文件。<br>
+                <span class="fs-6 opacity-75">此操作无法撤销，文件将从服务器物理删除。</span>
+            </p>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-modal-cancel" data-bs-dismiss="modal">再想想</button>
+                <button type="button" id="btn-confirm-batch-delete" class="btn btn-modal-confirm btn-confirm-delete">确认删除</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="batchDownloadModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content custom-modal-content border-0">
+            <div class="modal-icon-wrapper icon-info">
+                <i class="bi bi-cloud-download"></i>
+            </div>
+            <h3 class="modal-title-custom">准备下载</h3>
+            <p class="modal-text-custom">
+                即将开始下载 <span id="modal-download-count" class="text-primary fw-bold fs-5">0</span> 个文件。<br>
+                <span class="fs-6 opacity-75 d-block mt-2 text-warning-emphasis bg-warning-subtle px-2 py-1 rounded" style="font-size: 0.85rem;">
+                    <i class="bi bi-exclamation-circle me-1"></i>注意：若浏览器拦截多个文件的下载，请留意地址栏右侧的拦截图标并“允许”。
+                </span>
+            </p>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-modal-cancel" data-bs-dismiss="modal">取消</button>
+                <button type="button" id="btn-confirm-batch-download" class="btn btn-modal-confirm btn-confirm-download">开始下载</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="modal fade" id="addImagesModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered modal-lg">
         <div class="modal-content border-0 shadow-lg rounded-4" style="background: rgba(255,255,255,0.95); backdrop-filter: blur(10px);">
@@ -635,35 +983,308 @@
             var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
                 return new bootstrap.Tooltip(tooltipTriggerEl)
             })
+
+            // === 批量管理逻辑 Start ===
+            const body = document.body;
+            const btnEnter = document.getElementById('btn-enter-batch');
+            const btnExit = document.getElementById('btn-exit-batch');
+            const batchBar = document.getElementById('batch-action-bar');
+            const countSpan = document.getElementById('selected-count');
+            const btnSelectAll = document.getElementById('btn-select-all');
+            
+            // 获取提示词文本 (Prompt Text)，如果为空则回退到标题
+            const rawPromptContent = `{{ group.prompt_text|default:group.title|escapejs }}`;
+
+            // 1. 进入/退出 批量模式
+            function toggleBatchMode(active) {
+                if (active) {
+                    body.classList.add('batch-mode');
+                    batchBar.classList.add('active');
+                    btnEnter.classList.add('d-none'); // 隐藏入口按钮
+                } else {
+                    body.classList.remove('batch-mode');
+                    batchBar.classList.remove('active');
+                    btnEnter.classList.remove('d-none');
+                    // 清除选中
+                    document.querySelectorAll('.item-card').forEach(c => c.classList.remove('selected'));
+                    updateCount();
+                }
+            }
+
+            if(btnEnter) btnEnter.addEventListener('click', () => toggleBatchMode(true));
+            if(btnExit) btnExit.addEventListener('click', () => toggleBatchMode(false));
+
+            // 2. 点击选择/取消选择 (使用事件委托)
+            const gridContainer = document.getElementById('detail-masonry-grid-images');
+            const videoGridContainer = document.getElementById('detail-masonry-grid-videos');
+            
+            // 标记当前操作是否是框选拖拽，防止与 Click 事件冲突
+            let isDragSelectionOccurred = false;
+
+            function handleCardClick(e) {
+                if (!body.classList.contains('batch-mode')) return;
+                // 如果刚刚发生了拖拽框选，则忽略 click，避免反转状态
+                if (isDragSelectionOccurred) return;
+                
+                const card = e.target.closest('.item-card');
+                if (card) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    card.classList.toggle('selected');
+                    updateCount();
+                }
+            }
+
+            if(gridContainer) gridContainer.addEventListener('click', handleCardClick);
+            if(videoGridContainer) videoGridContainer.addEventListener('click', handleCardClick);
+
+            // === 2.5 框选（橡皮筋）逻辑 ===
+            const selectionBox = document.createElement('div');
+            selectionBox.classList.add('selection-area-box');
+            document.body.appendChild(selectionBox);
+
+            let isDragging = false;
+            let startX, startY;
+
+            document.addEventListener('mousedown', function(e) {
+                if (!body.classList.contains('batch-mode')) return;
+                // 排除点击在功能区域的情况
+                if (e.target.closest('.batch-bar') || 
+                    e.target.closest('.sticky-sidebar') || 
+                    e.target.closest('.modal') || 
+                    e.target.closest('button')) return;
+
+                isDragging = true;
+                isDragSelectionOccurred = false; // 重置
+                startX = e.clientX;
+                startY = e.clientY;
+                
+                selectionBox.style.left = startX + 'px';
+                selectionBox.style.top = startY + 'px';
+                selectionBox.style.width = '0px';
+                selectionBox.style.height = '0px';
+                selectionBox.style.display = 'block';
+            });
+
+            document.addEventListener('mousemove', function(e) {
+                if (!isDragging) return;
+
+                const curX = e.clientX;
+                const curY = e.clientY;
+
+                // 简单的防抖：移动距离太小不计算，防止误触
+                if (Math.abs(curX - startX) > 5 || Math.abs(curY - startY) > 5) {
+                    isDragSelectionOccurred = true;
+                }
+
+                const left = Math.min(startX, curX);
+                const top = Math.min(startY, curY);
+                const width = Math.abs(curX - startX);
+                const height = Math.abs(curY - startY);
+
+                selectionBox.style.left = left + 'px';
+                selectionBox.style.top = top + 'px';
+                selectionBox.style.width = width + 'px';
+                selectionBox.style.height = height + 'px';
+
+                // 碰撞检测
+                const cards = document.querySelectorAll('.item-card');
+                cards.forEach(card => {
+                    const rect = card.getBoundingClientRect();
+                    // 判断两个矩形是否相交
+                    if (left < rect.right && left + width > rect.left && top < rect.bottom && top + height > rect.top) {
+                         if (!card.classList.contains('selected')) {
+                             card.classList.add('selected');
+                         }
+                    }
+                });
+                
+                // 只有在发生真实框选时才实时更新计数，避免频繁DOM操作
+                if (isDragSelectionOccurred) {
+                    requestAnimationFrame(updateCount);
+                }
+            });
+
+            document.addEventListener('mouseup', function(e) {
+                if (isDragging) {
+                    isDragging = false;
+                    selectionBox.style.display = 'none';
+                    selectionBox.style.width = '0';
+                    selectionBox.style.height = '0';
+                    
+                    // 延迟重置拖拽标记，确保 click 事件能读取到
+                    setTimeout(() => {
+                        isDragSelectionOccurred = false;
+                    }, 100);
+                }
+            });
+
+            // 3. 全选逻辑
+            if(btnSelectAll) {
+                btnSelectAll.addEventListener('click', () => {
+                    const cards = document.querySelectorAll('.item-card');
+                    const allSelected = document.querySelectorAll('.item-card.selected').length === cards.length;
+                    cards.forEach(c => {
+                        if (allSelected) c.classList.remove('selected');
+                        else c.classList.add('selected');
+                    });
+                    updateCount();
+                });
+            }
+
+            function updateCount() {
+                const count = document.querySelectorAll('.item-card.selected').length;
+                countSpan.textContent = count;
+            }
+
+            function getSelectedItems() {
+                const selected = [];
+                document.querySelectorAll('.item-card.selected').forEach(card => {
+                    selected.push({
+                        id: card.dataset.imgId,
+                        url: card.dataset.imgUrl
+                    });
+                });
+                return selected;
+            }
+
+            // 4. 批量删除逻辑
+            const modalDelete = new bootstrap.Modal(document.getElementById('batchDeleteModal'));
+            const btnTriggerDelete = document.getElementById('btn-batch-delete-trigger');
+            const btnConfirmDelete = document.getElementById('btn-confirm-batch-delete');
+
+            if(btnTriggerDelete) {
+                btnTriggerDelete.addEventListener('click', () => {
+                    const items = getSelectedItems();
+                    if (items.length === 0) return alert('请先选择要删除的项目');
+                    
+                    document.getElementById('modal-delete-count').textContent = items.length;
+                    modalDelete.show();
+                });
+            }
+
+            if(btnConfirmDelete) {
+                btnConfirmDelete.addEventListener('click', () => {
+                    const items = getSelectedItems();
+                    const ids = items.map(i => i.id);
+                    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+                    
+                    fetch("{% url 'batch_delete_images' %}", {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': csrfToken
+                        },
+                        body: JSON.stringify({ image_ids: ids })
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        modalDelete.hide();
+                        if (data.status === 'success') {
+                            document.querySelectorAll('.item-card.selected').forEach(card => {
+                                const col = card.closest('.col-6') || card.closest('.col-12') || card; 
+                                col.remove();
+                            });
+                            toggleBatchMode(false); 
+                            const imgCountBadge = document.getElementById('image-count-badge');
+                            if(imgCountBadge) imgCountBadge.innerText = document.querySelectorAll('#detail-masonry-grid-images .item-card').length;
+                        } else {
+                            alert('删除失败: ' + data.message);
+                        }
+                    });
+                });
+            }
+
+            // 5. 批量下载逻辑 (适配新版美化弹窗)
+            const btnBatchDownload = document.getElementById('btn-batch-download');
+            const modalDownloadEl = document.getElementById('batchDownloadModal');
+            const modalDownload = new bootstrap.Modal(modalDownloadEl);
+            const btnConfirmDownload = document.getElementById('btn-confirm-batch-download');
+            
+            // 文件名净化函数
+            function sanitizeFilename(text) {
+                if (!text) return 'image';
+                return text.replace(/[\r\n]+/g, ' ')
+                           .replace(/[<>:"/\\|?*]/g, '')
+                           .trim()
+                           .substring(0, 60);
+            }
+
+            // 点击“批量下载” -> 弹出模态框
+            if(btnBatchDownload) {
+                btnBatchDownload.addEventListener('click', () => {
+                    const items = getSelectedItems();
+                    if (items.length === 0) return alert('请先选择要下载的项目');
+                    
+                    // 更新模态框里的数量
+                    document.getElementById('modal-download-count').textContent = items.length;
+                    modalDownload.show();
+                });
+            }
+
+            // 点击模态框里的“开始下载” -> 执行下载循环
+            if(btnConfirmDownload) {
+                btnConfirmDownload.addEventListener('click', () => {
+                    // 关闭模态框
+                    modalDownload.hide();
+                    
+                    const items = getSelectedItems();
+                    const basePromptName = sanitizeFilename(rawPromptContent) || 'image';
+
+                    const downloadNext = (index) => {
+                        if (index >= items.length) return;
+                        
+                        const item = items[index];
+                        const ext = item.url.split('.').pop().split('?')[0]; 
+                        const filename = `${basePromptName}_${item.id}.${ext}`; 
+                        
+                        fetch(item.url)
+                            .then(resp => resp.blob())
+                            .then(blob => {
+                                const url = window.URL.createObjectURL(blob);
+                                const a = document.createElement('a');
+                                a.style.display = 'none';
+                                a.href = url;
+                                a.download = filename; 
+                                document.body.appendChild(a);
+                                a.click();
+                                window.URL.revokeObjectURL(url);
+                                document.body.removeChild(a);
+                                
+                                setTimeout(() => downloadNext(index + 1), 400); 
+                            })
+                            .catch(err => {
+                                console.error('下载失败', err);
+                                setTimeout(() => downloadNext(index + 1), 400);
+                            });
+                    };
+                    
+                    // 开始
+                    downloadNext(0);
+                });
+            }
+            // === 批量管理逻辑 End ===
         });
 
-        // 悬浮按钮点击逻辑
+        // 悬浮按钮点击逻辑 (原有逻辑)
         function toggleGroupLike(btn, groupId) {
             const icon = btn.querySelector('i');
             const isLiked = btn.classList.contains('liked');
-            
-            // 乐观更新 UI
             btn.classList.toggle('liked');
             if (!isLiked) {
-                // 变喜欢
                 icon.classList.remove('bi-heart');
                 icon.classList.add('bi-heart-fill');
                 btn.setAttribute('data-bs-original-title', '取消喜欢');
-                // 动画
                 icon.style.transform = 'scale(1.4)';
                 setTimeout(() => icon.style.transform = 'scale(1)', 200);
             } else {
-                // 取消喜欢
                 icon.classList.remove('bi-heart-fill');
                 icon.classList.add('bi-heart');
                 btn.setAttribute('data-bs-original-title', '喜欢此作品');
             }
-            
-            // 刷新 tooltip 文字
             const tooltip = bootstrap.Tooltip.getInstance(btn);
             if (tooltip) tooltip.hide();
 
-            // 发送请求
             const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
             fetch(`/toggle-like-group/${groupId}/`, {
                 method: 'POST',
@@ -671,23 +1292,7 @@
                     'X-CSRFToken': csrfToken,
                     'X-Requested-With': 'XMLHttpRequest'
                 }
-            })
-            .then(res => res.json())
-            .then(data => {
-                if (data.status !== 'success') {
-                    // 失败回滚
-                    btn.classList.toggle('liked');
-                    if (!isLiked) {
-                        icon.classList.remove('bi-heart-fill');
-                        icon.classList.add('bi-heart');
-                    } else {
-                        icon.classList.remove('bi-heart');
-                        icon.classList.add('bi-heart-fill');
-                    }
-                    alert('操作失败');
-                }
-            })
-            .catch(err => console.error(err));
+            }).catch(err => console.error(err));
         }
     </script>
 {% endblock %}

@@ -1,5 +1,5 @@
 import uuid
-import os  # <--- 必须有这个
+import os
 import hashlib
 import difflib
 from django.db import models
@@ -75,7 +75,8 @@ class PromptGroup(models.Model):
         if len(my_content) < 5:
             return
 
-        candidates = PromptGroup.objects.order_by('-id')[:500]
+        # [修复1] 扩大搜索范围，防止只能匹配最近500条，建议改为2000或更多
+        candidates = PromptGroup.objects.order_by('-id')[:2000]
         
         best_ratio = 0
         best_group_id = None
@@ -84,13 +85,20 @@ class PromptGroup(models.Model):
         print(f"DEBUG: 正在为 [{self.title}] 查找相似提示词...")
         for other in candidates:
             other_content = (other.prompt_text or "").strip().lower()
-            if abs(len(my_content) - len(other_content)) > len(my_content) * 0.4:
+            
+            # [修复2] 长度过滤逻辑不对称修复
+            # 改为：如果长度差 > 最长文本的40%，则跳过。确保 A和B 比较结果一致。
+            max_len = max(len(my_content), len(other_content))
+            if max_len == 0: continue
+            
+            if abs(len(my_content) - len(other_content)) > max_len * 0.4:
                 continue
 
             ratio = difflib.SequenceMatcher(None, my_content, other_content).ratio()
             if ratio > 0.80 and ratio > best_ratio:
                 best_ratio = ratio
                 best_group_id = other.group_id
+                best_match_title = other.title # 记录一下匹配到的标题用于日志
         
         if best_group_id:
             print(f"DEBUG: 匹配成功！关联到 [{best_match_title}]，相似度: {best_ratio:.2f}")

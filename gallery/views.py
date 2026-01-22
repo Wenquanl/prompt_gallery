@@ -895,10 +895,40 @@ def link_group_relation(request, pk):
         if not target_ids:
              return JsonResponse({'status': 'error', 'message': '未选择任何版本'})
 
-        target_groups = PromptGroup.objects.filter(id__in=target_ids).exclude(id=current_group.id)
+        # 【核心修复】不仅获取选中的 ID，还获取它们代表的整个家族 group_id
+        target_reps = PromptGroup.objects.filter(id__in=target_ids).exclude(id=current_group.id)
+        target_group_ids = target_reps.values_list('group_id', flat=True).distinct()
         
-        count = target_groups.update(group_id=current_group.group_id)
+        # 将所有属于这些 group_id 的记录统一迁移
+        groups_to_update = PromptGroup.objects.filter(group_id__in=target_group_ids).exclude(id=current_group.id)
+        
+        count = groups_to_update.update(group_id=current_group.group_id)
         
         return JsonResponse({'status': 'success', 'count': count})
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)})
+    
+@require_POST
+def batch_delete_images(request):
+    """批量删除图片接口"""
+    try:
+        data = json.loads(request.body)
+        image_ids = data.get('image_ids', [])
+        
+        if not image_ids:
+            return JsonResponse({'status': 'error', 'message': '未选择任何图片'})
+
+        # 查找要删除的对象
+        images = ImageItem.objects.filter(id__in=image_ids)
+        deleted_count = 0
+        
+        for img in images:
+            # 手动删除文件，确保不留垃圾文件（参考原 delete_image 逻辑）
+            if img.image:
+                img.image.delete(save=False)
+            img.delete()
+            deleted_count += 1
+            
+        return JsonResponse({'status': 'success', 'count': deleted_count})
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)

@@ -34,4 +34,5 @@ urlpatterns = [
     path('api/merge-groups/', views.merge_groups, name='merge_groups'),
     path('api/unlink-group/<int:pk>/', views.unlink_group_relation, name='unlink_group'),
     path('api/link-group/<int:pk>/', views.link_group_relation, name='link_group'),
+    path('api/batch-delete/', views.batch_delete_images, name='batch_delete_images'), 
 ]
