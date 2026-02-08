@@ -62,6 +62,7 @@ class PromptGroup(models.Model):
         related_name='covered_groups',
         verbose_name="封面图"
     )
+    is_main_variant = models.BooleanField("是否为主版本", default=False)
     group_id = models.UUIDField("组ID", default=uuid.uuid4, editable=True, db_index=True)
 
     def __str__(self): return self.title

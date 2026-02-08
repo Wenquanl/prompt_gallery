@@ -165,25 +165,35 @@ def home(request):
     # === 版本去重与计数逻辑 ===
     version_counts = {}
     if not query and not filter_type and not search_id:
+        # 【修改】使用 Case/When 优先获取 is_main_variant=True 的 ID
         group_stats = PromptGroup.objects.values('group_id').annotate(
+            main_id=Max(Case(When(is_main_variant=True, then='id'), output_field=IntegerField())),
             latest_id=Max('id'),
             count=Count('id')
         )
-        latest_ids = [s['latest_id'] for s in group_stats]
-        version_counts = {s['latest_id']: s['count'] for s in group_stats}
-        queryset = queryset.filter(id__in=latest_ids)
+        final_ids = []
+        for s in group_stats:
+            # 如果设定了主版本(main_id)，就用它；否则用最新的(latest_id)
+            target_id = s['main_id'] if s['main_id'] else s['latest_id']
+            final_ids.append(target_id)
+            version_counts[target_id] = s['count']
+        queryset = queryset.filter(id__in=final_ids)
 
     tags_bar = get_tags_bar_data()
     paginator = Paginator(queryset, 12)
     page_number = request.GET.get('page')
+    page = paginator.get_page(page_number)
     page_obj = paginator.get_page(page_number)
+    page_range = page.paginator.get_elided_page_range(page.number, on_each_side=2, on_ends=1)
     total_groups_count = PromptGroup.objects.values('group_id').distinct().count()
 
     for group in page_obj:
         group.version_count = version_counts.get(group.id, 0)
 
     return render(request, 'gallery/home.html', {
+        'groups': page,
         'page_obj': page_obj,
+        'page_range': page_range,
         'search_query': query,
         'current_filter': filter_type,
         'tags_bar': tags_bar,
@@ -268,19 +278,24 @@ def detail(request, pk):
         ), 
         pk=pk
     )
-    # === 新增逻辑开始：计算上一篇/下一篇 ===
-    # 获取所有主题的最新 ID
-    latest_ids = PromptGroup.objects.values('group_id').annotate(max_id=Max('id')).values_list('max_id', flat=True)
-    
-    # 上一篇 (ID比当前大 = 更新的时间)
+    # 1. 获取所有主题的 "代表ID" (优先取主版本，否则取最新版本)
+    # 这确保了导航栏跳转的是您设定的那个主版本，而不是默认的最新版
+    group_stats = PromptGroup.objects.values('group_id').annotate(
+        main_id=Max(Case(When(is_main_variant=True, then='id'), output_field=IntegerField())),
+        latest_id=Max('id')
+    )
+    # 生成目标ID列表（即首页上显示的那些卡片的ID）
+    target_ids = [ (s['main_id'] or s['latest_id']) for s in group_stats ]
+    # 2. 计算上一篇 (ID比当前大 = 更晚创建的组)
+    # 增加 id__in=target_ids 条件，确保我们只跳到代表版本
     prev_group = PromptGroup.objects.filter(
-        id__in=latest_ids, 
+        id__in=target_ids, 
         id__gt=pk
     ).exclude(group_id=group.group_id).order_by('id').first()
     
-    # 下一篇 (ID比当前小 = 更旧的时间)
+    # 3. 计算下一篇 (ID比当前小 = 更早创建的组)
     next_group = PromptGroup.objects.filter(
-        id__in=latest_ids, 
+        id__in=target_ids, 
         id__lt=pk
     ).exclude(group_id=group.group_id).order_by('-id').first()
 
@@ -794,13 +809,15 @@ def group_list_api(request):
         qs = qs.filter(group_id__in=matching_group_ids)
     
     group_stats = qs.values('group_id').annotate(
+        main_id=Max(Case(When(is_main_variant=True, then='id'), output_field=IntegerField())),
         max_id=Max('id'),     
         count=Count('id')     
     )
     
-    latest_ids = [item['max_id'] for item in group_stats]
-    count_map = {item['max_id']: item['count'] for item in group_stats}
-    
+    # 优先取 main_id
+    target_ids = [ (item['main_id'] or item['max_id']) for item in group_stats ]
+    # 建立 ID -> Count 映射
+    count_map = { (item['main_id'] or item['max_id']): item['count'] for item in group_stats }
     final_qs = PromptGroup.objects.filter(id__in=latest_ids).order_by('-id')
     
     paginator = Paginator(final_qs, 20)
@@ -1023,3 +1040,17 @@ def get_similar_candidates(request, pk):
         })
         
     return JsonResponse({'status': 'success', 'results': results})
+
+@require_POST
+def set_main_variant(request, pk):
+    """将指定 PromptGroup 设为该系列的‘主版本’ (首页展示)"""
+    target = get_object_or_404(PromptGroup, pk=pk)
+    
+    # 1. 将同组的其他版本标记取消
+    PromptGroup.objects.filter(group_id=target.group_id).update(is_main_variant=False)
+    
+    # 2. 将当前版本设为主版本
+    target.is_main_variant = True
+    target.save()
+    
+    return JsonResponse({'status': 'success'})

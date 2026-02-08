@@ -472,6 +472,31 @@
         margin-right: 8px;
         font-size: 1rem;
     }
+    /* 浮动的主版本按钮样式 */
+    .btn-main-float {
+        position: absolute;
+        top: 5px;
+        right: 35px; /* 放在解除关联按钮的左边 */
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        border: none;
+        background: rgba(255, 255, 255, 0.9);
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        display: flex; align-items: center; justify-content: center;
+        color: #cbd5e1; /* 默认灰色 */
+        font-size: 0.75rem;
+        cursor: pointer;
+        opacity: 0; /* 默认隐藏 */
+        transition: all 0.2s;
+        z-index: 5;
+    }
+    .sibling-group:hover .btn-main-float { opacity: 1; }
+    .btn-main-float:hover {
+        background: #ffc107;
+        color: white;
+        transform: scale(1.1);
+    }
 </style>
 
 <button class="fab-like-btn {% if group.is_liked %}liked{% endif %}" 
@@ -577,12 +602,24 @@
         <div class="col-lg-8 mb-5 mb-lg-0 detail-scroll-left">
             
             <div class="d-flex justify-content-between align-items-start mb-3">
-                <h2 class="fw-bold text-dark mb-0 flex-grow-1 p-2 rounded" 
-                    ondblclick="enableTitleEdit(this, {{ group.pk }})" 
-                    title="双击修改标题" 
-                    style="cursor: text; margin-left: -0.5rem; transition: background-color 0.2s;">
-                    {{ group.title }}
-                </h2>
+
+                <div class="d-flex align-items-center flex-grow-1">
+                    <button class="btn btn-sm me-2 rounded-circle p-0 d-flex align-items-center justify-content-center" 
+                            style="width: 32px; height: 32px; transition: all 0.2s; {% if group.is_main_variant %}background:#ffc107; color:#fff;{% else %}background:#f1f3f5; color:#adb5bd;{% endif %}"
+                            onclick="setMainVariant({{ group.pk }})"
+                            title="{% if group.is_main_variant %}当前是首页展示的主版本{% else %}点击设为首页展示的主版本{% endif %}"
+                            data-bs-toggle="tooltip">
+                        <i class="bi bi-star-fill" style="font-size: 1rem;"></i>
+                    </button>
+                    
+                    <h2 class="fw-bold text-dark mb-0 p-2 rounded" 
+                        ondblclick="enableTitleEdit(this, {{ group.pk }})" 
+                        title="双击修改标题" 
+                        style="cursor: text; margin-left: -0.5rem; transition: background-color 0.2s;">
+                        {{ group.title }}
+                    </h2>
+                </div>
+                
                 <button id="btn-enter-batch" class="btn btn-outline-secondary btn-sm ms-2 rounded-pill px-3" style="margin-top: 8px;">
                     <i class="bi bi-check2-square me-1"></i>批量管理
                 </button>
@@ -809,7 +846,12 @@
                                         </div>
                                     </div>
                                 </a>
-                                
+                                <button class="btn-main-float" 
+                                        title="设为首页主版本" 
+                                        onclick="setMainVariantSibling(event, {{ sib.pk }})"
+                                        {% if sib.is_main_variant %}style="color: #ffc107; opacity: 1;"{% endif %}>
+                                    <i class="bi bi-star-fill"></i>
+                                </button>
                                 <button class="btn-unlink-float" title="解除关联 (变为独立作品)" onclick="unlinkSibling(event, {{ sib.pk }})">
                                     <i class="bi bi-x-lg"></i>
                                 </button>

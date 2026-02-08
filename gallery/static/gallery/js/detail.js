@@ -1204,3 +1204,46 @@ function submitLinkSelection() {
         }
     });
 }
+// === 主版本设置逻辑 ===
+
+function setMainVariant(pk) {
+    const btn = event.currentTarget;
+    // 简单的防止重复点击
+    if(btn.style.opacity === '0.5') return;
+    
+    const csrfToken = getCookie('csrftoken');
+    
+    // 乐观UI更新 (先变色，失败再变回来)
+    const originalStyle = btn.getAttribute('style');
+    btn.style.opacity = '0.5';
+
+    fetch(`/api/set-main/${pk}/`, {
+        method: 'POST',
+        headers: { 'X-CSRFToken': csrfToken }
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.status === 'success') {
+            Swal.fire({
+                icon: 'success',
+                title: '已设为首页展示版本',
+                toast: true,
+                position: 'top',
+                showConfirmButton: false,
+                timer: 1500
+            }).then(() => location.reload()); // 刷新页面以更新所有状态
+        } else {
+            btn.setAttribute('style', originalStyle);
+            Swal.fire('设置失败', '未知错误', 'error');
+        }
+    })
+    .catch(err => {
+        btn.setAttribute('style', originalStyle);
+        console.error(err);
+    });
+}
+
+function setMainVariantSibling(e, pk) {
+    e.preventDefault(); e.stopPropagation();
+    setMainVariant(pk); // 复用上面的逻辑
+}

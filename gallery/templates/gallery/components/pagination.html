@@ -1,43 +1,31 @@
-{% if page_obj.paginator.num_pages > 1 %}
+{% if groups.paginator.num_pages > 1 %}
 <div class="gallery-pagination-wrapper">
-    {% if page_obj.has_previous %}
-    <a href="?page={{ page_obj.previous_page_number }}{% if search_query %}&q={{ search_query }}{% endif %}{% if current_filter %}&filter={{ current_filter }}{% endif %}" class="page-btn">
+    
+    {% if groups.has_previous %}
+    <a href="?page={{ groups.previous_page_number }}{% if search_query %}&q={{ search_query }}{% endif %}{% if current_filter %}&filter={{ current_filter }}{% endif %}{% if request.GET.search_id %}&search_id={{ request.GET.search_id }}{% endif %}" class="page-btn">
         <i class="bi bi-chevron-left"></i>
     </a>
     {% else %}
     <span class="page-btn disabled"><i class="bi bi-chevron-left"></i></span>
     {% endif %}
 
-    <a href="?page=1{% if search_query %}&q={{ search_query }}{% endif %}{% if current_filter %}&filter={{ current_filter }}{% endif %}" 
-       class="page-btn {% if page_obj.number == 1 %}active{% endif %}">1</a>
+    {% for num in page_range|default:groups.paginator.page_range %}
+        
+        {% if num == groups.paginator.ELLIPSIS %}
+            <span class="page-ellipsis">...</span>
+        {% else %}
+            {% if groups.number == num %}
+                <span class="page-btn active">{{ num }}</span>
+            {% else %}
+                <a href="?page={{ num }}{% if search_query %}&q={{ search_query }}{% endif %}{% if current_filter %}&filter={{ current_filter }}{% endif %}{% if request.GET.search_id %}&search_id={{ request.GET.search_id }}{% endif %}" 
+                   class="page-btn">{{ num }}</a>
+            {% endif %}
+        {% endif %}
+        
+    {% endfor %}
 
-    {% if page_obj.number > 3 %}
-        <span class="page-ellipsis">...</span>
-    {% endif %}
-
-    {% if page_obj.number > 2 %}
-        <a href="?page={{ page_obj.number|add:'-1' }}{% if search_query %}&q={{ search_query }}{% endif %}{% if current_filter %}&filter={{ current_filter }}{% endif %}" 
-           class="page-btn">{{ page_obj.number|add:'-1' }}</a>
-    {% endif %}
-
-    {% if page_obj.number != 1 and page_obj.number != page_obj.paginator.num_pages %}
-        <span class="page-btn active">{{ page_obj.number }}</span>
-    {% endif %}
-
-    {% if page_obj.number < page_obj.paginator.num_pages|add:'-1' %}
-        <a href="?page={{ page_obj.number|add:'1' }}{% if search_query %}&q={{ search_query }}{% endif %}{% if current_filter %}&filter={{ current_filter }}{% endif %}" 
-           class="page-btn">{{ page_obj.number|add:'1' }}</a>
-    {% endif %}
-
-    {% if page_obj.number < page_obj.paginator.num_pages|add:'-2' %}
-        <span class="page-ellipsis">...</span>
-    {% endif %}
-
-    <a href="?page={{ page_obj.paginator.num_pages }}{% if search_query %}&q={{ search_query }}{% endif %}{% if current_filter %}&filter={{ current_filter }}{% endif %}" 
-       class="page-btn {% if page_obj.number == page_obj.paginator.num_pages %}active{% endif %}">{{ page_obj.paginator.num_pages }}</a>
-
-    {% if page_obj.has_next %}
-    <a href="?page={{ page_obj.next_page_number }}{% if search_query %}&q={{ search_query }}{% endif %}{% if current_filter %}&filter={{ current_filter }}{% endif %}" class="page-btn">
+    {% if groups.has_next %}
+    <a href="?page={{ groups.next_page_number }}{% if search_query %}&q={{ search_query }}{% endif %}{% if current_filter %}&filter={{ current_filter }}{% endif %}{% if request.GET.search_id %}&search_id={{ request.GET.search_id }}{% endif %}" class="page-btn">
         <i class="bi bi-chevron-right"></i>
     </a>
     {% else %}
@@ -47,9 +35,9 @@
     <div class="page-jump-box">
         <span class="text-muted small me-2">跳至</span>
         <input type="number" id="jumpPageInput" class="page-jump-input" 
-               min="1" max="{{ page_obj.paginator.num_pages }}" 
+               min="1" max="{{ groups.paginator.num_pages }}" 
                placeholder="页码"
-               data-max-page="{{ page_obj.paginator.num_pages }}">
+               data-max-page="{{ groups.paginator.num_pages }}">
         <button type="button" id="btnJumpPage" class="page-jump-btn">Go</button>
     </div>
 </div>
