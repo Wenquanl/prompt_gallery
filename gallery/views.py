@@ -1,5 +1,6 @@
 import os
 import time
+import difflib
 import uuid
 import json
 import re
@@ -946,3 +947,79 @@ def set_group_cover(request, group_id, image_id):
     group.cover_image = image
     group.save()
     return JsonResponse({'status': 'success'})
+
+@require_GET
+def get_similar_candidates(request, pk):
+    """获取相似提示词的推荐候选 (用于关联版本)"""
+    try:
+        current_group = PromptGroup.objects.get(pk=pk)
+    except PromptGroup.DoesNotExist:
+        return JsonResponse({'status': 'error', 'message': 'Group not found'})
+
+    my_content = (current_group.prompt_text or "").strip().lower()
+    if len(my_content) < 5:
+         return JsonResponse({'status': 'success', 'results': []})
+
+    # 1. 获取所有组的最新版本 ID (避免推荐同组的历史版本)
+    group_stats = PromptGroup.objects.values('group_id').annotate(max_id=Max('id'))
+    latest_ids = [item['max_id'] for item in group_stats]
+    
+    # 2. 查询候选集 (排除当前组，限制数量以保证性能)
+    # 取最新的 1000 个组作为候选池
+    candidates = PromptGroup.objects.filter(id__in=latest_ids).exclude(group_id=current_group.group_id).order_by('-id')[:1000]
+    
+    recommendations = []
+    
+    for other in candidates:
+        other_content = (other.prompt_text or "").strip().lower()
+        if not other_content: continue
+        
+        # 简单预筛: 长度差异过大直接跳过
+        max_len = max(len(my_content), len(other_content))
+        if max_len == 0: continue
+        if abs(len(my_content) - len(other_content)) > max_len * 0.7: 
+            continue
+
+        # 计算相似度
+        ratio = difflib.SequenceMatcher(None, my_content, other_content).ratio()
+        
+        # 相似度 > 30% 即可推荐 (关联推荐可以放宽一点)
+        if ratio > 0.3: 
+            recommendations.append((ratio, other))
+            
+    # 按相似度降序排列，取前 20 个
+    recommendations.sort(key=lambda x: x[0], reverse=True)
+    top_recs = recommendations[:20]
+    
+    results = []
+    for ratio, group in top_recs:
+        # 复用封面获取逻辑
+        cover_url = ""
+        cover_img = group.cover_image # 优先用封面
+        if not cover_img:
+            images = group.images.all()
+            for img in images:
+                if not img.is_video:
+                    cover_img = img
+                    break
+            if not cover_img and images.exists():
+                cover_img = images.first()
+        
+        if cover_img:
+             try:
+                if not cover_img.is_video and cover_img.thumbnail:
+                    cover_url = cover_img.thumbnail.url
+                else:
+                    cover_url = cover_img.image.url
+             except:
+                 pass
+                 
+        results.append({
+            'id': group.id,
+            'title': group.title,
+            'prompt_text': group.prompt_text[:200] if group.prompt_text else '',
+            'cover_url': cover_url,
+            'similarity': f"{int(ratio*100)}%" # 返回相似度百分比
+        })
+        
+    return JsonResponse({'status': 'success', 'results': results})

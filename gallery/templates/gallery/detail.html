@@ -555,17 +555,20 @@
     <div class="mb-4">
         {% with from_view=request.GET.from|default:'home' page_num=request.GET.page|default:'1' q_val=request.GET.q|default:'' filter_val=request.GET.filter|default:'' source_id=request.GET.source_img_id back_to_id=request.GET.back_to_detail_id search_id=request.GET.search_id %}
             {% if back_to_id %}
-                <a href="{% url 'detail' back_to_id %}?from={{ from_view }}&page={{ page_num }}{% if q_val %}&q={{ q_val }}{% endif %}{% if filter_val %}&filter={{ filter_val }}{% endif %}{% if source_id %}&source_img_id={{ source_id }}{% endif %}" class="btn-float-back" title="返回"><i class="bi bi-arrow-left"></i><span>返回</span></a>
+                <a href="{% url 'detail' back_to_id %}?from={{ from_view }}&page={{ page_num }}{% if q_val %}&q={{ q_val|urlencode }}{% endif %}{% if filter_val %}&filter={{ filter_val }}{% endif %}{% if source_id %}&source_img_id={{ source_id }}{% endif %}" class="btn-float-back" title="返回"><i class="bi bi-arrow-left"></i><span>返回</span></a>
+            
             {% elif search_id %}
-                {% if from_view == 'home_search' %}
+                {% if from_view == 'home_search' or from_view == 'home' %}
                     <a href="{% url 'home' %}?search_id={{ search_id }}" class="btn-float-back" title="返回搜索结果"><i class="bi bi-arrow-left"></i><span>返回搜索结果</span></a>
                 {% else %}
                     <a href="{% url 'liked_images_gallery' %}?search_id={{ search_id }}" class="btn-float-back" title="返回搜索结果"><i class="bi bi-arrow-left"></i><span>返回搜索结果</span></a>
                 {% endif %}
+            
             {% elif from_view == 'liked' %}
-                <a href="{% url 'liked_images_gallery' %}?page={{ page_num }}{% if q_val %}&q={{ q_val }}{% endif %}{% if source_id %}#card-img-{{ source_id }}{% endif %}" class="btn-float-back" title="返回"><i class="bi bi-arrow-left"></i><span>返回</span></a>
+                <a href="{% url 'liked_images_gallery' %}?page={{ page_num }}{% if q_val %}&q={{ q_val|urlencode }}{% endif %}{% if source_id %}#card-img-{{ source_id }}{% endif %}" class="btn-float-back" title="返回"><i class="bi bi-arrow-left"></i><span>返回</span></a>
+            
             {% else %}
-                <a href="{% url 'home' %}?page={{ page_num }}{% if q_val %}&q={{ q_val }}{% endif %}{% if filter_val %}&filter={{ filter_val }}{% endif %}#group-card-{{ group.pk }}" class="btn-float-back" title="返回"><i class="bi bi-arrow-left"></i><span>返回</span></a>
+                <a href="{% url 'home' %}?page={{ page_num }}{% if q_val %}&q={{ q_val|urlencode }}{% endif %}{% if filter_val %}&filter={{ filter_val }}{% endif %}#group-card-{{ group.pk }}" class="btn-float-back" title="返回"><i class="bi bi-arrow-left"></i><span>返回</span></a>
             {% endif %}
         {% endwith %}
     </div>

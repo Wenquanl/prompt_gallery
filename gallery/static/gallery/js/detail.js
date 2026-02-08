@@ -1013,6 +1013,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // ================= 版本关联管理 (支持多选) =================
 
+// ================= 版本关联管理 (支持多选 & 自动推荐) =================
+
 function unlinkSibling(e, id) { 
     e.preventDefault(); e.stopPropagation(); 
     Swal.fire({title:'解除关联?',showCancelButton:true,confirmButtonText:'确定'}).then(r=>{
@@ -1024,17 +1026,58 @@ function unlinkSibling(e, id) {
 } 
 
 let linkModal;
+
 function openLinkModal() { 
     if(!linkModal) linkModal=new bootstrap.Modal(document.getElementById('linkVersionModal')); 
-    document.getElementById('linkSearchInput').value = '';
-    document.getElementById('linkSearchResults').innerHTML = '<div class="text-center text-muted p-3">请输入关键词</div>'; 
+    
+    const input = document.getElementById('linkSearchInput');
+    input.value = '';
+    
     selectedLinkIds.clear();
     updateLinkSelectionUI();
+    
+    // 【新增】打开时自动加载推荐
+    loadSimilarRecommendations();
+    
     linkModal.show(); 
+    
+    // 聚焦输入框
+    setTimeout(() => input.focus(), 500);
+}
+
+// 【新增】加载相似推荐函数
+function loadSimilarRecommendations() {
+    const container = document.getElementById('linkSearchResults');
+    // 显示加载状态
+    container.innerHTML = '<div class="text-center text-muted p-4"><div class="spinner-border spinner-border-sm text-primary me-2"></div>正在寻找相似提示词...</div>';
+    
+    const currentPk = getCurrentGroupId();
+    if (!currentPk) return;
+
+    fetch(`/api/similar-groups/${currentPk}/`)
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success' && data.results.length > 0) {
+                // 添加推荐标题头
+                container.innerHTML = `<div class="px-3 py-2 mb-2 small fw-bold text-primary bg-primary bg-opacity-10 border-bottom d-flex align-items-center justify-content-between">
+                    <span><i class="bi bi-stars me-1"></i>智能推荐 (按提示词相似度)</span>
+                    <span class="badge bg-white text-primary border">${data.results.length}</span>
+                </div>`;
+                renderLinkResults(data.results, true); // true 表示追加到 container
+            } else {
+                // 无推荐时的默认提示
+                container.innerHTML = '<div class="text-center text-muted p-5"><i class="bi bi-search fs-1 opacity-25 d-block mb-2"></i>请输入关键词搜索关联版本</div>';
+            }
+        })
+        .catch(err => {
+            console.error(err);
+            container.innerHTML = '<div class="text-center text-muted p-3">推荐加载失败，请尝试手动搜索</div>';
+        });
 }
 
 function updateLinkSelectionUI() {
     document.getElementById('linkSelectedCount').textContent = selectedLinkIds.size;
+    // 更新列表中已选中项的样式
     document.querySelectorAll('.search-result-item').forEach(el => {
         const id = parseInt(el.dataset.id);
         const icon = el.querySelector('.select-icon');
@@ -1061,49 +1104,83 @@ function clearLinkSelection() {
 
 let st; 
 function debounceSearchLink() { 
-    clearTimeout(st); st=setTimeout(()=>{performLinkSearch(document.getElementById('linkSearchInput').value.trim())},500); 
+    const val = document.getElementById('linkSearchInput').value.trim();
+    clearTimeout(st); 
+    
+    // 【修改】如果清空了输入框，重新显示推荐
+    if (!val) {
+        loadSimilarRecommendations();
+        return;
+    }
+    
+    st=setTimeout(()=>{performLinkSearch(val)},500); 
 }
 
 function performLinkSearch(q) {
     if(!q) return;
+    const container = document.getElementById('linkSearchResults');
+    container.innerHTML = '<div class="text-center text-muted p-3"><span class="spinner-border spinner-border-sm"></span> 搜索中...</div>';
+    
     fetch(`/api/groups/?q=${encodeURIComponent(q)}`).then(r=>r.json()).then(d=>{
-        const c = document.getElementById('linkSearchResults'); c.innerHTML='';
-        if(!d.results.length) { c.innerHTML='<div class="text-center text-muted">无结果</div>'; return; }
+        container.innerHTML = ''; // 清空 loading
+        if(!d.results.length) { 
+            container.innerHTML='<div class="text-center text-muted p-5">未找到匹配结果</div>'; 
+            return; 
+        }
+        renderLinkResults(d.results, true);
+    });
+}
+
+// 【新增】提取渲染逻辑，供搜索和推荐共用
+function renderLinkResults(results, append = false) {
+    const container = document.getElementById('linkSearchResults');
+    const currentPk = getCurrentGroupId();
+    
+    if (!append) container.innerHTML = '';
+
+    results.forEach(i => {
+        if (i.id === currentPk) return; 
+
+        const isSelected = selectedLinkIds.has(i.id);
+        const bgClass = isSelected ? 'bg-primary bg-opacity-10 border-primary' : '';
+        const iconClass = isSelected ? 'bi-check-circle-fill text-primary' : 'bi-circle text-muted';
         
-        const currentPk = getCurrentGroupId();
-        d.results.forEach(i => {
-            if (i.id === currentPk) return; 
+        // 如果有相似度字段，显示相似度徽章
+        const similarityBadge = i.similarity ? 
+            `<span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 ms-2" style="font-weight:normal; font-size:0.7rem;">相似度 ${i.similarity}</span>` : '';
 
-            const isSelected = selectedLinkIds.has(i.id);
-            const bgClass = isSelected ? 'bg-primary bg-opacity-10 border-primary' : '';
-            const iconClass = isSelected ? 'bi-check-circle-fill text-primary' : 'bi-circle text-muted';
-
-            const html = `
-                <div class="d-flex align-items-center p-2 border-bottom search-result-item ${bgClass}" 
-                     data-id="${i.id}" 
-                     onclick="toggleLinkSelection(${i.id})" 
-                     style="cursor:pointer; transition: all 0.2s;">
-                    <div class="me-3"><i class="bi ${iconClass} select-icon fs-5"></i></div>
-                    <div class="rounded overflow-hidden bg-light me-3" style="width: 40px; height: 40px; flex-shrink: 0;">
-                        ${i.cover_url ? `<img src="${i.cover_url}" class="w-100 h-100 object-fit-cover">` : ''}
+        const html = `
+            <div class="d-flex align-items-center p-2 border-bottom search-result-item ${bgClass}" 
+                 data-id="${i.id}" 
+                 onclick="toggleLinkSelection(${i.id})" 
+                 style="cursor:pointer; transition: all 0.2s;">
+                <div class="me-3"><i class="bi ${iconClass} select-icon fs-5"></i></div>
+                <div class="rounded overflow-hidden bg-light me-3 border" style="width: 48px; height: 48px; flex-shrink: 0;">
+                    ${i.cover_url ? `<img src="${i.cover_url}" class="w-100 h-100 object-fit-cover">` : '<div class="w-100 h-100 d-flex align-items-center justify-content-center text-muted"><i class="bi bi-image"></i></div>'}
+                </div>
+                <div class="flex-grow-1 overflow-hidden">
+                    <div class="d-flex align-items-center mb-1">
+                        <div class="fw-bold text-truncate text-dark" style="font-size: 0.9rem; max-width: 200px;">${i.title}</div>
+                        ${similarityBadge}
                     </div>
-                    <div class="flex-grow-1 overflow-hidden">
-                        <div class="fw-bold text-truncate" style="font-size: 0.85rem;">${i.title}</div>
-                        <div class="text-muted text-truncate small" style="font-size: 0.75rem;">${i.prompt_text.substring(0,30)}...</div>
-                    </div>
-                </div>`;
-            c.insertAdjacentHTML('beforeend', html);
-        });
+                    <div class="text-muted text-truncate small" style="font-size: 0.75rem;">${i.prompt_text ? i.prompt_text.substring(0,60) : '无提示词'}...</div>
+                </div>
+            </div>`;
+        container.insertAdjacentHTML('beforeend', html);
     });
 }
 
 function submitLinkSelection() {
     if (selectedLinkIds.size === 0) { Swal.fire('提示', '请至少选择一个版本', 'warning'); return; }
     const currentPk = getCurrentGroupId();
-    if (!currentPk) { Swal.fire('错误', '无法确定当前作品 ID', 'error'); return; }
-
+    
     Swal.fire({
-        title: `确认关联 ${selectedLinkIds.size} 个版本?`, icon: 'question', showCancelButton: true, confirmButtonText: '确认关联'
+        title: `确认关联 ${selectedLinkIds.size} 个版本?`, 
+        text: '这些版本将归入同一系列，共享展示位置。',
+        icon: 'question', 
+        showCancelButton: true, 
+        confirmButtonText: '确认关联',
+        confirmButtonColor: '#0d6efd'
     }).then((result) => {
         if (result.isConfirmed) {
             fetch(`/api/link-group/${currentPk}/`, {
@@ -1114,7 +1191,14 @@ function submitLinkSelection() {
             .then(res => res.json())
             .then(data => {
                 if (data.status === 'success') {
-                    Swal.fire('成功', '版本关联成功', 'success').then(() => location.reload());
+                    Swal.fire({
+                        icon: 'success', 
+                        title: '关联成功', 
+                        toast: true, 
+                        position: 'top-end', 
+                        showConfirmButton: false, 
+                        timer: 1500
+                    }).then(() => location.reload());
                 } else { Swal.fire('失败', data.message, 'error'); }
             });
         }

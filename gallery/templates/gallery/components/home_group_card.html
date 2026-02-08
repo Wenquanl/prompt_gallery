@@ -13,8 +13,7 @@
             <i class="bi {% if group.is_liked %}bi-heart-fill{% else %}bi-heart{% endif %}"></i>
         </button>
 
-        <a href="{% url 'detail' group.pk %}?from=home" class="text-decoration-none text-dark">
-            <div class="img-wrapper">
+        <a href="{% url 'detail' group.pk %}?from=home{% if request.GET.page %}&page={{ request.GET.page }}{% endif %}{% if request.GET.q %}&q={{ request.GET.q|urlencode }}{% endif %}{% if request.GET.filter %}&filter={{ request.GET.filter }}{% endif %}{% if request.GET.search_id %}&search_id={{ request.GET.search_id }}{% endif %}" class="text-decoration-none text-dark">            <div class="img-wrapper">
                 {% with cover=group.cover_image|default:group.images.first %}
                     {% if cover %}
                         {% if cover.is_video and not cover.thumbnail %}

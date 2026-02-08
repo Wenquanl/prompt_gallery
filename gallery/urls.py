@@ -36,4 +36,5 @@ urlpatterns = [
     path('api/link-group/<int:pk>/', views.link_group_relation, name='link_group'),
     path('api/batch-delete/', views.batch_delete_images, name='batch_delete_images'), 
     path('api/set-cover/<int:group_id>/<int:image_id>/', views.set_group_cover, name='set_group_cover'),
+    path('api/similar-groups/<int:pk>/', views.get_similar_candidates, name='get_similar_candidates'),
 ]
