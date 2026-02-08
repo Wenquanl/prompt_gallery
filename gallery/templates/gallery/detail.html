@@ -486,7 +486,7 @@
 <a href="{% url 'detail' prev_group.id %}" class="nav-drawer prev">
     <div class="drawer-edge-indicator"><i class="bi bi-chevron-left"></i></div>
     <div class="drawer-img-wrapper">
-        {% with cover=prev_group.images.first %}
+        {% with cover=prev_group.cover_image|default:prev_group.images.first %}
             {% if cover %}
                 {% if cover.is_video %}
                     <i class="bi bi-play-circle-fill drawer-video-badge"></i>
@@ -520,7 +520,7 @@
 <a href="{% url 'detail' next_group.id %}" class="nav-drawer next">
     <div class="drawer-edge-indicator"><i class="bi bi-chevron-right"></i></div>
     <div class="drawer-img-wrapper">
-        {% with cover=next_group.images.first %}
+        {% with cover=next_group.cover_image|default:next_group.images.first %}
             {% if cover %}
                 {% if cover.is_video %}
                     <i class="bi bi-play-circle-fill drawer-video-badge"></i>
@@ -650,7 +650,7 @@
                         <div class="gallery-card h-100 d-block position-relative group-card-container">
                             <a href="{% url 'detail' related.pk %}?back_to_detail_id={{ group.pk }}&from={{ request.GET.from|default:'home' }}&page={{ request.GET.page|default:'1' }}{% if request.GET.q %}&q={{ request.GET.q }}{% endif %}" class="text-decoration-none text-dark">
                                 <div class="horizontal-img-wrapper">
-                                    {% with cover=related.images.first %}
+                                    {% with cover=related.cover_image|default:related.images.first %}
                                         {% if cover %}
                                             {% if cover.is_video %}
                                                 <div class="d-flex align-items-center justify-content-center h-100 w-100 bg-dark text-white"><i class="bi bi-play-circle fs-1"></i></div>

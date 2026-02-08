@@ -1721,6 +1721,15 @@ a { text-decoration: none; }
     color: #dc3545 !important; /* 悬停时变为红色 */
     transform: scale(1.1);
 }
+/* 【新增修复】当搜索框收起时（无hover且无focus），强制隐藏清除按钮 */
+/* 这样即使输入框里有字，收起后也不会显示叉号 */
+.nav-search-wrapper:not(:hover):not(:focus-within) .nav-search-clear-btn {
+    display: none !important;
+    opacity: 0 !important;
+    width: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
 
 /* ================== 分页样式 (优化版) ================== */
 .gallery-pagination-wrapper {
