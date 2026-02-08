@@ -508,7 +508,7 @@
 </button>
 
 {% if prev_group %}
-<a href="{% url 'detail' prev_group.id %}" class="nav-drawer prev">
+<a href="{% url 'detail' prev_group.id %}{% if request.GET.urlencode %}?{{ request.GET.urlencode }}{% endif %}" class="nav-drawer prev">
     <div class="drawer-edge-indicator"><i class="bi bi-chevron-left"></i></div>
     <div class="drawer-img-wrapper">
         {% with cover=prev_group.cover_image|default:prev_group.images.first %}
@@ -542,7 +542,7 @@
 {% endif %}
 
 {% if next_group %}
-<a href="{% url 'detail' next_group.id %}" class="nav-drawer next">
+<a href="{% url 'detail' next_group.id %}{% if request.GET.urlencode %}?{{ request.GET.urlencode }}{% endif %}" class="nav-drawer next">
     <div class="drawer-edge-indicator"><i class="bi bi-chevron-right"></i></div>
     <div class="drawer-img-wrapper">
         {% with cover=next_group.cover_image|default:next_group.images.first %}

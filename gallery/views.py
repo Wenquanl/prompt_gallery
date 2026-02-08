@@ -278,26 +278,52 @@ def detail(request, pk):
         ), 
         pk=pk
     )
-    # 1. 获取所有主题的 "代表ID" (优先取主版本，否则取最新版本)
-    # 这确保了导航栏跳转的是您设定的那个主版本，而不是默认的最新版
-    group_stats = PromptGroup.objects.values('group_id').annotate(
-        main_id=Max(Case(When(is_main_variant=True, then='id'), output_field=IntegerField())),
-        latest_id=Max('id')
-    )
-    # 生成目标ID列表（即首页上显示的那些卡片的ID）
-    target_ids = [ (s['main_id'] or s['latest_id']) for s in group_stats ]
-    # 2. 计算上一篇 (ID比当前大 = 更晚创建的组)
-    # 增加 id__in=target_ids 条件，确保我们只跳到代表版本
-    prev_group = PromptGroup.objects.filter(
-        id__in=target_ids, 
-        id__gt=pk
-    ).exclude(group_id=group.group_id).order_by('id').first()
+    # === 上一篇/下一篇 导航逻辑 (Context Aware) ===
+    # 获取上下文参数
+    query = request.GET.get('q')
+    filter_type = request.GET.get('filter')
     
-    # 3. 计算下一篇 (ID比当前小 = 更早创建的组)
-    next_group = PromptGroup.objects.filter(
-        id__in=target_ids, 
-        id__lt=pk
-    ).exclude(group_id=group.group_id).order_by('-id').first()
+    # 构造基础查询集 (Nav QuerySet)
+    nav_qs = PromptGroup.objects.all()
+    
+    # 1. 复刻首页的搜索逻辑
+    if query:
+        nav_qs = nav_qs.filter(
+            Q(title__icontains=query) |
+            Q(prompt_text__icontains=query) |
+            Q(prompt_text_zh__icontains=query) |
+            Q(tags__name__icontains=query)
+        ).distinct()
+        
+    # 2. 复刻首页的筛选逻辑
+    if filter_type == 'liked':
+        nav_qs = nav_qs.filter(is_liked=True)
+        
+    # 3. 默认模式下的去重逻辑 (仅在无搜索、无筛选时应用)
+    # 如果用户在搜索模式下，可能希望看到所有命中的版本，所以搜索时不进行去重
+    is_default_view = (not query and not filter_type)
+    
+    if is_default_view:
+        # 获取代表ID列表 (主版本 or 最新版本)
+        group_stats = PromptGroup.objects.values('group_id').annotate(
+            main_id=Max(Case(When(is_main_variant=True, then='id'), output_field=IntegerField())),
+            latest_id=Max('id')
+        )
+        target_ids = [ (s['main_id'] or s['latest_id']) for s in group_stats ]
+        nav_qs = nav_qs.filter(id__in=target_ids)
+
+    # 4. 计算 上一篇 (Previous = ID更的大 = 更晚创建)
+    # 如果是默认视图，额外排除同 Group 的 ID (虽然 dedupe 理论上已处理，加一层保险)
+    prev_qs = nav_qs.filter(id__gt=pk)
+    if is_default_view:
+        prev_qs = prev_qs.exclude(group_id=group.group_id)
+    prev_group = prev_qs.order_by('id').first() # 找比当前pk大的里面最小的那个
+    
+    # 5. 计算 下一篇 (Next = ID更小 = 更早创建)
+    next_qs = nav_qs.filter(id__lt=pk)
+    if is_default_view:
+        next_qs = next_qs.exclude(group_id=group.group_id)
+    next_group = next_qs.order_by('-id').first() # 找比当前pk小的里面最大的那个
 
     # 拆分图片和视频
     all_items = group.images.all()
@@ -339,7 +365,6 @@ def detail(request, pk):
         'search_query': request.GET.get('q'),
         'images_list': images_list,
         'videos_list': videos_list,
-        # === 传递给模板 ===
         'prev_group': prev_group,
         'next_group': next_group,
     })
