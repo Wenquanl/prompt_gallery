@@ -442,6 +442,36 @@
     
     .btn-confirm-download { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); }
     .btn-confirm-download:hover { box-shadow: 0 8px 16px rgba(79, 172, 254, 0.4); }
+    /* === 右键菜单样式 === */
+    .context-menu {
+        display: none;
+        position: fixed;
+        z-index: 2000;
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 5px 15px rgba(0,0,0,0.15);
+        border: 1px solid rgba(0,0,0,0.05);
+        padding: 5px 0;
+        min-width: 140px;
+        overflow: hidden;
+    }
+    .context-menu-item {
+        padding: 8px 15px;
+        font-size: 0.9rem;
+        color: #333;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        transition: background 0.2s;
+    }
+    .context-menu-item:hover {
+        background: #f8f9fa;
+        color: var(--accent-color);
+    }
+    .context-menu-item i {
+        margin-right: 8px;
+        font-size: 1rem;
+    }
 </style>
 
 <button class="fab-like-btn {% if group.is_liked %}liked{% endif %}" 
@@ -961,6 +991,12 @@
     </div>
 </div>
 
+<div id="imgContextMenu" class="context-menu">
+    <div class="context-menu-item" onclick="setAsCoverFromMenu()">
+        <i class="bi bi-image"></i> 设为封面
+    </div>
+</div>
+
 {% include 'gallery/components/offcanvas_tags.html' %}
 {% endblock %}
 
@@ -1293,6 +1329,83 @@
                     'X-Requested-With': 'XMLHttpRequest'
                 }
             }).catch(err => console.error(err));
+        }
+        // === 右键菜单逻辑 ===
+        const contextMenu = document.getElementById('imgContextMenu');
+        let rightClickedImgId = null;
+
+        // 监听全局右键事件
+        document.addEventListener('contextmenu', function(e) {
+            // 查找是否点击了详情页的图片卡片 (.item-card)
+            const card = e.target.closest('.item-card');
+            
+            // 排除视频（可选：如果您也想让视频设为封面，去掉 !card.classList.contains('video-wide-item')）
+            if (card) {
+                e.preventDefault(); // 阻止浏览器默认菜单
+                
+                // 获取图片ID
+                rightClickedImgId = card.dataset.imgId;
+                
+                // 定位菜单
+                contextMenu.style.display = 'block';
+                contextMenu.style.left = `${e.clientX}px`;
+                contextMenu.style.top = `${e.clientY}px`;
+            } else {
+                // 如果不是点在卡片上，隐藏菜单
+                contextMenu.style.display = 'none';
+            }
+        });
+
+        // 点击其他地方隐藏菜单
+        document.addEventListener('click', function() {
+            contextMenu.style.display = 'none';
+        });
+        
+        // 页面滚动时隐藏菜单
+        window.addEventListener('scroll', () => { contextMenu.style.display = 'none'; }, true);
+
+        // 设为封面功能函数
+        function setAsCoverFromMenu() {
+            if (!rightClickedImgId) return;
+            
+            const groupId = {{ group.pk }}; // 获取当前组ID
+            const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+
+            // 显示加载状态
+            Swal.fire({
+                title: '正在设置...',
+                didOpen: () => Swal.showLoading(),
+                background: 'transparent',
+                backdrop: 'rgba(0,0,0,0.1)',
+                showConfirmButton: false
+            });
+
+            fetch(`/api/set-cover/${groupId}/${rightClickedImgId}/`, {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': csrfToken,
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    Swal.fire({
+                        icon: 'success',
+                        title: '封面已更新',
+                        toast: true,
+                        position: 'top',
+                        showConfirmButton: false,
+                        timer: 1500
+                    });
+                } else {
+                    Swal.fire('设置失败', data.message, 'error');
+                }
+            })
+            .catch(err => {
+                console.error(err);
+                Swal.fire('错误', '网络请求失败', 'error');
+            });
         }
     </script>
 {% endblock %}

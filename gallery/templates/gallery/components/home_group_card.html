@@ -15,9 +15,13 @@
 
         <a href="{% url 'detail' group.pk %}?from=home" class="text-decoration-none text-dark">
             <div class="img-wrapper">
-                {% with cover=group.images.first %}
+                {% with cover=group.cover_image|default:group.images.first %}
                     {% if cover %}
-                        <img src="{{ cover.thumbnail.url }}" alt="{{ group.title }}">
+                        {% if cover.is_video and not cover.thumbnail %}
+                             <div class="d-flex align-items-center justify-content-center h-100 w-100 bg-dark text-white"><i class="bi bi-play-circle fs-1"></i></div>
+                        {% else %}
+                             <img src="{{ cover.thumbnail.url|default:cover.image.url }}" alt="{{ group.title }}">
+                        {% endif %}
                     {% else %}
                         <div class="d-flex align-items-center justify-content-center h-100 w-100 text-secondary bg-light bg-opacity-50" style="min-height: 200px;">
                             <i class="bi bi-image fs-1 opacity-50"></i>

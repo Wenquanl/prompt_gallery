@@ -808,19 +808,19 @@ def group_list_api(request):
     data = []
     for group in page:
         cover_url = ""
-        # 【关键修复】封面图逻辑：优先取第一张非视频图
-        images = group.images.all()
-        cover_img = None
+        ## 【修改逻辑】优先取指定的 cover_image，没有则按原逻辑找第一张图
+        cover_img = group.cover_image
         
-        # 优先找图片
-        for img in images:
-            if not img.is_video:
-                cover_img = img
-                break
-        
-        # 如果没有图片，才被迫用视频（可能无法显示缩略图）或者用第一张
-        if not cover_img and images.exists():
-            cover_img = images.first()
+        if not cover_img:
+            images = group.images.all()
+            # 优先找非视频图片
+            for img in images:
+                if not img.is_video:
+                    cover_img = img
+                    break
+            # 兜底
+            if not cover_img and images.exists():
+                cover_img = images.first()
 
         if cover_img:
             try:
@@ -932,3 +932,17 @@ def batch_delete_images(request):
         return JsonResponse({'status': 'success', 'count': deleted_count})
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+    
+# 【新增】设置封面视图
+@require_POST
+def set_group_cover(request, group_id, image_id):
+    group = get_object_or_404(PromptGroup, pk=group_id)
+    image = get_object_or_404(ImageItem, pk=image_id)
+    
+    # 安全检查：确保图片属于该组
+    if image.group_id != group.id:
+        return JsonResponse({'status': 'error', 'message': '图片不属于该组'})
+    
+    group.cover_image = image
+    group.save()
+    return JsonResponse({'status': 'success'})

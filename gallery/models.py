@@ -53,7 +53,15 @@ class PromptGroup(models.Model):
     
     created_at = models.DateTimeField("创建时间", auto_now_add=True, db_index=True)
     is_liked = models.BooleanField("是否喜欢", default=False)
-
+    # 【新增】封面图字段，关联到 ImageItem
+    cover_image = models.ForeignKey(
+        'ImageItem', 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True, 
+        related_name='covered_groups',
+        verbose_name="封面图"
+    )
     group_id = models.UUIDField("组ID", default=uuid.uuid4, editable=True, db_index=True)
 
     def __str__(self): return self.title
