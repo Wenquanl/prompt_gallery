@@ -15,10 +15,13 @@
     {% if tags_bar %}
     <div class="tags-bar-wrapper">
         <div class="tags-scroll-container">
-            <a href="{% url 'home' %}" class="tag-pill {% if not search_query and not image_search_active %}active{% endif %}">
-                全部
-                <span class="tag-count-badge">{{ total_groups_count }}</span>
+            <a href="{% url 'home' %}" 
+                class="tag-pill special-all-tab {% if not search_query and not image_search_active %}active{% endif %}">
+                <i class="bi bi-grid-fill me-1"></i> 全部
+                <span class="tag-count-badge ms-1">{{ total_groups_count }}</span>
             </a>
+
+            <div class="tags-divider"></div>
             {% for tag in tags_bar %}
                 {% if tag.is_model == 1 %}
                 <a href="/?q={{ tag.name }}" 

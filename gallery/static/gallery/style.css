@@ -2003,3 +2003,80 @@ a { text-decoration: none; }
         width: 100% !important;
     }
 }
+
+/* === 1. 垂直分割线 (保持不变，区分逻辑的核心) === */
+.tags-divider {
+    width: 1px;
+    height: 24px;
+    background-color: rgba(0,0,0,0.1);
+    margin: 0 16px;
+    flex-shrink: 0;
+}
+
+/* === 2. “全部”标签优化版 - 无边框设计 === */
+.tag-pill.special-all-tab {
+    border-radius: 50rem !important;
+    padding: 0.5rem 1.4rem !important; /* 宽度加一点，显大气 */
+    font-weight: 700 !important;
+    letter-spacing: 0.5px;
+    display: inline-flex;
+    align-items: center;
+    transition: all 0.2s ease;
+    
+    /* 【核心修改】彻底去掉边框，消灭黑线 */
+    border: none !important; 
+    outline: none !important;
+    
+    position: relative;
+    z-index: 1;
+}
+
+/* --- 未选中状态 (Inactive) --- */
+.tag-pill.special-all-tab:not(.active) {
+    background-color: #fff;
+    color: #555;
+    /* 【技巧】用极淡的内阴影代替边框，看起来更细腻，没有生硬的线条 */
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05), inset 0 0 0 1px rgba(0,0,0,0.03);
+}
+
+.tag-pill.special-all-tab:not(.active):hover {
+    background-color: #f8f9fa;
+    color: #000;
+    transform: translateY(-1px);
+    /* 悬停时加深投影，浮起感 */
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08), inset 0 0 0 1px rgba(0,0,0,0.03);
+}
+
+/* --- 选中状态 (Active) - 深灰蓝 --- */
+.tag-pill.special-all-tab.active {
+    /* 【颜色微调】使用更有质感的深灰蓝，比纯黑更雅致 */
+    background-color: #343a40 !important; 
+    color: #fff !important;
+    
+    /* 选中时无边框，只保留柔和的扩散投影 */
+    box-shadow: 0 4px 15px rgba(52, 58, 64, 0.3);
+}
+
+/* --- 徽标优化 --- */
+.tag-pill.special-all-tab .tag-count-badge {
+    margin-left: 8px !important;
+    padding: 2px 8px !important;
+    border-radius: 10px;
+    font-size: 0.75em;
+    font-weight: 600;
+}
+/* 未选中时徽标淡一点 */
+.tag-pill.special-all-tab:not(.active) .tag-count-badge {
+    background-color: #f1f3f5;
+    color: #666;
+}
+/* 选中时徽标半透明 */
+.tag-pill.special-all-tab.active .tag-count-badge {
+    background-color: rgba(255,255,255,0.2) !important;
+    color: #fff !important;
+}
+
+/* --- 消除点击时的蓝色轮廓 --- */
+.tag-pill.special-all-tab:focus {
+    box-shadow: none !important;
+}
