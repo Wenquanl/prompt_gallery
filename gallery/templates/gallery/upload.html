@@ -2,6 +2,164 @@
 {% load static %}
 
 {% block content %}
+<style>
+    /* === 1. 生成模型选择卡片 (Model Selector) - 纯文字版 === */
+    .model-selector-container {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+        gap: 12px; /* 间距稍微调小一点 */
+        margin-bottom: 20px;
+    }
+
+    .model-card-label {
+        cursor: pointer;
+        position: relative;
+        width: 100%;
+        margin: 0;
+    }
+
+    /* 隐藏原生 Radio */
+    .model-card-input {
+        position: absolute;
+        opacity: 0;
+        pointer-events: none;
+    }
+
+    /* 卡片本体 */
+    .model-card-inner {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 16px 10px; /* 调整内边距，去掉图标后不需要那么高 */
+        background: white;
+        border: 1px solid #dee2e6; /* 边框稍微细一点 */
+        border-radius: 12px; /* 圆角稍微收一点 */
+        transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+        text-align: center;
+        height: 100%;
+        color: #495057;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .model-card-text {
+        font-weight: 600;
+        font-size: 0.95rem; /* 字体稍微加大一点点 */
+        transition: color 0.2s;
+        z-index: 2;
+    }
+
+    /* 选中状态指示器 (右上角钩子) */
+    .model-check-badge {
+        position: absolute;
+        top: 6px;
+        right: 6px;
+        width: 18px;
+        height: 18px;
+        background: var(--bs-primary);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-size: 0.65rem;
+        opacity: 0;
+        transform: scale(0);
+        transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+        z-index: 3;
+    }
+
+    /* --- 交互动效 --- */
+    
+    /* 悬停效果 */
+    .model-card-label:hover .model-card-inner {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+        border-color: #adb5bd;
+        background: #f8f9fa;
+    }
+
+    /* 选中效果 */
+    .model-card-input:checked + .model-card-inner {
+        border-color: var(--bs-primary);
+        background-color: rgba(13, 110, 253, 0.05); /* 极淡的主题色背景 */
+        box-shadow: 0 4px 15px rgba(13, 110, 253, 0.15);
+        transform: translateY(-1px);
+        font-weight: bold;
+    }
+
+    .model-card-input:checked + .model-card-inner .model-card-text {
+        color: var(--bs-primary);
+    }
+
+    .model-card-input:checked + .model-card-inner .model-check-badge {
+        opacity: 1;
+        transform: scale(1);
+    }
+
+
+    /* === 2. 标签选择胶囊 (Tag Pills) === */
+    .tag-selector-container {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-bottom: 10px;
+    }
+
+    .tag-pill-label {
+        cursor: pointer;
+        user-select: none;
+    }
+
+    .tag-pill-input {
+        display: none; /* 隐藏原生 Checkbox */
+    }
+
+    .tag-pill-inner {
+        display: inline-flex;
+        align-items: center;
+        padding: 8px 16px;
+        background: #f8f9fa;
+        border: 1px solid #e9ecef;
+        border-radius: 50px;
+        color: #6c757d;
+        font-weight: 500;
+        font-size: 0.9rem;
+        transition: all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    }
+
+    .tag-pill-inner i {
+        margin-right: 6px;
+        font-size: 0.8rem;
+        opacity: 0.5;
+        transition: opacity 0.2s;
+    }
+
+    /* 悬停 */
+    .tag-pill-label:hover .tag-pill-inner {
+        background: #e9ecef;
+        transform: translateY(-1px);
+    }
+
+    /* 选中状态 */
+    .tag-pill-input:checked + .tag-pill-inner {
+        background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+        border-color: transparent;
+        color: white;
+        box-shadow: 0 4px 10px rgba(79, 172, 254, 0.3);
+        transform: scale(1.05);
+    }
+
+    .tag-pill-input:checked + .tag-pill-inner i {
+        opacity: 1;
+    }
+    
+    /* 点击瞬间的缩小反馈 (Active) */
+    .tag-pill-label:active .tag-pill-inner {
+        transform: scale(0.95);
+    }
+</style>
+
 <div class="container my-5">
     <div class="mb-4">
         <a href="{{ next_url|default:'/' }}" class="btn btn-light rounded-pill px-3 shadow-sm text-secondary" style="transition: transform 0.2s;">
@@ -108,18 +266,26 @@
                     </div>
 
                     <div class="mb-4">
-                        <label class="form-label fw-bold">选择生成模型 <span class="text-danger">*</span></label>
-                        <div class="model-selection-area">
+                        <label class="form-label fw-bold"><i class="bi bi-robot me-2"></i>选择生成模型 <span class="text-danger">*</span></label>
+                        
+                        <div class="model-selector-container">
                             {% for radio in form.model_info %}
-                                {{ radio.tag.as_widget|safe|cut:"class=" }} 
-                                <input type="radio" name="{{ radio.data.name }}" value="{{ radio.data.value }}" 
-                                       class="model-radio-input" id="{{ radio.id_for_label }}"
-                                       {% if radio.data.selected %}checked{% endif %}>
-                                <label class="model-radio-label" for="{{ radio.id_for_label }}">
-                                    {{ radio.choice_label }}
+                                <label class="model-card-label" for="{{ radio.id_for_label }}">
+                                    <input type="radio" name="{{ radio.data.name }}" value="{{ radio.data.value }}" 
+                                           class="model-card-input" id="{{ radio.id_for_label }}"
+                                           {% if radio.data.selected %}checked{% endif %}>
+                                    
+                                    <div class="model-card-inner">
+                                        <div class="model-card-text">{{ radio.choice_label }}</div>
+                                        
+                                        <div class="model-check-badge">
+                                            <i class="bi bi-check-lg"></i>
+                                        </div>
+                                    </div>
                                 </label>
                             {% endfor %}
                         </div>
+                        {% if form.model_info.errors %}<div class="text-danger small mt-1">{{ form.model_info.errors.0 }}</div>{% endif %}
                     </div>
 
                     <div class="mb-4">
@@ -136,16 +302,23 @@
                     </div>
 
                     <div class="mb-5">
-                        <label class="form-label fw-bold">关联标签</label>
-                        <div class="tag-selection-area">
+                        <label class="form-label fw-bold"><i class="bi bi-tags me-2"></i>关联标签</label>
+                        
+                        <div class="tag-selector-container">
                             {% for checkbox in form.tags %}
-                                {{ checkbox.tag.as_widget|safe|cut:"class=" }} 
-                                <input type="checkbox" name="{{ checkbox.data.name }}" value="{{ checkbox.data.value }}" 
-                                       class="tag-check-input" id="{{ checkbox.id_for_label }}"
-                                       {% if checkbox.data.selected %}checked{% endif %}>
-                                <label class="tag-check-label" for="{{ checkbox.id_for_label }}">{{ checkbox.choice_label }}</label>
+                                <label class="tag-pill-label" for="{{ checkbox.id_for_label }}">
+                                    <input type="checkbox" name="{{ checkbox.data.name }}" value="{{ checkbox.data.value }}" 
+                                           class="tag-pill-input" id="{{ checkbox.id_for_label }}"
+                                           {% if checkbox.data.selected %}checked{% endif %}>
+                                    
+                                    <span class="tag-pill-inner">
+                                        <i class="bi bi-hash"></i>
+                                        {{ checkbox.choice_label }}
+                                    </span>
+                                </label>
                             {% endfor %}
                         </div>
+                        <div class="form-text text-muted small">点击可多选，选中的标签将高亮显示。</div>
                     </div>
 
                     <div class="d-grid">

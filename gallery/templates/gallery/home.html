@@ -2,6 +2,39 @@
 {% load static %}
 
 {% block content %}
+<style>
+    /* === 标签栏样式优化：支持自动换行 === */
+    .tags-bar-wrapper {
+        padding: 10px 0;
+        overflow: visible; /* 允许高度撑开 */
+    }
+    .tags-wrap-container {
+        display: flex;
+        flex-wrap: wrap; /* 关键：允许换行 */
+        gap: 8px;       /* 标签间距 */
+        padding: 0 15px;
+        align-items: center;
+    }
+    /* 添加模型按钮样式 */
+    .btn-add-model {
+        width: 32px; height: 32px;
+        border-radius: 50%;
+        border: 1px dashed #adb5bd;
+        background: rgba(255,255,255,0.5);
+        color: #6c757d;
+        display: flex; align-items: center; justify-content: center;
+        cursor: pointer;
+        transition: all 0.2s;
+        padding: 0;
+    }
+    .btn-add-model:hover {
+        border-color: var(--primary-color);
+        color: var(--primary-color);
+        background: white;
+        transform: scale(1.05);
+    }
+</style>
+
 <div class="container py-5">
     {% if not search_query and not current_filter and not image_search_active %}
     <div class="row justify-content-center hero-section">
@@ -14,7 +47,7 @@
 
     {% if tags_bar %}
     <div class="tags-bar-wrapper">
-        <div class="tags-scroll-container">
+        <div class="tags-wrap-container">
             <a href="{% url 'home' %}" 
                 class="tag-pill special-all-tab {% if not search_query and not image_search_active %}active{% endif %}">
                 <i class="bi bi-grid-fill me-1"></i> 全部
@@ -22,6 +55,7 @@
             </a>
 
             <div class="tags-divider"></div>
+            
             {% for tag in tags_bar %}
                 {% if tag.is_model == 1 %}
                 <a href="/?q={{ tag.name }}" 
@@ -32,6 +66,10 @@
                 </a>
                 {% endif %}
             {% endfor %}
+            
+            <button class="btn-add-model" onclick="openAddModelModal()" title="添加新模型标签">
+                <i class="bi bi-plus-lg"></i>
+            </button>
         </div>
     </div>
     {% endif %}
@@ -134,6 +172,21 @@
         </div>
     </div>
 </div>
+
+<div class="modal fade" id="addModelModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+        <div class="modal-content border-0 shadow-lg rounded-4">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title fw-bold">添加新模型</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="text" id="newModelNameInput" class="form-control rounded-pill mb-3" placeholder="例如: Midjourney v6">
+                <button onclick="submitAddModel()" class="btn btn-primary w-100 rounded-pill">确认添加</button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
@@ -142,5 +195,43 @@
     
     <script id="current-filter-data" type="application/json">
         {% if current_filter == 'liked' %}true{% else %}false{% endif %}
+    </script>
+    
+    <script>
+        // === 添加模型相关的逻辑 ===
+        const addModelModal = new bootstrap.Modal(document.getElementById('addModelModal'));
+        
+        function openAddModelModal() {
+            document.getElementById('newModelNameInput').value = '';
+            addModelModal.show();
+            // 聚焦输入框
+            setTimeout(() => document.getElementById('newModelNameInput').focus(), 300);
+        }
+        
+        function submitAddModel() {
+            const name = document.getElementById('newModelNameInput').value.trim();
+            if(!name) return;
+            
+            const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
+            
+            fetch('/add-model/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken
+                },
+                body: JSON.stringify({ name: name })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if(data.status === 'success') {
+                    addModelModal.hide();
+                    window.location.reload(); // 刷新以显示新标签
+                } else {
+                    alert(data.message || '添加失败');
+                }
+            })
+            .catch(err => alert('网络错误'));
+        }
     </script>
 {% endblock %}

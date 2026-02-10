@@ -1142,3 +1142,20 @@ def set_main_variant(request, pk):
     target.save()
     
     return JsonResponse({'status': 'success'})
+
+@require_POST
+def add_ai_model(request):
+    try:
+        data = json.loads(request.body)
+        name = data.get('name', '').strip()
+        if not name:
+             return JsonResponse({'status': 'error', 'message': '模型名称不能为空'})
+        
+        # 创建 AIModel (显示在侧边栏/顶部)
+        AIModel.objects.get_or_create(name=name)
+        # 同时创建 Tag (用于搜索关联)
+        Tag.objects.get_or_create(name=name)
+        
+        return JsonResponse({'status': 'success'})
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': str(e)})
