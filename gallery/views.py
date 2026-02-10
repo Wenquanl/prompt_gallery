@@ -10,6 +10,7 @@ from django.contrib import messages
 from django.conf import settings
 from django.http import JsonResponse
 from django.db.models import Q, Count, Case, When, IntegerField, Max, Prefetch
+from django.core.files.base import ContentFile
 from django.core.paginator import Paginator
 from django.views.decorators.http import require_GET, require_POST
 from django.core.cache import cache
@@ -411,6 +412,48 @@ def upload(request):
             m_tag, _ = Tag.objects.get_or_create(name=model_name_str)
             group.tags.add(m_tag)
 
+        source_group_id = request.POST.get('source_group_id')
+        print(f"DEBUG: 尝试克隆参考图，Source ID: {source_group_id}") # 调试打印 1
+        
+        if source_group_id:
+            try:
+                source_group = PromptGroup.objects.get(pk=source_group_id)
+                refs = source_group.references.all()
+                print(f"DEBUG: 找到源参考图数量: {refs.count()}") # 调试打印 2
+                
+                for ref in refs:
+                    if ref.image:
+                        print(f"DEBUG: 正在复制图片: {ref.image.name}") # 调试打印 3
+                        
+                        # 创建新对象
+                        new_ref = ReferenceItem(group=group)
+                        
+                        # 显式打开文件（使用 with 语句更安全）
+                        try:
+                            # 必须确保文件存在
+                            if not ref.image.storage.exists(ref.image.name):
+                                print(f"DEBUG: 原文件不存在于磁盘: {ref.image.name}")
+                                continue
+
+                            with ref.image.open('rb') as f:
+                                # 读取内容
+                                file_content = ContentFile(f.read())
+                                # 生成新文件名
+                                original_name = os.path.basename(ref.image.name)
+                                # 保存
+                                new_ref.image.save(f"copy_{original_name}", file_content, save=True)
+                                print("DEBUG: 复制成功")
+                                
+                        except Exception as inner_e:
+                            print(f"DEBUG: 复制单个文件失败: {inner_e}")
+                            # 这里不要 raise，防止一张图失败导致整个流程失败
+                            # 但一定要打印出来看是什么错
+
+            except PromptGroup.DoesNotExist:
+                print("DEBUG: 源组 ID 未找到")
+        else:
+            print("DEBUG: 未接收到 source_group_id，前端可能未传递")
+
         created_image_ids = []
         
         direct_files = request.FILES.getlist('upload_images')
@@ -473,7 +516,26 @@ def upload(request):
                 except Exception as e:
                     print(f"Error reading temp dir: {e}")
         
-        form = PromptGroupForm()
+        # === 【新增】处理 template_id 预填充 ===
+        template_id = request.GET.get('template_id')
+        initial_data = {}
+        source_group = None
+        
+        if template_id:
+            try:
+                source_group = PromptGroup.objects.get(pk=template_id)
+                initial_data = {
+                    'title': source_group.title, # 可以选择加上 ' (新模型)' 后缀
+                    'prompt_text': source_group.prompt_text,
+                    'prompt_text_zh': source_group.prompt_text_zh,
+                    'negative_prompt': source_group.negative_prompt,
+                    'tags': source_group.tags.all(),
+                    # 注意：不预填充 model_info，强制用户选择新模型
+                }
+            except PromptGroup.DoesNotExist:
+                pass
+
+        form = PromptGroupForm(initial=initial_data)
         existing_titles = PromptGroup.objects.values_list('title', flat=True).distinct().order_by('title')
         all_models = AIModel.objects.all()
 
@@ -484,7 +546,8 @@ def upload(request):
             'existing_titles': existing_titles,
             'all_models': all_models,
             'batch_id': batch_id,
-            'temp_files': temp_files_json
+            'temp_files': temp_files_json,
+            'source_group': source_group,
         })
 
 
@@ -843,7 +906,7 @@ def group_list_api(request):
     target_ids = [ (item['main_id'] or item['max_id']) for item in group_stats ]
     # 建立 ID -> Count 映射
     count_map = { (item['main_id'] or item['max_id']): item['count'] for item in group_stats }
-    final_qs = PromptGroup.objects.filter(id__in=latest_ids).order_by('-id')
+    final_qs = PromptGroup.objects.filter(id__in=target_ids).order_by('-id')
     
     paginator = Paginator(final_qs, 20)
     page = paginator.get_page(page_num)

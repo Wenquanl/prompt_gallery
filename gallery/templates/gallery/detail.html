@@ -732,7 +732,7 @@
 
                 <div class="prompt-card p-4">
                     <div class="section-header mb-3 d-flex justify-content-between align-items-center">
-                        <span class="section-label text-info">参考图 (References)</span>
+                        <span class="section-label text-info">参考图</span>
                     </div>
 
                     <div class="row row-cols-3 g-2" id="reference-grid">
@@ -767,7 +767,7 @@
 
                 <div class="prompt-card p-4">
                     <div class="section-header">
-                        <span class="section-label text-success">中文/辅助提示词</span>
+                        <span class="section-label text-success">辅助提示词1</span>
                         <div class="d-flex align-items-center gap-2">
                             <button onclick="enableEdit('promptTextZh', this)" class="btn btn-sm btn-outline-secondary rounded-pill px-3 btn-edit-prompt"><i class="bi bi-pencil me-1"></i>编辑</button>
                             <div class="edit-actions" style="display:none;">
@@ -782,7 +782,7 @@
 
                 <div class="prompt-card p-4">
                     <div class="section-header">
-                        <span class="section-label text-danger">Negative Prompt</span>
+                        <span class="section-label text-danger">辅助提示词2</span>
                         <div class="d-flex align-items-center gap-2">
                             <button onclick="enableEdit('negPrompt', this)" class="btn btn-sm btn-outline-secondary rounded-pill px-3 btn-edit-prompt"><i class="bi bi-pencil me-1"></i>编辑</button>
                             <div class="edit-actions" style="display:none;">
@@ -897,8 +897,11 @@
 
                 <div class="prompt-card p-4">
                     <div class="section-header">
-                        <span class="section-label text-primary">Model Info / 参数</span>
+                        <span class="section-label text-primary">参数</span>
                         <div class="d-flex align-items-center gap-2">
+                            <a href="{% url 'upload' %}?template_id={{ group.pk }}" class="btn btn-sm btn-outline-primary rounded-pill px-3" title="使用当前提示词和参考图，更换模型重新生成">
+                                <i class="bi bi-git me-1"></i>新模型版本
+                            </a>
                             <button onclick="enableEdit('modelInfo', this)" class="btn btn-sm btn-outline-secondary rounded-pill px-3 btn-edit-prompt"><i class="bi bi-pencil me-1"></i>编辑</button>
                             <div class="edit-actions" style="display:none;">
                                 <button onclick="savePrompt('modelInfo', {{ group.pk }}, 'model')" class="btn btn-sm btn-success rounded-pill px-3 me-1" title="保存"><i class="bi bi-check-lg"></i></button>

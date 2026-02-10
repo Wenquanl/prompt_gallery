@@ -8,7 +8,8 @@ let currentPage = 1;
 let currentQuery = '';
 let isLoading = false;
 let IS_LIKED_FILTER = false;
-
+const templateModal = new bootstrap.Modal(document.getElementById('templateSelectModal'));
+let templateSearchTimeout;
 document.addEventListener('DOMContentLoaded', function() {
     // 读取 Django 传递的数据
     const filterScript = document.getElementById('current-filter-data');
@@ -303,4 +304,64 @@ function clearMergeSelection() {
         card.classList.remove('border-primary', 'bg-primary', 'bg-opacity-10');
         card.classList.add('border-0', 'bg-white');
     });
+}
+
+function openTemplateModal() {
+    templateModal.show();
+    // 自动聚焦输入框
+    setTimeout(() => document.getElementById('templateSearchInput').focus(), 500);
+}
+
+function debounceSearchTemplate() {
+    clearTimeout(templateSearchTimeout);
+    templateSearchTimeout = setTimeout(searchTemplates, 300);
+}
+
+function searchTemplates() {
+    const query = document.getElementById('templateSearchInput').value.trim();
+    const resultsContainer = document.getElementById('templateSearchResults');
+    
+    if (!query) {
+        resultsContainer.innerHTML = '<div class="text-center text-muted py-3 small">请输入关键词搜索</div>';
+        return;
+    }
+
+    resultsContainer.innerHTML = '<div class="text-center text-muted py-3"><div class="spinner-border spinner-border-sm text-primary"></div></div>';
+
+    fetch(`/api/groups/?q=${encodeURIComponent(query)}`)
+        .then(response => response.json())
+        .then(data => {
+            if (!data.results || data.results.length === 0) {
+                resultsContainer.innerHTML = '<div class="text-center text-muted py-3 small">未找到匹配的卡片</div>';
+                return;
+            }
+
+            let html = '<div class="list-group list-group-flush">';
+            data.results.forEach(group => {
+                // 构建封面图 HTML
+                let imgHtml = group.cover_url 
+                    ? `<img src="${group.cover_url}" class="rounded me-3" style="width: 48px; height: 48px; object-fit: cover;">`
+                    : `<div class="rounded me-3 d-flex align-items-center justify-content-center bg-light text-muted" style="width: 48px; height: 48px;"><i class="bi bi-image"></i></div>`;
+
+                html += `
+                    <a href="/upload/?template_id=${group.id}" class="list-group-item list-group-item-action d-flex align-items-center p-2 border-0 rounded mb-1">
+                        ${imgHtml}
+                        <div class="flex-grow-1 overflow-hidden">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <h6 class="mb-0 text-truncate text-dark">${group.title || '未命名'}</h6>
+                                <span class="badge bg-light text-secondary border fw-normal">${group.model_info || '无模型'}</span>
+                            </div>
+                            <small class="text-muted text-truncate d-block" style="font-size: 0.8rem;">${group.prompt_text || '无提示词'}</small>
+                        </div>
+                        <i class="bi bi-chevron-right text-muted ms-2" style="font-size: 0.8rem;"></i>
+                    </a>
+                `;
+            });
+            html += '</div>';
+            resultsContainer.innerHTML = html;
+        })
+        .catch(err => {
+            console.error(err);
+            resultsContainer.innerHTML = '<div class="text-center text-danger py-3 small">搜索出错</div>';
+        });
 }

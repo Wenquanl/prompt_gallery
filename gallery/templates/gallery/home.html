@@ -103,6 +103,10 @@
             style="pointer-events: auto; width: 48px; height: 48px; border-radius: 50%; background: #fff; border: none; transition: transform 0.2s;">
         <i class="bi bi-shield-check fs-5 text-success"></i>
     </button>
+    <button class="btn-float-action shadow" onclick="openTemplateModal()" title="基于现有卡片新建 (更换模型)" 
+            style="pointer-events: auto; width: 48px; height: 48px; border-radius: 50%; background: #fff; border: none; transition: transform 0.2s;">
+        <i class="bi bi-git fs-5 text-secondary"></i>
+    </button>
 </div>
 
 {% endblock %}
@@ -110,6 +114,26 @@
 {% block modals %}
     {% include 'gallery/components/modal_check_duplicates.html' with modal_id="checkDuplicatesModal" %}
     {% include 'gallery/components/modal_merge.html' %}
+<div class="modal fade" id="templateSelectModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title fw-bold">选择模板卡片</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small mb-3">搜索现有的卡片，使用其提示词和参考图作为新创作的模板。</p>
+                <div class="position-relative mb-3">
+                    <input type="text" id="templateSearchInput" class="form-control rounded-pill ps-4" placeholder="搜索标题或提示词..." oninput="debounceSearchTemplate()">
+                    <i class="bi bi-search position-absolute top-50 end-0 translate-middle-y me-3 text-muted"></i>
+                </div>
+                <div id="templateSearchResults" class="custom-scrollbar" style="max-height: 400px; overflow-y: auto;">
+                    <div class="text-center text-muted py-3 small">请输入关键词搜索</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
