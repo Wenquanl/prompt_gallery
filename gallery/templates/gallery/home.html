@@ -389,5 +389,35 @@
                 loading.style.display = 'none';
             });
         }
+        document.addEventListener('DOMContentLoaded', () => {
+        // 1. 初始化交叉观察器
+        const cardObserver = new IntersectionObserver((entries, observer) => {
+            entries.forEach(entry => {
+                // 如果卡片进入了屏幕可视区域 (甚至还差 50px 就要进入时)
+                if (entry.isIntersecting) {
+                    // 加上动画触发类名
+                    entry.target.classList.add('animate-show');
+                    // 动画执行一次后就取消观察，节省性能
+                    observer.unobserve(entry.target); 
+                }
+            });
+        }, {
+            root: null,
+            threshold: 0.1, // 卡片露出 10% 时触发
+            rootMargin: "0px 0px -50px 0px" // 提前 50px 触发，让用户感觉不到延迟
+        });
+
+        // 2. 找到所有的卡片并开始观察
+        const cards = document.querySelectorAll('.gallery-card');
+        
+        // 可选：为了让第一屏的卡片有一点错落有致的梯次感，我们可以加个极短的微小延迟
+        cards.forEach((card, index) => {
+            // 前 10 张卡片根据索引稍微延迟一点点出现 (每张错开 50 毫秒)
+            if (index < 10) {
+                card.style.transitionDelay = `${index * 50}ms`;
+            }
+            cardObserver.observe(card);
+        });
+    });
     </script>
 {% endblock %}

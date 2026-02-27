@@ -2080,3 +2080,20 @@ a { text-decoration: none; }
 .tag-pill.special-all-tab:focus {
     box-shadow: none !important;
 }
+
+/* === 瀑布流卡片入场动画基础状态 === */
+    
+    .gallery-card {
+        opacity: 0; /* 初始完全透明 */
+        transform: translateY(40px); /* 初始位置向下偏移 40px */
+        /* 使用贝塞尔曲线让过渡效果极其平滑柔和 */
+        transition: opacity 0.6s cubic-bezier(0.25, 0.8, 0.25, 1), 
+                    transform 0.6s cubic-bezier(0.25, 0.8, 0.25, 1);
+        will-change: opacity, transform; /* 开启硬件加速，防止掉帧 */
+    }
+
+    /* 当卡片进入视野后被 JS 加上这个类名，触发动画 */
+    .gallery-card.animate-show {
+        opacity: 1;
+        transform: translateY(0);
+    }
