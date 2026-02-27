@@ -5,6 +5,8 @@ import uuid
 import json
 import re
 import shutil
+import fal_client
+import requests
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
 from django.conf import settings
@@ -1159,3 +1161,83 @@ def add_ai_model(request):
         return JsonResponse({'status': 'success'})
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)})
+    
+@csrf_exempt
+@require_POST
+def api_generate_and_download(request):
+    """
+    仅调用 fal.ai 生成图片，并直接保存到本地操作系统的“下载”目录
+    不写入数据库
+    """
+    try:
+        # 1. 获取前端传来的提示词和图片
+        prompt = request.POST.get('prompt', '').strip()
+        base_image_files = request.FILES.getlist('base_images') 
+
+        if not prompt or not base_image_files:
+            return JsonResponse({'status': 'error', 'message': '提示词和至少一张参考图片不能为空'})
+
+        if len(base_image_files) > 10:
+             base_image_files = base_image_files[:10]
+
+        os.environ["FAL_KEY"] = os.getenv("FAL_KEY", "")
+
+        # 2. 上传参考图到 fal.ai 临时存储
+        uploaded_image_urls = []
+        print(f"开始上传 {len(base_image_files)} 张参考图到 fal.ai...")
+        for file in base_image_files:
+            url = fal_client.upload(file.read(), file.content_type)
+            uploaded_image_urls.append(url)
+
+        print("调用模型处理中...")
+        
+        # 3. 调用 fal.ai 接口
+        result = fal_client.subscribe(
+            "fal-ai/bytedance/seedream/v5/lite/edit",
+            arguments={
+                "prompt": prompt,
+                "image_urls": uploaded_image_urls,
+                "image_size": "auto_2K",
+                "num_images": 1,
+                "enable_safety_checker": False,
+            }
+        )
+        
+        gen_image_url = result['images'][0]['url']
+        print(f"生成完毕，开始下载: {gen_image_url}")
+
+        # 4. 下载生成的图片数据
+        print(f"正在尝试下载 (忽略证书校验): {gen_image_url}")
+        image_response = requests.get(
+            gen_image_url, 
+            verify=False,    # 核心：关闭 SSL 校验
+            timeout=60       # 设置 60 秒超时，防止死等
+        )
+        if image_response.status_code != 200:
+            return JsonResponse({'status': 'error', 'message': '生成图片下载失败'})
+
+        # ==========================================
+        # 5. 核心：直接保存到本地操作系统的 Downloads 目录
+        # ==========================================
+        # 获取当前用户的宿主目录，并拼接 Downloads 文件夹 (兼容 Win/Mac)
+        downloads_dir = r"G:\CommonData\图片\Imagegeneration_API"
+        os.makedirs(downloads_dir, exist_ok=True) # 确保目录存在，如果没有会自动创建
+        
+        # 用时间戳给文件命名，防止重名
+        file_name = f"AI_Gen_{int(time.time())}.png"
+        file_path = os.path.join(downloads_dir, file_name)
+        
+        # 写入物理硬盘
+        with open(file_path, 'wb') as f:
+            f.write(image_response.content)
+
+        return JsonResponse({
+            'status': 'success',
+            'message': f'保存成功！已下载到: {file_path}',
+            'image_url': gen_image_url # 返回云端URL给前端预览用
+        })
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)

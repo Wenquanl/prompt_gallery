@@ -38,4 +38,7 @@ urlpatterns = [
     path('api/set-cover/<int:group_id>/<int:image_id>/', views.set_group_cover, name='set_group_cover'),
     path('api/similar-groups/<int:pk>/', views.get_similar_candidates, name='get_similar_candidates'),
     path('api/set-main/<int:pk>/', views.set_main_variant, name='set_main_variant'),
+
+    path('api/generate-direct/', views.api_generate_and_download, name='api_generate_direct'),
+
 ]
