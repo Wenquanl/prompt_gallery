@@ -196,19 +196,45 @@
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content border-0 shadow-lg rounded-4">
             <div class="modal-header border-0 pb-0 mt-2">
-                <h5 class="modal-title fw-bold"><i class="bi bi-magic me-2" style="color: #8a2be2;"></i>AI 多图融合编辑</h5>
+                <h5 class="modal-title fw-bold"><i class="bi bi-magic me-2" style="color: #8a2be2;"></i>AI 创作中心</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
+                
                 <div class="mb-3">
-                    <label class="form-label text-muted fw-bold">1. 上传参考图 (最多 10 张)</label>
-                    <input class="form-control" type="file" id="seedream-images" accept="image/*" multiple>
-                    <small class="text-muted d-block mt-1">按住 Ctrl / Command 键可多选。例如：图1选产品，图2选Logo。</small>
+                    <label class="form-label text-muted fw-bold">1. 选择具体模型</label>
+                    <select class="form-select border-primary fw-bold" id="ai-model-select" onchange="toggleAIModelUI()">
+                        
+                        <optgroup label="🟠 纯文本 · 文生图 (无需传图)">
+                            <option value="flux-dev" data-category="t2i" selected>Flux Dev (推荐，质量极高)</option>
+                            <option value="flux-pro" data-category="t2i">Flux Pro (专业级)</option>
+                            <option value="sd3-medium" data-category="t2i">Stable Diffusion 3 Medium</option>
+                        </optgroup>
+                        
+                        <optgroup label="🔵 单图 · 图生图 (传1张图)">
+                            <option value="flux-dev-i2i" data-category="i2i">Flux Dev 图生图</option>
+                            <option value="sd3-img2img" data-category="i2i">SD3 图生图</option>
+                        </optgroup>
+                        
+                        <optgroup label="🟢 多图 · 融合编辑 (最多10张)">
+                            <option value="seedream-lite-edit" data-category="multi">Bytedance Seedream 5.0 Lite</option>
+                            <option value="nano-banana-2-edit" data-category="multi">Bytedance Nano Banana 2.0</option>
+                        </optgroup>
+                        
+                    </select>
                 </div>
+
+                <div class="mb-3" id="ai-image-upload-block" style="display: none;">
+                    <label class="form-label text-muted fw-bold">2. 上传参考图</label>
+                    <input class="form-control" type="file" id="seedream-images" accept="image/*">
+                    <small class="text-muted d-block mt-1" id="ai-img-help"></small>
+                </div>
+
                 <div class="mb-4">
-                    <label class="form-label text-muted fw-bold">2. 填写编辑提示词 (Prompt)</label>
-                    <textarea id="seedream-prompt" class="form-control" rows="4" placeholder="例如：将图1中的产品替换为图2的样式，并将背景变成赛博朋克风格城市..."></textarea>
+                    <label class="form-label text-muted fw-bold">3. 填写提示词 (Prompt)</label>
+                    <textarea id="seedream-prompt" class="form-control" rows="4" placeholder="例如：1girl, photorealistic, cinematic lighting..."></textarea>
                 </div>
+
                 <button id="btn-seedream-generate" class="btn btn-primary w-100 rounded-pill py-2 fw-bold" onclick="generateSeedream()">
                     🚀 开始生成并下载到本地
                 </button>
@@ -267,32 +293,56 @@
             })
             .catch(err => alert('网络错误'));
         }
-        // === 【新增】Seedream AI 生成逻辑 ===
+        // === 【新增】远端API 图片生成逻辑 ===
         const seedreamModal = new bootstrap.Modal(document.getElementById('seedreamModal'));
 
         function openSeedreamModal() {
-            // 每次打开清空输入和状态
             document.getElementById('seedream-images').value = '';
             document.getElementById('seedream-prompt').value = '';
             document.getElementById('seedream-loading').style.display = 'none';
             document.getElementById('btn-seedream-generate').disabled = false;
+            toggleAIModelUI(); // 每次打开重置UI
             seedreamModal.show();
         }
 
+        // 智能 UI 切换：根据选中项的 data-category 属性
+        function toggleAIModelUI() {
+            const selectEl = document.getElementById('ai-model-select');
+            const selectedOption = selectEl.options[selectEl.selectedIndex];
+            const category = selectedOption.getAttribute('data-category'); // 获取大类：t2i, i2i, multi
+
+            const imgBlock = document.getElementById('ai-image-upload-block');
+            const imgInput = document.getElementById('seedream-images');
+            const imgHelp = document.getElementById('ai-img-help');
+
+            if (category === 't2i') {
+                imgBlock.style.display = 'none'; // 隐藏图片上传
+            } else if (category === 'i2i') {
+                imgBlock.style.display = 'block';
+                imgInput.removeAttribute('multiple');
+                imgHelp.innerHTML = '当前为 <b class="text-primary">单图模式</b>：请上传 1 张参考图片。';
+            } else if (category === 'multi') {
+                imgBlock.style.display = 'block';
+                imgInput.setAttribute('multiple', 'multiple');
+                imgHelp.innerHTML = '当前为 <b class="text-success">多图模式</b>：按住 Ctrl / Command 键可多选 (最多10张)。';
+            }
+        }
+
         function generateSeedream() {
+            const selectEl = document.getElementById('ai-model-select');
+            const modelChoice = selectEl.value;
+            const category = selectEl.options[selectEl.selectedIndex].getAttribute('data-category');
+            
             const fileInput = document.getElementById('seedream-images');
             const promptText = document.getElementById('seedream-prompt').value;
 
-            if (fileInput.files.length === 0) {
-                Swal.fire('提示', '请至少上传一张参考图片！', 'warning');
-                return;
-            }
-            if (fileInput.files.length > 10) {
-                Swal.fire('提示', '最多只能上传 10 张参考图片！', 'warning');
+            // 基础校验
+            if (category !== 't2i' && fileInput.files.length === 0) {
+                Swal.fire('提示', '当前模型必须上传参考图片！', 'warning');
                 return;
             }
             if (!promptText.trim()) {
-                Swal.fire('提示', '请输入编辑提示词！', 'warning');
+                Swal.fire('提示', '请输入提示词！', 'warning');
                 return;
             }
 
@@ -303,12 +353,16 @@
             loading.style.display = 'block';
 
             const formData = new FormData();
-            for (let i = 0; i < fileInput.files.length; i++) {
-                formData.append('base_images', fileInput.files[i]);
-            }
+            formData.append('model_choice', modelChoice);
             formData.append('prompt', promptText);
+            
+            // 追加图片文件
+            if (category !== 't2i') {
+                for (let i = 0; i < fileInput.files.length; i++) {
+                    formData.append('base_images', fileInput.files[i]);
+                }
+            }
 
-            // 调用你后端的直接下载接口
             fetch('/api/generate-direct/', {
                 method: 'POST',
                 body: formData 
@@ -317,14 +371,13 @@
             .then(data => {
                 if (data.status === 'success') {
                     seedreamModal.hide();
-                    // 利用 SweetAlert2 直接在网页上预览云端刚刚生成的图片
                     Swal.fire({
                         title: '🎉 生成完毕！',
-                        text: data.message, // 会显示保存在本地 Downloads 里的路径
-                        imageUrl: data.image_url, // 展示 fal 返回的云端图
+                        text: data.message,
+                        imageUrl: data.image_url,
                         imageHeight: 300,
                         imageAlt: 'AI Generated Image',
-                        confirmButtonText: '知道了'
+                        confirmButtonText: 'OK'
                     });
                 } else {
                     Swal.fire('❌ 发生错误', data.message, 'error');
@@ -332,7 +385,7 @@
             })
             .catch(error => {
                 console.error('Error:', error);
-                Swal.fire('❌ 请求失败', '请查看后台终端是否有报错日志', 'error');
+                Swal.fire('❌ 请求失败', '网络错误或服务端报错，请查看后台', 'error');
             })
             .finally(() => {
                 btn.disabled = false;

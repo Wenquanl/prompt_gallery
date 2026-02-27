@@ -7,6 +7,8 @@ import re
 import shutil
 import fal_client
 import requests
+import warnings # 新增引入 warnings 模块
+from urllib3.exceptions import InsecureRequestWarning # 引入具体的警告类型
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
 from django.conf import settings
@@ -29,6 +31,53 @@ from .services import (
     trigger_background_processing,
     confirm_upload_images
 )
+
+# ==========================================
+# 核心：模型配置中心 (随时在这里无限添加新模型)
+# ==========================================
+warnings.filterwarnings("ignore", category=InsecureRequestWarning)
+MODEL_CONFIG = {
+    # --- 🟠 文生图 (t2i) ---
+    'flux-dev': {
+        'endpoint': 'fal-ai/flux/dev',
+        'category': 't2i',
+        'default_args': {"image_size": "landscape_4_3", "num_inference_steps": 28}
+    },
+    'flux-pro': {
+        'endpoint': 'fal-ai/flux/pro',
+        'category': 't2i',
+        'default_args': {"image_size": "landscape_4_3"}
+    },
+    'sd3-medium': {
+        'endpoint': 'fal-ai/stable-diffusion-v3-medium',
+        'category': 't2i',
+        'default_args': {"image_size": "landscape_4_3"}
+    },
+    
+    # --- 🔵 图生图 (i2i) ---
+    'flux-dev-i2i': {
+        'endpoint': 'fal-ai/flux/dev/image-to-image',
+        'category': 'i2i',
+        'default_args': {"strength": 0.75, "num_inference_steps": 28}
+    },
+    'sd3-img2img': {
+        'endpoint': 'fal-ai/stable-diffusion-v3-medium/image-to-image',
+        'category': 'i2i',
+        'default_args': {"strength": 0.75}
+    },
+
+    # --- 🟢 多图融合 (multi) ---
+    'seedream-lite-edit': {
+        'endpoint': 'fal-ai/bytedance/seedream/v5/lite/edit',
+        'category': 'multi',
+        'default_args': {"image_size": "auto_2K","num_images": 1,"max_images": 1,"enable_safety_checker": False,}
+    },
+    'nano-banana-2-edit': {
+        'endpoint': 'fal-ai/nano-banana-2/edit',
+        'category': 'multi',
+        'default_args': {"num_images": 1,"aspect_ratio": "9:16","output_format": "png","safety_tolerance": "6","resolution": "1K","limit_generations": True}
+    },
+}
 
 # ==========================================
 # 辅助函数
@@ -1165,76 +1214,75 @@ def add_ai_model(request):
 @csrf_exempt
 @require_POST
 def api_generate_and_download(request):
-    """
-    仅调用 fal.ai 生成图片，并直接保存到本地操作系统的“下载”目录
-    不写入数据库
-    """
     try:
-        # 1. 获取前端传来的提示词和图片
         prompt = request.POST.get('prompt', '').strip()
+        model_choice = request.POST.get('model_choice')
         base_image_files = request.FILES.getlist('base_images') 
 
-        if not prompt or not base_image_files:
-            return JsonResponse({'status': 'error', 'message': '提示词和至少一张参考图片不能为空'})
+        if not prompt:
+            return JsonResponse({'status': 'error', 'message': '提示词不能为空'})
+            
+        # 1. 查找模型配置
+        config = MODEL_CONFIG.get(model_choice)
+        if not config:
+            return JsonResponse({'status': 'error', 'message': f'未知的模型: {model_choice}'})
 
-        if len(base_image_files) > 10:
-             base_image_files = base_image_files[:10]
+        category = config['category']
+        endpoint = config['endpoint']
+        
+        # 准备 API 参数 (合并默认参数和 prompt)
+        api_args = config['default_args'].copy()
+        api_args['prompt'] = prompt
 
         os.environ["FAL_KEY"] = os.getenv("FAL_KEY", "")
 
-        # 2. 上传参考图到 fal.ai 临时存储
+        # 2. 自动处理图片上传逻辑
         uploaded_image_urls = []
-        print(f"开始上传 {len(base_image_files)} 张参考图到 fal.ai...")
-        for file in base_image_files:
-            url = fal_client.upload(file.read(), file.content_type)
-            uploaded_image_urls.append(url)
+        if category in ['i2i', 'multi']:
+            if not base_image_files:
+                return JsonResponse({'status': 'error', 'message': '该模型需要至少一张参考图片'})
+            
+            # 根据类别限制上传数量
+            limit = 10 if category == 'multi' else 1
+            files_to_upload = base_image_files[:limit]
+            
+            print(f"[{model_choice}] 开始上传 {len(files_to_upload)} 张参考图到 fal.ai...")
+            for file in files_to_upload:
+                url = fal_client.upload(file.read(), file.content_type)
+                uploaded_image_urls.append(url)
+                
+            # 将上传后的 URL 放入模型参数中 (注意区分单数 image_url 和复数 image_urls)
+            if category == 'i2i':
+                api_args['image_url'] = uploaded_image_urls[0]
+            else:
+                api_args['image_urls'] = uploaded_image_urls
 
-        print("调用模型处理中...")
+        print(f"正在调用模型: {endpoint} ...")
         
-        # 3. 调用 fal.ai 接口
-        result = fal_client.subscribe(
-            "fal-ai/bytedance/seedream/v5/lite/edit",
-            arguments={
-                "prompt": prompt,
-                "image_urls": uploaded_image_urls,
-                "image_size": "auto_2K",
-                "num_images": 1,
-                "enable_safety_checker": False,
-            }
-        )
+        # 3. 统一调用接口
+        result = fal_client.subscribe(endpoint, arguments=api_args)
         
         gen_image_url = result['images'][0]['url']
-        print(f"生成完毕，开始下载: {gen_image_url}")
+        print(f"云端生成完毕，开始下载: {gen_image_url}")
 
-        # 4. 下载生成的图片数据
-        print(f"正在尝试下载 (忽略证书校验): {gen_image_url}")
-        image_response = requests.get(
-            gen_image_url, 
-            verify=False,    # 核心：关闭 SSL 校验
-            timeout=60       # 设置 60 秒超时，防止死等
-        )
+        # 4. 下载并保存
+        image_response = requests.get(gen_image_url, verify=False, timeout=60)
         if image_response.status_code != 200:
-            return JsonResponse({'status': 'error', 'message': '生成图片下载失败'})
+            return JsonResponse({'status': 'error', 'message': f'下载失败，状态码: {image_response.status_code}'})
 
-        # ==========================================
-        # 5. 核心：直接保存到本地操作系统的 Downloads 目录
-        # ==========================================
-        # 获取当前用户的宿主目录，并拼接 Downloads 文件夹 (兼容 Win/Mac)
         downloads_dir = r"G:\CommonData\图片\Imagegeneration_API"
-        os.makedirs(downloads_dir, exist_ok=True) # 确保目录存在，如果没有会自动创建
+        os.makedirs(downloads_dir, exist_ok=True) 
         
-        # 用时间戳给文件命名，防止重名
-        file_name = f"AI_Gen_{int(time.time())}.png"
+        file_name = f"Gen_{model_choice}_{int(time.time())}.png" 
         file_path = os.path.join(downloads_dir, file_name)
         
-        # 写入物理硬盘
         with open(file_path, 'wb') as f:
             f.write(image_response.content)
 
         return JsonResponse({
             'status': 'success',
-            'message': f'保存成功！已下载到: {file_path}',
-            'image_url': gen_image_url # 返回云端URL给前端预览用
+            'message': f'已成功下载到:\n{file_path}',
+            'image_url': gen_image_url 
         })
 
     except Exception as e:
