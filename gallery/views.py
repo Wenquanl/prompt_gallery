@@ -1211,6 +1211,11 @@ def add_ai_model(request):
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)})
     
+@require_GET
+def create_view(request):
+    """渲染 AI 独立创作工作室页面"""
+    return render(request, 'gallery/create.html')
+
 @csrf_exempt
 @require_POST
 def api_generate_and_download(request):

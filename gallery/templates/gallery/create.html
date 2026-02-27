@@ -1,0 +1,473 @@
+{% extends 'gallery/base.html' %}
+{% load static %}
+
+{% block title %}AI 创作室 - Prompt Gallery{% endblock %}
+
+{% block extra_css %}
+<style>
+    body { background-color: #f8f9fa; }
+    
+    /* 左侧控制台样式 */
+    .control-panel {
+        background: #fff;
+        border-radius: 16px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.05);
+        padding: 24px;
+        height: calc(100vh - 100px); /* 减去导航栏高度 */
+        overflow-y: auto;
+    }
+
+    /* 拖拽上传区样式 */
+    .drag-drop-zone {
+        border: 2px dashed #dee2e6;
+        border-radius: 12px;
+        padding: 30px 20px;
+        text-align: center;
+        background: #fdfdfd;
+        transition: all 0.3s ease;
+        cursor: pointer;
+        position: relative;
+    }
+    .drag-drop-zone:hover, .drag-drop-zone.dragover {
+        border-color: #8a2be2;
+        background: #f6f0ff;
+    }
+    .drag-drop-zone i { font-size: 2rem; color: #adb5bd; transition: color 0.3s ease; }
+    .drag-drop-zone:hover i { color: #8a2be2; }
+    
+    /* 隐藏原生文件输入框 */
+    #file-input-hidden { display: none; }
+
+    /* 缩略图预览区 */
+    #preview-container { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 15px; }
+    .preview-item {
+        width: 60px; height: 60px;
+        border-radius: 8px;
+        object-fit: cover;
+        border: 1px solid #ddd;
+    }
+
+    /* 右侧画板区样式 */
+    .canvas-panel {
+        background: #e9ecef;
+        border-radius: 16px;
+        height: calc(100vh - 100px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+        overflow: hidden;
+        border: 1px solid #dee2e6;
+    }
+    
+    .canvas-placeholder {
+        text-align: center;
+        color: #adb5bd;
+    }
+    .canvas-placeholder i { font-size: 4rem; opacity: 0.5; }
+
+    /* 生成结果图 */
+    #result-image {
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+        display: none;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+    }
+
+    /* 生成中的扫描动画光效 */
+    .scanning-effect {
+        display: none;
+        position: absolute;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: linear-gradient(to bottom, rgba(138,43,226,0) 0%, rgba(138,43,226,0.1) 50%, rgba(138,43,226,0) 100%);
+        background-size: 100% 200%;
+        animation: scan 2s linear infinite;
+        z-index: 10;
+    }
+    @keyframes scan {
+        0% { background-position: 0 -100%; }
+        100% { background-position: 0 100%; }
+    }
+
+    /* === 优化后的模型选择卡片样式 === */
+    .model-category-tabs .nav-link {
+        border-radius: 30px;
+        color: #6c757d;
+        font-weight: 600;
+        padding: 8px 16px;
+        transition: all 0.2s;
+        border: 1px solid transparent;
+    }
+    .model-category-tabs .nav-link.active {
+        background-color: #8a2be2;
+        color: white;
+        box-shadow: 0 4px 10px rgba(138, 43, 226, 0.3);
+    }
+    .model-category-tabs .nav-link:hover:not(.active) {
+        border-color: #dee2e6;
+        background-color: #f8f9fa;
+    }
+    
+    .model-card {
+        border: 2px solid #e9ecef;
+        border-radius: 12px;
+        padding: 12px;
+        cursor: pointer;
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        height: 100%;
+        background: #fff;
+    }
+    .model-card:hover {
+        border-color: #bfa3ed;
+        background: #faf8ff;
+        transform: translateY(-2px);
+    }
+    .model-card.active {
+        border-color: #8a2be2;
+        background: #f4ecff;
+        box-shadow: 0 4px 12px rgba(138, 43, 226, 0.15);
+    }
+    .model-card-title {
+        font-weight: 700;
+        font-size: 0.95rem;
+        color: #343a40;
+        margin-bottom: 4px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+    .model-card-desc {
+        font-size: 0.75rem;
+        color: #6c757d;
+        margin: 0;
+        line-height: 1.3;
+    }
+    .model-card.active .model-card-title { color: #8a2be2; }
+    .model-card.active .check-icon { display: block !important; color: #8a2be2; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4 px-4">
+    <div class="row g-4">
+        
+        <div class="col-lg-4">
+            <div class="control-panel custom-scrollbar">
+                <h4 class="fw-bold mb-4"><i class="bi bi-sliders me-2" style="color:#8a2be2;"></i>创作控制台</h4>
+                
+                <div class="mb-4">
+                    <label class="form-label fw-bold text-secondary small">1. 核心模型引擎</label>
+                    
+                    <input type="hidden" id="ai-model-select" value="flux-dev">
+                    <input type="hidden" id="ai-category-select" value="t2i">
+
+                    <ul class="nav nav-pills nav-fill mb-3 model-category-tabs" id="modelTabs" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-t2i" type="button" onclick="switchCategory('t2i')">文生图</button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-i2i" type="button" onclick="switchCategory('i2i')">图生图</button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-multi" type="button" onclick="switchCategory('multi')">多图融合</button>
+                        </li>
+                    </ul>
+
+                    <div class="tab-content" id="modelTabsContent">
+                        
+                        <div class="tab-pane fade show active" id="tab-t2i" role="tabpanel">
+                            <div class="row g-2">
+                                <div class="col-6">
+                                    <div class="model-card active" onclick="selectModel('flux-dev', 't2i', this)">
+                                        <div class="model-card-title">Flux Dev <i class="bi bi-check-circle-fill check-icon" style="display:none;"></i></div>
+                                        <p class="model-card-desc">推荐，生成质量极高，语义理解精准</p>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="model-card" onclick="selectModel('flux-pro', 't2i', this)">
+                                        <div class="model-card-title">Flux Pro <i class="bi bi-check-circle-fill check-icon" style="display:none;"></i></div>
+                                        <p class="model-card-desc">专业级旗舰模型，细节表现完美</p>
+                                    </div>
+                                </div>
+                                <div class="col-12">
+                                    <div class="model-card" onclick="selectModel('sd3-medium', 't2i', this)">
+                                        <div class="model-card-title">SD3 Medium <i class="bi bi-check-circle-fill check-icon" style="display:none;"></i></div>
+                                        <p class="model-card-desc">Stable Diffusion 3 经典多模态版本</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="tab-pane fade" id="tab-i2i" role="tabpanel">
+                            <div class="row g-2">
+                                <div class="col-6">
+                                    <div class="model-card" onclick="selectModel('flux-dev-i2i', 'i2i', this)">
+                                        <div class="model-card-title">Flux i2i <i class="bi bi-check-circle-fill check-icon" style="display:none;"></i></div>
+                                        <p class="model-card-desc">Flux Dev 的图生图强化变体</p>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="model-card" onclick="selectModel('sd3-img2img', 'i2i', this)">
+                                        <div class="model-card-title">SD3 i2i <i class="bi bi-check-circle-fill check-icon" style="display:none;"></i></div>
+                                        <p class="model-card-desc">SD3 图生图，适合结构重绘</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="tab-pane fade" id="tab-multi" role="tabpanel">
+                            <div class="row g-2">
+                                <div class="col-12">
+                                    <div class="model-card" onclick="selectModel('seedream-lite-edit', 'multi', this)">
+                                        <div class="model-card-title">Seedream 5.0 Lite <i class="bi bi-check-circle-fill check-icon" style="display:none;"></i></div>
+                                        <p class="model-card-desc">字节跳动研发，支持最多10张图的复杂特征融合与编辑</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="mb-4" id="ai-image-upload-block" style="display: none;">
+                    <label class="form-label fw-bold text-secondary small d-flex justify-content-between">
+                        <span>2. 上传参考图</span>
+                        <span id="ai-img-help" class="text-primary" style="font-size: 0.8rem;"></span>
+                    </label>
+                    <div class="drag-drop-zone" id="drop-zone" onclick="document.getElementById('file-input-hidden').click()">
+                        <i class="bi bi-cloud-arrow-up mb-2 d-block"></i>
+                        <span class="text-muted fw-bold">点击选择，或将图片拖拽至此</span>
+                    </div>
+                    <input type="file" id="file-input-hidden" accept="image/*" onchange="handleFiles(this.files)">
+                    <div id="preview-container"></div>
+                </div>
+
+                <div class="mb-4">
+                    <label class="form-label fw-bold text-secondary small">3. 画面描述 (Prompt)</label>
+                    <textarea id="ai-prompt" class="form-control" rows="6" placeholder="详细描述你想要的画面，建议使用英文。&#10;例如: A futuristic cyberpunk city at night, neon lights, highly detailed, cinematic lighting, 8k resolution..."></textarea>
+                </div>
+
+                <button id="btn-generate" class="btn btn-primary w-100 rounded-pill py-3 fw-bold fs-5 shadow-sm" style="background: linear-gradient(135deg, #8a2be2 0%, #4a00e0 100%); border:none;" onclick="startGeneration()">
+                    <i class="bi bi-stars me-2"></i>开始生成
+                </button>
+            </div>
+        </div>
+
+        <div class="col-lg-8">
+            <div class="canvas-panel">
+                <div class="canvas-placeholder" id="canvas-idle">
+                    <i class="bi bi-palette"></i>
+                    <h3 class="mt-3 fw-bold">你的创意画布</h3>
+                    <p>在左侧调整参数并点击生成，在此见证奇迹。</p>
+                </div>
+
+                <div class="scanning-effect" id="canvas-scanning"></div>
+                
+                <div id="canvas-loading" style="display: none; position: absolute; z-index: 11; text-align: center;">
+                    <div class="spinner-border text-primary" style="width: 3rem; height: 3rem;" role="status"></div>
+                    <h5 class="mt-3 fw-bold text-dark" style="text-shadow: 0 0 10px white;">正在向云端请求算力，请耐心等待...</h5>
+                </div>
+
+                <img id="result-image" src="" alt="Generated Result">
+                
+                <div id="result-actions" style="display:none; position:absolute; bottom:30px; background:rgba(255,255,255,0.9); backdrop-filter:blur(5px); padding:10px 20px; border-radius:30px; box-shadow:0 5px 15px rgba(0,0,0,0.1);">
+                    <span class="text-success fw-bold"><i class="bi bi-check-circle-fill me-1"></i> 已成功保存至本地目录!</span>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    let currentFiles = []; // 存储当前选中的文件（包含拖拽进来的文件）
+
+    // 页面加载完成后初始化 UI
+    document.addEventListener('DOMContentLoaded', () => {
+        // 默认初始化为文生图状态
+        switchCategory('t2i');
+        setupDragAndDrop();
+    });
+
+    // === 1. 切换大类 (控制图片上传框的显示与隐藏) ===
+    function switchCategory(category) {
+        document.getElementById('ai-category-select').value = category;
+        
+        const imgBlock = document.getElementById('ai-image-upload-block');
+        const fileInput = document.getElementById('file-input-hidden');
+        const imgHelp = document.getElementById('ai-img-help');
+
+        if (category === 't2i') {
+            imgBlock.style.display = 'none';
+        } else if (category === 'i2i') {
+            imgBlock.style.display = 'block';
+            fileInput.removeAttribute('multiple');
+            imgHelp.innerHTML = '当前为 <b class="text-primary">单图模式</b>：请上传 1 张参考图片。';
+        } else if (category === 'multi') {
+            imgBlock.style.display = 'block';
+            fileInput.setAttribute('multiple', 'multiple');
+            imgHelp.innerHTML = '当前为 <b class="text-success">多图模式</b>：按住 Ctrl 键可多选 (最多10张)。';
+        }
+        
+        // 切换大类时，自动选中该分类下的第一个模型卡片
+        const activeTabPane = document.getElementById('tab-' + category);
+        const firstCard = activeTabPane.querySelector('.model-card');
+        if(firstCard) {
+            firstCard.click();
+        }
+
+        // 切换模式时清空已选图片
+        currentFiles = [];
+        renderPreviews();
+    }
+
+    // === 2. 选择具体模型卡片 ===
+    function selectModel(modelValue, category, element) {
+        // 清除所有卡片的激活状态
+        document.querySelectorAll('.model-card').forEach(card => card.classList.remove('active'));
+        // 为当前点击的卡片添加激活状态
+        element.classList.add('active');
+        // 更新隐藏的 input 值
+        document.getElementById('ai-model-select').value = modelValue;
+    }
+
+    // === 3. 拖拽与预览逻辑 ===
+    function setupDragAndDrop() {
+        const dropZone = document.getElementById('drop-zone');
+        
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+        
+        dropZone.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+        });
+        
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            handleFiles(e.dataTransfer.files);
+        });
+    }
+
+    // 处理选中的文件（包含点击选择和拖拽）
+    function handleFiles(files) {
+        if (!files || files.length === 0) return;
+        
+        const category = document.getElementById('ai-category-select').value;
+        
+        if (category === 'i2i') {
+            currentFiles = [files[0]]; // 单图模式只取第一张
+        } else if (category === 'multi') {
+            currentFiles = [...currentFiles, ...Array.from(files)].slice(0, 10); // 合并并限制 10 张
+        }
+        
+        renderPreviews();
+    }
+
+    // 渲染缩略图
+    function renderPreviews() {
+        const container = document.getElementById('preview-container');
+        container.innerHTML = '';
+        
+        currentFiles.forEach(file => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const img = document.createElement('img');
+                img.src = e.target.result;
+                img.className = 'preview-item shadow-sm';
+                container.appendChild(img);
+            }
+            reader.readAsDataURL(file);
+        });
+    }
+
+    // === 4. 生成与通信逻辑 (已修复取值逻辑) ===
+    function startGeneration() {
+        // 获取正确的节点值
+        const modelChoice = document.getElementById('ai-model-select').value;
+        const category = document.getElementById('ai-category-select').value;
+        const promptText = document.getElementById('ai-prompt').value; // 修复 ID
+
+        // 基础校验
+        if (category !== 't2i' && currentFiles.length === 0) {
+            Swal.fire('提示', '当前模型必须上传参考图片！', 'warning');
+            return;
+        }
+        if (!promptText.trim()) {
+            Swal.fire('提示', '请输入画面描述！', 'warning');
+            return;
+        }
+
+        // 改变 UI 状态为 Loading
+        const btn = document.getElementById('btn-generate');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>生成中...';
+        
+        document.getElementById('canvas-idle').style.display = 'none';
+        document.getElementById('result-image').style.display = 'none';
+        document.getElementById('result-actions').style.display = 'none';
+        document.getElementById('canvas-scanning').style.display = 'block';
+        document.getElementById('canvas-loading').style.display = 'block';
+
+        // 组装数据
+        const formData = new FormData();
+        formData.append('model_choice', modelChoice);
+        formData.append('prompt', promptText);
+        
+        // 核心修复：遍历 currentFiles 数组，而不是去读 fileInput
+        if (category !== 't2i') {
+            currentFiles.forEach(file => {
+                formData.append('base_images', file);
+            });
+        }
+
+        // 发起请求
+        fetch('/api/generate-direct/', {
+            method: 'POST',
+            body: formData 
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                // 成功：展示云端返回的图片
+                const resultImg = document.getElementById('result-image');
+                resultImg.src = data.image_url;
+                resultImg.style.display = 'block';
+                document.getElementById('result-actions').style.display = 'block';
+                
+                // 弹出完整路径提示
+                Swal.fire({
+                    title: '生成成功！',
+                    text: data.message,
+                    icon: 'success',
+                    toast: true,
+                    position: 'top-end',
+                    showConfirmButton: false,
+                    timer: 5000
+                });
+            } else {
+                document.getElementById('canvas-idle').style.display = 'block';
+                Swal.fire('生成失败', data.message, 'error');
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            document.getElementById('canvas-idle').style.display = 'block';
+            Swal.fire('请求异常', '网络或服务端报错，请查看控制台', 'error');
+        })
+        .finally(() => {
+            // 恢复按钮和画板 Loading 状态
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-stars me-2"></i>开始生成';
+            document.getElementById('canvas-scanning').style.display = 'none';
+            document.getElementById('canvas-loading').style.display = 'none';
+        });
+    }
+</script>
+{% endblock %}
