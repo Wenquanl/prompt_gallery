@@ -33,6 +33,57 @@
         background: white;
         transform: scale(1.05);
     }
+
+    /* === AI 创作室 Hero 按钮专属高级动效 === */
+    .btn-hero-ai {
+        position: relative;
+        overflow: hidden;
+        background: linear-gradient(135deg, #8a2be2 0%, #4a00e0 100%);
+        color: white !important;
+        border: none;
+        transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+        box-shadow: 0 4px 15px rgba(138, 43, 226, 0.4);
+        z-index: 1;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* 悬浮时的放大与阴影加深 */
+    .btn-hero-ai:hover {
+        transform: translateY(-3px) scale(1.03);
+        box-shadow: 0 10px 25px rgba(138, 43, 226, 0.6);
+    }
+
+    /* 核心：伪元素制作的流光扫过效果 */
+    .btn-hero-ai::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: -100%;
+        width: 50%;
+        height: 100%;
+        background: linear-gradient(to right, rgba(255,255,255,0) 0%, rgba(255,255,255,0.3) 50%, rgba(255,255,255,0) 100%);
+        transform: skewX(-25deg);
+        animation: ai-shimmer 3s infinite; /* 3秒循环一次 */
+        z-index: -1;
+    }
+
+    @keyframes ai-shimmer {
+        0% { left: -100%; }
+        20% { left: 200%; }
+        100% { left: 200%; } /* 留出 80% 的时间静止，避免光扫得太频繁导致眼花 */
+    }
+
+    /* 鼠标悬浮时，魔法棒图标的微小摇晃 */
+    .btn-hero-ai:hover .bi-magic {
+        animation: ai-wiggle 0.6s ease-in-out infinite alternate;
+    }
+
+    @keyframes ai-wiggle {
+        0% { transform: rotate(0deg) scale(1); }
+        100% { transform: rotate(15deg) scale(1.2); }
+    }
 </style>
 
 <div class="container py-5">
@@ -42,8 +93,8 @@
             <h1 class="hero-title">探索创意图片与提示词</h1>
             <p class="hero-subtitle">发现令人惊叹的 AI 生成图片及其对应的提示词，获取灵感。</p>
             <div class="mt-4">
-                <a href="{% url 'create' %}" class="btn btn-primary btn-lg rounded-pill px-5 shadow fw-bold" style="background: linear-gradient(135deg, #6a11cb 0%, #2575fc 100%); border: none;">
-                    <i class="bi bi-magic me-2"></i>进入 AI 创作室
+                <a href="{% url 'create' %}" class="btn btn-lg rounded-pill px-5 py-3 fw-bold btn-hero-ai fs-5">
+                    <i class="bi bi-magic me-2" style="display: inline-block;"></i>进入 AI 创作室
                 </a>
             </div>
         </div>

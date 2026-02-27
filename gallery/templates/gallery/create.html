@@ -193,6 +193,38 @@
     .custom-range-slider::-moz-range-thumb:hover {
         transform: scale(1.2);
     }
+    /* 缩略图包装器 (为了相对定位删除按钮) */
+    .preview-wrapper {
+        position: relative;
+        display: inline-block;
+    }
+
+    /* 删除按钮样式 */
+    .btn-remove-preview {
+        position: absolute;
+        top: -6px;
+        right: -6px;
+        background: #dc3545; /* Bootstrap 的危险红色 */
+        color: white;
+        border: none;
+        border-radius: 50%;
+        width: 20px;
+        height: 20px;
+        font-size: 14px;
+        line-height: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        transition: transform 0.2s ease, background 0.2s;
+        z-index: 10;
+    }
+    
+    .btn-remove-preview:hover {
+        transform: scale(1.15);
+        background: #bb2d3b;
+    }
 </style>
 {% endblock %}
 
@@ -430,19 +462,49 @@
         renderPreviews();
     }
 
+    // === 增强版渲染缩略图 (带删除按钮) ===
     function renderPreviews() {
         const container = document.getElementById('preview-container');
-        container.innerHTML = '';
-        currentFiles.forEach(file => {
+        container.innerHTML = ''; // 清空旧视图
+        
+        currentFiles.forEach((file, index) => {
+            // 1. 创建包裹 <img> 和 <button> 的外层容器
+            const wrapper = document.createElement('div');
+            wrapper.className = 'preview-wrapper m-1';
+            
+            // 2. 创建图片元素
+            const img = document.createElement('img');
+            img.className = 'preview-item shadow-sm';
+            
+            // 异步加载图片预览
             const reader = new FileReader();
-            reader.onload = (e) => {
-                const img = document.createElement('img');
-                img.src = e.target.result;
-                img.className = 'preview-item shadow-sm';
-                container.appendChild(img);
-            }
+            reader.onload = (e) => { img.src = e.target.result; }
             reader.readAsDataURL(file);
+            
+            // 3. 创建红色的 X 删除按钮
+            const removeBtn = document.createElement('button');
+            removeBtn.className = 'btn-remove-preview';
+            removeBtn.innerHTML = '<i class="bi bi-x"></i>';
+            
+            // 点击删除时的逻辑
+            removeBtn.onclick = (e) => {
+                e.preventDefault();
+                e.stopPropagation(); // 极其重要：阻止点击事件冒泡，防止误触底下的上传框触发文件选择
+                removeFile(index);
+            };
+            
+            // 组装并塞进页面
+            wrapper.appendChild(img);
+            wrapper.appendChild(removeBtn);
+            container.appendChild(wrapper);
         });
+    }
+    // === 【新增】删除指定文件的函数 ===
+    function removeFile(index) {
+        // 从数组中剔除该文件
+        currentFiles.splice(index, 1);
+        // 重新渲染预览区
+        renderPreviews();
     }
 
     // === 开始生成通信 ===

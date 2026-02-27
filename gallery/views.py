@@ -39,9 +39,9 @@ warnings.filterwarnings("ignore", category=InsecureRequestWarning)
 AI_STUDIO_CONFIG = {
     # 1. 大类定义
     'categories': [
-        {'id': 't2i', 'title': '🟠 文生图', 'img_max': 0, 'img_help': '纯文本模式，无需传图'},
+        {'id': 'multi', 'title': '🟢 多图融合', 'img_max': 10, 'img_help': '当前为多图模式：按住 Ctrl 键可多选 (最多10张)'},
         {'id': 'i2i', 'title': '🔵 图生图', 'img_max': 1, 'img_help': '当前为单图模式：请上传 1 张参考图片'},
-        {'id': 'multi', 'title': '🟢 多图融合', 'img_max': 10, 'img_help': '当前为多图模式：按住 Ctrl 键可多选 (最多10张)'}
+        {'id': 't2i', 'title': '🟠 文生图', 'img_max': 0, 'img_help': '纯文本模式，无需传图'},
     ],
     # 2. 具体模型定义
     'models': {
@@ -76,9 +76,17 @@ AI_STUDIO_CONFIG = {
             'desc': '支持最多10张图的复杂特征融合与编辑',
             'params': [
                 {'id': 'num_images', 'label': '生成图数量', 'type': 'range', 'min': 1, 'max': 4, 'step': 1, 'default': 1},
+                {'id': 'max_images', 'label': '最大生成图数量', 'type': 'range', 'min': 1, 'max': 4, 'step': 1, 'default': 1},
                 {'id': 'image_size', 'label': '生成尺寸 (Size)', 'type': 'select', 'options': [
                     {'value': 'auto_2K', 'text': '2K'},
-                    {'value': '1024x1024', 'text': '1080P'}
+                    {'value': 'auto_3K', 'text': '3K'},
+                    {'value': 'portrait_16_9', 'text': '竖版 9:16'},
+                    {'value': 'portrait_4_3', 'text': '竖版 3:4'},
+                    {'value': 'landscape_16_9', 'text': '横版 16:9'},
+                    {'value': 'landscape_4_3', 'text': '横版 4:3'},
+                    {'value': 'landscape_16_9', 'text': '横版 16:9'},
+                    {'value': 'square_hd', 'text': '1:1 正方形 HD'},
+                    {'value': 'square', 'text': '1:1 正方形'}
                 ], 'default': 'auto_2K'},
                 {'id': 'enable_safety_checker', 'label': '启用安全检查', 'type': 'checkbox', 'default': False}
 
@@ -92,46 +100,93 @@ AI_STUDIO_CONFIG = {
             'params': [
                 {'id': 'num_images', 'label': '生成图数量', 'type': 'range', 'min': 1, 'max': 4, 'step': 1, 'default': 1},
                 {'id': 'aspect_ratio', 'label': '画幅比例', 'type': 'select', 'options': [
-                    {'value': '9:16', 'text': '9:16 (竖版)'},
+                    {'value': 'auto', 'text': '智能随机'},
+                    {'value': '21:9', 'text': '21:9 (横版)'},
                     {'value': '16:9', 'text': '16:9 (横版)'},
-                    {'value': '1:1', 'text': '1:1 (正方)'}
+                    {'value': '3:2', 'text': '3:2 (横版)'},
+                    {'value': '4:3', 'text': '4:3 (横版)'},
+                    {'value': '5:4', 'text': '5:4 (横版)'},
+                    {'value': '1:1', 'text': '1:1 (正方)'},
+                    {'value': '4:5', 'text': '4:5 (竖版)'},
+                    {'value': '3:4', 'text': '3:4 (竖版)'},
+                    {'value': '2:3', 'text': '2:3 (竖版)'},
+                    {'value': '9:16', 'text': '9:16 (竖版)'},
                 ], 'default': '9:16'},
                 {'id': 'output_format', 'label': '输出格式', 'type': 'select', 'options': [
                     {'value': 'png', 'text': 'PNG (默认)'},
-                    {'value': 'jpg', 'text': 'JPG'}
+                    {'value': 'jpeg', 'text': 'jpeg'}
                 ], 'default': 'png'},
                 {'id': 'safety_tolerance', 'label': '安全检查严格度', 'type': 'range', 
                 	'min': 1, 
                 	'max': 6, 
                 	'step': 1, 
                 	'default': 6,
-                	'help_text': "数值越高越严格，过高可能导致过度过滤"
+                	'help_text': "数值越低越严格，过低可能导致过度过滤"
                 },
                 {'id': 'resolution', 'label': '生成分辨率', 
                 	'type': 'select', 
                 	'options': [
-                    	{'value': "512x512", "text": "512x512"},
-                    	{'value': "768x768", "text": "768x768"},
-                    	{'value': "1024x1024", "text": "1024x1024 (默认)"}
+                    	{'value': "0.5K", "text": "0.5K"},
+                    	{'value': "1K", "text": "1K"},
+                    	{'value': "2K", "text": "2K"},
+                        {'value': "4K", "text": "4K"},
                 	], 
-                	'default': "1024x1024"
+                	'default': "1K"
                 },
-                {'id':'limit_generations','label':'限制生成数量','type':'checkbox','default':True,'help_text':'启用后将严格限制生成数量，确保不会超过设定的数量，适合资源有限的环境'}
+                # {'id':'limit_generations','label':'限制生成数量','type':'checkbox','default':True,'help_text':'启用后将严格限制生成数量，确保不会超过设定的数量，适合资源有限的环境'},
+                {'id':'enable_web_search','label':'启用网络搜索','type':'checkbox','default':False,'help_text':'启用后将启用网络搜索功能，以获取更丰富的提示词内容，可能会增加生成时间，适合需要更丰富语义理解的场景'},
+
+            ]
+        },
+        'nano-banana-pro-edit': {
+            'category': 'multi',
+            'endpoint': 'fal-ai/nano-banana-pro/edit',
+            'title': 'Nano Banana Pro',
+            'desc': '支持多图融合，适合创意编辑场景',
+            'params': [
+                {'id': 'num_images', 'label': '生成图数量', 'type': 'range', 'min': 1, 'max': 4, 'step': 1, 'default': 1},
+                {'id': 'aspect_ratio', 'label': '画幅比例', 'type': 'select', 'options': [
+                    {'value': 'auto', 'text': '智能随机'},
+                    {'value': '21:9', 'text': '21:9 (横版)'},
+                    {'value': '16:9', 'text': '16:9 (横版)'},
+                    {'value': '3:2', 'text': '3:2 (横版)'},
+                    {'value': '4:3', 'text': '4:3 (横版)'},
+                    {'value': '5:4', 'text': '5:4 (横版)'},
+                    {'value': '1:1', 'text': '1:1 (正方)'},
+                    {'value': '4:5', 'text': '4:5 (竖版)'},
+                    {'value': '3:4', 'text': '3:4 (竖版)'},
+                    {'value': '2:3', 'text': '2:3 (竖版)'},
+                    {'value': '9:16', 'text': '9:16 (竖版)'},
+                ], 'default': '9:16'},
+                {'id': 'output_format', 'label': '输出格式', 'type': 'select', 'options': [
+                    {'value': 'png', 'text': 'PNG (默认)'},
+                    {'value': 'jpeg', 'text': 'jpeg'}
+                ], 'default': 'png'},
+                {'id': 'safety_tolerance', 'label': '安全检查严格度', 'type': 'range', 
+                	'min': 1, 
+                	'max': 6, 
+                	'step': 1, 
+                	'default': 6,
+                	'help_text': "数值越低越严格，过低可能导致过度过滤"
+                },
+                {'id': 'resolution', 'label': '生成分辨率', 
+                	'type': 'select', 
+                	'options': [
+                    	{'value': "0.5K", "text": "0.5K"},
+                    	{'value': "1K", "text": "1K"},
+                    	{'value': "2K", "text": "2K"},
+                        {'value': "4K", "text": "4K"},
+                	], 
+                	'default': "1K"
+                },
+                # {'id':'limit_generations','label':'限制生成数量','type':'checkbox','default':True,'help_text':'启用后将严格限制生成数量，确保不会超过设定的数量，适合资源有限的环境'},
+                {'id':'enable_web_search','label':'启用网络搜索','type':'checkbox','default':False,'help_text':'启用后将启用网络搜索功能，以获取更丰富的提示词内容，可能会增加生成时间，适合需要更丰富语义理解的场景'},
+
             ]
         }
     }
 }
-# # --- 🟢 多图融合 (multi) ---
-#     'seedream-lite-edit': {
-#         'endpoint': 'fal-ai/bytedance/seedream/v5/lite/edit',
-#         'category': 'multi',
-#         'default_args': {"image_size": "auto_2K","num_images": 1,"max_images": 1,"enable_safety_checker": False,}
-#     },
-#     'nano-banana-2-edit': {
-#         'endpoint': 'fal-ai/nano-banana-2/edit',
-#         'category': 'multi',
-#         'default_args': {"num_images": 1,"aspect_ratio": "9:16","output_format": "png","safety_tolerance": "6","resolution": "1K","limit_generations": True}
-#     },
+
 # ==========================================
 # 辅助函数
 # ==========================================
