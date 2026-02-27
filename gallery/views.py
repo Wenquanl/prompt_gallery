@@ -33,52 +33,105 @@ from .services import (
 )
 
 # ==========================================
-# 核心：模型配置中心 (随时在这里无限添加新模型)
+# 终极配置中心 (Single Source of Truth)
 # ==========================================
 warnings.filterwarnings("ignore", category=InsecureRequestWarning)
-MODEL_CONFIG = {
-    # --- 🟠 文生图 (t2i) ---
-    'flux-dev': {
-        'endpoint': 'fal-ai/flux/dev',
-        'category': 't2i',
-        'default_args': {"image_size": "landscape_4_3", "num_inference_steps": 28}
-    },
-    'flux-pro': {
-        'endpoint': 'fal-ai/flux/pro',
-        'category': 't2i',
-        'default_args': {"image_size": "landscape_4_3"}
-    },
-    'sd3-medium': {
-        'endpoint': 'fal-ai/stable-diffusion-v3-medium',
-        'category': 't2i',
-        'default_args': {"image_size": "landscape_4_3"}
-    },
-    
-    # --- 🔵 图生图 (i2i) ---
-    'flux-dev-i2i': {
-        'endpoint': 'fal-ai/flux/dev/image-to-image',
-        'category': 'i2i',
-        'default_args': {"strength": 0.75, "num_inference_steps": 28}
-    },
-    'sd3-img2img': {
-        'endpoint': 'fal-ai/stable-diffusion-v3-medium/image-to-image',
-        'category': 'i2i',
-        'default_args': {"strength": 0.75}
-    },
+AI_STUDIO_CONFIG = {
+    # 1. 大类定义
+    'categories': [
+        {'id': 't2i', 'title': '🟠 文生图', 'img_max': 0, 'img_help': '纯文本模式，无需传图'},
+        {'id': 'i2i', 'title': '🔵 图生图', 'img_max': 1, 'img_help': '当前为单图模式：请上传 1 张参考图片'},
+        {'id': 'multi', 'title': '🟢 多图融合', 'img_max': 10, 'img_help': '当前为多图模式：按住 Ctrl 键可多选 (最多10张)'}
+    ],
+    # 2. 具体模型定义
+    'models': {
+        'flux-dev': {
+            'category': 't2i',
+            'endpoint': 'fal-ai/flux/dev',
+            'title': 'Flux Dev',
+            'desc': '推荐，生成质量极高，语义理解精准',
+            'params': [
+                {'id': 'image_size', 'label': '图片画幅 (Size)', 'type': 'select', 'options': [
+                    {'value': 'landscape_4_3', 'text': '横版 4:3 (默认)'},
+                    {'value': 'portrait_4_3', 'text': '竖版 3:4'},
+                    {'value': 'square_hd', 'text': '正方形 HD'}
+                ], 'default': 'landscape_4_3'},
+                {'id': 'num_inference_steps', 'label': '生成步数 (Steps)', 'type': 'range', 'min': 20, 'max': 50, 'step': 1, 'default': 28}
+            ]
+        },
+        'flux-dev-i2i': {
+            'category': 'i2i',
+            'endpoint': 'fal-ai/flux/dev/image-to-image',
+            'title': 'Flux i2i',
+            'desc': 'Flux Dev 的图生图强化变体',
+            'params': [
+                {'id': 'strength', 'label': '重绘幅度 (Strength)', 'type': 'range', 'min': 0.1, 'max': 1.0, 'step': 0.05, 'default': 0.75},
+                {'id': 'num_inference_steps', 'label': '生成步数 (Steps)', 'type': 'range', 'min': 20, 'max': 50, 'step': 1, 'default': 28}
+            ]
+        },
+        'seedream-5.0-lite-edit': {
+            'category': 'multi',
+            'endpoint': 'fal-ai/bytedance/seedream/v5/lite/edit',
+            'title': 'Seedream 5.0 Lite',
+            'desc': '支持最多10张图的复杂特征融合与编辑',
+            'params': [
+                {'id': 'num_images', 'label': '生成图数量', 'type': 'range', 'min': 1, 'max': 4, 'step': 1, 'default': 1},
+                {'id': 'image_size', 'label': '生成尺寸 (Size)', 'type': 'select', 'options': [
+                    {'value': 'auto_2K', 'text': '2K'},
+                    {'value': '1024x1024', 'text': '1080P'}
+                ], 'default': 'auto_2K'},
+                {'id': 'enable_safety_checker', 'label': '启用安全检查', 'type': 'checkbox', 'default': False}
 
-    # --- 🟢 多图融合 (multi) ---
-    'seedream-lite-edit': {
-        'endpoint': 'fal-ai/bytedance/seedream/v5/lite/edit',
-        'category': 'multi',
-        'default_args': {"image_size": "auto_2K","num_images": 1,"max_images": 1,"enable_safety_checker": False,}
-    },
-    'nano-banana-2-edit': {
-        'endpoint': 'fal-ai/nano-banana-2/edit',
-        'category': 'multi',
-        'default_args': {"num_images": 1,"aspect_ratio": "9:16","output_format": "png","safety_tolerance": "6","resolution": "1K","limit_generations": True}
-    },
+            ]
+        },
+        'nano-banana-2-edit': {
+            'category': 'multi',
+            'endpoint': 'fal-ai/nano-banana-2/edit',
+            'title': 'Nano Banana 2',
+            'desc': '支持多图融合，适合创意编辑场景',
+            'params': [
+                {'id': 'num_images', 'label': '生成图数量', 'type': 'range', 'min': 1, 'max': 4, 'step': 1, 'default': 1},
+                {'id': 'aspect_ratio', 'label': '画幅比例', 'type': 'select', 'options': [
+                    {'value': '9:16', 'text': '9:16 (竖版)'},
+                    {'value': '16:9', 'text': '16:9 (横版)'},
+                    {'value': '1:1', 'text': '1:1 (正方)'}
+                ], 'default': '9:16'},
+                {'id': 'output_format', 'label': '输出格式', 'type': 'select', 'options': [
+                    {'value': 'png', 'text': 'PNG (默认)'},
+                    {'value': 'jpg', 'text': 'JPG'}
+                ], 'default': 'png'},
+                {'id': 'safety_tolerance', 'label': '安全检查严格度', 'type': 'range', 
+                	'min': 1, 
+                	'max': 6, 
+                	'step': 1, 
+                	'default': 6,
+                	'help_text': "数值越高越严格，过高可能导致过度过滤"
+                },
+                {'id': 'resolution', 'label': '生成分辨率', 
+                	'type': 'select', 
+                	'options': [
+                    	{'value': "512x512", "text": "512x512"},
+                    	{'value': "768x768", "text": "768x768"},
+                    	{'value': "1024x1024", "text": "1024x1024 (默认)"}
+                	], 
+                	'default': "1024x1024"
+                },
+                {'id':'limit_generations','label':'限制生成数量','type':'checkbox','default':True,'help_text':'启用后将严格限制生成数量，确保不会超过设定的数量，适合资源有限的环境'}
+            ]
+        }
+    }
 }
-
+# # --- 🟢 多图融合 (multi) ---
+#     'seedream-lite-edit': {
+#         'endpoint': 'fal-ai/bytedance/seedream/v5/lite/edit',
+#         'category': 'multi',
+#         'default_args': {"image_size": "auto_2K","num_images": 1,"max_images": 1,"enable_safety_checker": False,}
+#     },
+#     'nano-banana-2-edit': {
+#         'endpoint': 'fal-ai/nano-banana-2/edit',
+#         'category': 'multi',
+#         'default_args': {"num_images": 1,"aspect_ratio": "9:16","output_format": "png","safety_tolerance": "6","resolution": "1K","limit_generations": True}
+#     },
 # ==========================================
 # 辅助函数
 # ==========================================
@@ -1213,8 +1266,10 @@ def add_ai_model(request):
     
 @require_GET
 def create_view(request):
-    """渲染 AI 独立创作工作室页面"""
-    return render(request, 'gallery/create.html')
+    """渲染 AI 独立创作工作室页面，并将配置注入前端"""
+    return render(request, 'gallery/create.html', {
+        'ai_config_json': json.dumps(AI_STUDIO_CONFIG)
+    })
 
 @csrf_exempt
 @require_POST
@@ -1227,69 +1282,79 @@ def api_generate_and_download(request):
         if not prompt:
             return JsonResponse({'status': 'error', 'message': '提示词不能为空'})
             
-        # 1. 查找模型配置
-        config = MODEL_CONFIG.get(model_choice)
-        if not config:
+        model_config = AI_STUDIO_CONFIG['models'].get(model_choice)
+        if not model_config:
             return JsonResponse({'status': 'error', 'message': f'未知的模型: {model_choice}'})
 
-        category = config['category']
-        endpoint = config['endpoint']
+        category_id = model_config['category']
+        endpoint = model_config['endpoint']
         
-        # 准备 API 参数 (合并默认参数和 prompt)
-        api_args = config['default_args'].copy()
+        # 1. 获取默认参数
+        api_args = {}
+        for param in model_config.get('params', []):
+            api_args[param['id']] = param['default']
         api_args['prompt'] = prompt
+
+        # 2. 动态参数智能覆写与类型转换
+        for param in model_config.get('params', []):
+            key = param['id']
+            if key in request.POST:
+                val = request.POST.get(key)
+                default_val = param['default']
+                try:
+                    # 【核心修改】必须先判断 bool，因为在 Python 中 bool 继承自 int
+                    if isinstance(default_val, bool):
+                        # 前端传过来的可能是字符串 'true' 或 'false'
+                        api_args[key] = str(val).lower() in ['true', '1', 'yes', 'on']
+                    elif isinstance(default_val, int):
+                        api_args[key] = int(val)
+                    elif isinstance(default_val, float):
+                        api_args[key] = float(val)
+                    else:
+                        api_args[key] = val
+                except ValueError:
+                    pass 
 
         os.environ["FAL_KEY"] = os.getenv("FAL_KEY", "")
 
-        # 2. 自动处理图片上传逻辑
+        # 3. 处理图片上传
         uploaded_image_urls = []
-        if category in ['i2i', 'multi']:
+        
+        # 查找大类允许的最大图片数
+        img_max = next((cat['img_max'] for cat in AI_STUDIO_CONFIG['categories'] if cat['id'] == category_id), 0)
+        
+        if img_max > 0:
             if not base_image_files:
                 return JsonResponse({'status': 'error', 'message': '该模型需要至少一张参考图片'})
             
-            # 根据类别限制上传数量
-            limit = 10 if category == 'multi' else 1
-            files_to_upload = base_image_files[:limit]
-            
-            print(f"[{model_choice}] 开始上传 {len(files_to_upload)} 张参考图到 fal.ai...")
+            files_to_upload = base_image_files[:img_max]
+            print(f"[{model_choice}] 开始上传 {len(files_to_upload)} 张图...")
             for file in files_to_upload:
                 url = fal_client.upload(file.read(), file.content_type)
                 uploaded_image_urls.append(url)
                 
-            # 将上传后的 URL 放入模型参数中 (注意区分单数 image_url 和复数 image_urls)
-            if category == 'i2i':
+            if category_id == 'i2i':
                 api_args['image_url'] = uploaded_image_urls[0]
             else:
                 api_args['image_urls'] = uploaded_image_urls
 
-        print(f"正在调用模型: {endpoint} ...")
+        print(f"调用模型: {endpoint} | 参数: {api_args}")
         
-        # 3. 统一调用接口
+        # 4. 统一调用接口并下载
         result = fal_client.subscribe(endpoint, arguments=api_args)
-        
         gen_image_url = result['images'][0]['url']
-        print(f"云端生成完毕，开始下载: {gen_image_url}")
-
-        # 4. 下载并保存
+        
         image_response = requests.get(gen_image_url, verify=False, timeout=60)
         if image_response.status_code != 200:
-            return JsonResponse({'status': 'error', 'message': f'下载失败，状态码: {image_response.status_code}'})
+            return JsonResponse({'status': 'error', 'message': '下载失败'})
 
         downloads_dir = r"G:\CommonData\图片\Imagegeneration_API"
         os.makedirs(downloads_dir, exist_ok=True) 
-        
-        file_name = f"Gen_{model_choice}_{int(time.time())}.png" 
-        file_path = os.path.join(downloads_dir, file_name)
-        
+        file_path = os.path.join(downloads_dir, f"Gen_{model_choice}_{int(time.time())}.png")
         with open(file_path, 'wb') as f:
             f.write(image_response.content)
 
-        return JsonResponse({
-            'status': 'success',
-            'message': f'已成功下载到:\n{file_path}',
-            'image_url': gen_image_url 
-        })
-
+        return JsonResponse({'status': 'success', 'message': f'已成功下载到:\n{file_path}', 'image_url': gen_image_url})
     except Exception as e:
         import traceback
         traceback.print_exc()
