@@ -23,6 +23,7 @@ from django.views.decorators.csrf import csrf_exempt
 from .models import ImageItem, PromptGroup, Tag, AIModel, ReferenceItem
 from .forms import PromptGroupForm
 from .ai_utils import search_similar_images
+from .ai_providers import get_ai_provider
 
 # === 引入 Service 层 ===
 from .services import (
@@ -46,6 +47,7 @@ AI_STUDIO_CONFIG = {
     # 2. 具体模型定义
     'models': {
         'flux-dev': {
+            'provider': 'fal_ai',
             'category': 't2i',
             'endpoint': 'fal-ai/flux/dev',
             'title': 'Flux Dev',
@@ -60,6 +62,7 @@ AI_STUDIO_CONFIG = {
             ]
         },
         'flux-dev-i2i': {
+            'provider': 'fal_ai',
             'category': 'i2i',
             'endpoint': 'fal-ai/flux/dev/image-to-image',
             'title': 'Flux i2i',
@@ -69,10 +72,93 @@ AI_STUDIO_CONFIG = {
                 {'id': 'num_inference_steps', 'label': '生成步数 (Steps)', 'type': 'range', 'min': 20, 'max': 50, 'step': 1, 'default': 28}
             ]
         },
-        'seedream-5.0-lite-edit': {
+        'seedream-5.0-lite-official': {
+            'provider': 'volcengine',
+            'category': 'multi',
+            'endpoint': 'doubao-seedream-5-0-260128', 
+            'title': 'Seedream 5.0 Lite (官方直连)',
+            'desc': '字节官方最新 API，支持多图融合、组图生成与联网搜索',
+            'params': [
+                {'id': 'max_images', 'label': '生成组图数量', 'type': 'range', 'min': 1, 'max': 4, 'step': 1, 'default': 1},
+                {'id': 'image_size', 'label': '生成尺寸 (Size)', 'type': 'select', 'options': [
+                    {'value': '2K', 'text': '2K (默认)'},
+                    {'value': '3K', 'text': '3K (超清)'},
+                    {'value': '1:1', 'text': '1:1 (正方形)'},
+                    {'value': '3:4', 'text': '3:4 (竖版)'},
+                    {'value': '4:3', 'text': '4:3 (横版)'},
+                    {'value': '16:9', 'text': '16:9 (横版)'},
+                    {'value': '9:16', 'text': '9:16 (竖版)'},
+                    {'value': '3:2', 'text': '3:2 (横版)'},
+                    {'value': '2:3', 'text': '2:3 (竖版)'},
+                    {'value': '21:9', 'text': '21:9 (宽屏)'}
+                ], 'default': '2K'},
+                {'id': 'output_format', 'label': '输出格式', 'type': 'select', 'options': [
+                    {'value': 'png', 'text': 'PNG'},
+                    {'value': 'jpeg', 'text': 'JPEG'}
+                ], 'default': 'png'},
+                {'id': 'watermark', 'label': '添加官方水印', 'type': 'checkbox', 'default': False},
+                {'id': 'enable_web_search', 'label': '开启联网搜索', 'type': 'checkbox', 'default': False, 'help_text': '开启后模型会根据提示词自主搜索互联网内容（如近期天气、新闻等）'}
+            ]
+        },
+        # ▼ 火山引擎官方直连版 Seedream 4.5
+        'seedream-4.5-official': {
+            'provider': 'volcengine',
+            'category': 'multi',
+            'endpoint': 'doubao-seedream-4-5-251128',
+            'title': 'Seedream 4.5 (官方直连)',
+            'desc': '字节官方 API，专注高质量图像输出',
+            'params': [
+                {'id': 'max_images', 'label': '生成组图数量', 'type': 'range', 'min': 1, 'max': 4, 'step': 1, 'default': 1},
+                {'id': 'image_size', 'label': '生成尺寸 (Size)', 'type': 'select', 'options': [
+                    {'value': '2K', 'text': '2K (默认)'},
+                    {'value': '4K', 'text': '4K (超清)'},
+                    {'value': '1:1', 'text': '1:1 (正方形)'},
+                    {'value': '3:4', 'text': '3:4 (竖版)'},
+                    {'value': '4:3', 'text': '4:3 (横版)'},
+                    {'value': '16:9', 'text': '16:9 (横版)'},
+                    {'value': '9:16', 'text': '9:16 (竖版)'},
+                    {'value': '3:2', 'text': '3:2 (横版)'},
+                    {'value': '2:3', 'text': '2:3 (竖版)'},
+                    {'value': '21:9', 'text': '21:9 (宽屏)'}
+                ], 'default': '2K'},
+                {'id': 'watermark', 'label': '添加官方水印', 'type': 'checkbox', 'default': False}
+                # 文档指出 4.5 默认 jpeg 不支持自定义格式，且不支持联网搜索，故在此省略
+            ]
+        },
+        # ▼ 火山引擎官方直连版 Seedream 4.0
+        'seedream-4.0-official': {
+            'provider': 'volcengine',
+            'category': 'multi',
+            'endpoint': 'doubao-seedream-4-0-250828',
+            'title': 'Seedream 4.0 (官方直连)',
+            'desc': '字节官方 API，支持牺牲部分画质的极速生成模式',
+            'params': [
+                {'id': 'max_images', 'label': '生成组图数量', 'type': 'range', 'min': 1, 'max': 4, 'step': 1, 'default': 1},
+                {'id': 'image_size', 'label': '生成尺寸 (Size)', 'type': 'select', 'options': [
+                    {'value': '1K', 'text': '1K (较快)'},
+                    {'value': '2K', 'text': '2K (默认)'},
+                    {'value': '4K', 'text': '4K (超清)'},
+                    {'value': '1:1', 'text': '1:1 (正方形)'},
+                    {'value': '3:4', 'text': '3:4 (竖版)'},
+                    {'value': '4:3', 'text': '4:3 (横版)'},
+                    {'value': '16:9', 'text': '16:9 (横版)'},
+                    {'value': '9:16', 'text': '9:16 (竖版)'},
+                    {'value': '3:2', 'text': '3:2 (横版)'},
+                    {'value': '2:3', 'text': '2:3 (竖版)'},
+                    {'value': '21:9', 'text': '21:9 (宽屏)'}
+                ], 'default': '2K'},
+                {'id': 'optimize_prompt_mode', 'label': '生成模式', 'type': 'select', 'options': [
+                    {'value': 'standard', 'text': '标准模式 (重画质)'},
+                    {'value': 'fast', 'text': '极速模式 (重速度)'}
+                ], 'default': 'standard'},
+                {'id': 'watermark', 'label': '添加官方水印', 'type': 'checkbox', 'default': False}
+            ]
+        },
+        'seedream-5.0-lite-edit-fal': {
+            'provider': 'fal_ai',
             'category': 'multi',
             'endpoint': 'fal-ai/bytedance/seedream/v5/lite/edit',
-            'title': 'Seedream 5.0 Lite',
+            'title': 'Seedream 5.0 Lite(fal)',
             'desc': '支持最多10张图的复杂特征融合与编辑',
             'params': [
                 {'id': 'num_images', 'label': '生成图数量', 'type': 'range', 'min': 1, 'max': 4, 'step': 1, 'default': 1},
@@ -92,10 +178,11 @@ AI_STUDIO_CONFIG = {
 
             ]
         },
-        'seedream-4.5-edit': {
+        'seedream-4.5-edit-fal': {
+            'provider': 'fal_ai',
             'category': 'multi',
             'endpoint': 'fal-ai/bytedance/seedream/v4.5/edit',
-            'title': 'Seedream 4.5',
+            'title': 'Seedream 4.5(fal)',
             'desc': '支持最多10张图的复杂特征融合与编辑',
             'params': [
                 {'id': 'num_images', 'label': '生成图数量', 'type': 'range', 'min': 1, 'max': 4, 'step': 1, 'default': 1},
@@ -115,10 +202,11 @@ AI_STUDIO_CONFIG = {
 
             ]
         },
-        'nano-banana-2-edit': {
+        'nano-banana-2-edit-fal': {
+            'provider': 'fal_ai',
             'category': 'multi',
             'endpoint': 'fal-ai/nano-banana-2/edit',
-            'title': 'Nano Banana 2',
+            'title': 'Nano Banana 2(fal)',
             'desc': '支持多图融合，适合创意编辑场景',
             'params': [
                 {'id': 'num_images', 'label': '生成图数量', 'type': 'range', 'min': 1, 'max': 4, 'step': 1, 'default': 1},
@@ -161,10 +249,11 @@ AI_STUDIO_CONFIG = {
 
             ]
         },
-        'nano-banana-pro-edit': {
+        'nano-banana-pro-edit-fal': {
+            'provider': 'fal_ai',
             'category': 'multi',
             'endpoint': 'fal-ai/nano-banana-pro/edit',
-            'title': 'Nano Banana Pro',
+            'title': 'Nano Banana Pro(fal)',
             'desc': '支持多图融合，适合创意编辑场景',
             'params': [
                 {'id': 'num_images', 'label': '生成图数量', 'type': 'range', 'min': 1, 'max': 4, 'step': 1, 'default': 1},
@@ -206,7 +295,7 @@ AI_STUDIO_CONFIG = {
                 {'id':'enable_web_search','label':'启用网络搜索','type':'checkbox','default':False,'help_text':'启用后将启用网络搜索功能，以获取更丰富的提示词内容，可能会增加生成时间，适合需要更丰富语义理解的场景'},
 
             ]
-        }
+        },
     }
 }
 
@@ -1415,7 +1504,6 @@ def api_generate_and_download(request):
             return JsonResponse({'status': 'error', 'message': f'未知的模型: {model_choice}'})
 
         category_id = model_config['category']
-        endpoint = model_config['endpoint']
         
         # 1. 获取默认参数
         api_args = {}
@@ -1430,9 +1518,7 @@ def api_generate_and_download(request):
                 val = request.POST.get(key)
                 default_val = param['default']
                 try:
-                    # 【核心修改】必须先判断 bool，因为在 Python 中 bool 继承自 int
                     if isinstance(default_val, bool):
-                        # 前端传过来的可能是字符串 'true' 或 'false'
                         api_args[key] = str(val).lower() in ['true', '1', 'yes', 'on']
                     elif isinstance(default_val, int):
                         api_args[key] = int(val)
@@ -1443,61 +1529,57 @@ def api_generate_and_download(request):
                 except ValueError:
                     pass 
 
-        os.environ["FAL_KEY"] = os.getenv("FAL_KEY", "")
-
-        # 3. 处理图片上传
-        uploaded_image_urls = []
-        
-        # 查找大类允许的最大图片数
+        # 3. 获取上传图片列表 (控制最大张数)
+        files_to_upload = []
         img_max = next((cat['img_max'] for cat in AI_STUDIO_CONFIG['categories'] if cat['id'] == category_id), 0)
-        
         if img_max > 0:
             if not base_image_files:
                 return JsonResponse({'status': 'error', 'message': '该模型需要至少一张参考图片'})
-            
             files_to_upload = base_image_files[:img_max]
-            print(f"[{model_choice}] 开始上传 {len(files_to_upload)} 张图...")
-            for file in files_to_upload:
-                url = fal_client.upload(file.read(), file.content_type)
-                uploaded_image_urls.append(url)
-                
-            if category_id == 'i2i':
-                api_args['image_url'] = uploaded_image_urls[0]
-            else:
-                api_args['image_urls'] = uploaded_image_urls
 
-        print(f"调用模型: {endpoint} | 参数: {api_args}")
+        # ==========================================
+        # 核心修改点：使用适配器模式请求云端，解耦第三方 SDK
+        # ==========================================
+        provider_name = model_config.get('provider', 'fal_ai')
+        provider = get_ai_provider(provider_name)
         
-        # 4. 统一调用接口并下载
-        result = fal_client.subscribe(endpoint, arguments=api_args)
-        # ==========================================
-        # 5. 【核心修复】遍历并下载所有生成的图片
-        # ==========================================
-        gen_images = result.get('images', [])
-        if not gen_images:
+        print(f"调用通道: {provider_name} | 模型: {model_choice} | 参数: {api_args}")
+        
+        try:
+            # 获取统一格式的图片 URL 列表
+            generated_urls = provider.generate(model_config, api_args, files_to_upload)
+        except Exception as e:
+            error_str = str(e)
+            # 针对火山引擎敏感内容拦截的专项友好提示
+            if 'OutputImageSensitiveContentDetected' in error_str:
+                friendly_msg = '生成失败：触发了官方安全审核机制。生成的画面或参考垫图可能存在敏感特征，请尝试修改服装、姿态等描述词，或更换垫图！'
+                return JsonResponse({'status': 'error', 'message': friendly_msg})
+            elif 'InputSensitiveContentDetected' in error_str:
+                friendly_msg = '生成失败：输入的提示词触发了安全违规词库，请检查并修改提示词。'
+                return JsonResponse({'status': 'error', 'message': friendly_msg})
+            else:
+                return JsonResponse({'status': 'error', 'message': f'云端接口调用失败: {error_str}'})
+
+        if not generated_urls:
             return JsonResponse({'status': 'error', 'message': '云端未返回任何图片'})
 
-        downloads_dir = r"G:\CommonData\图片\Imagegeneration_API"
+        # ==========================================
+        # 5. 下载所有生成的图片 (业务逻辑保持不变)
+        # ==========================================
+        downloads_dir = r"G:\CommonData\图片\Imagegeneration_API" # 根据你的配置
         os.makedirs(downloads_dir, exist_ok=True) 
         
         base_timestamp = int(time.time())
         saved_paths = []
-        image_urls = []
+        final_urls = []
 
-        print(f"云端共生成了 {len(gen_images)} 张图片，开始下载...")
+        print(f"云端共生成了 {len(generated_urls)} 张图片，开始下载...")
 
-        for idx, img_data in enumerate(gen_images):
-            img_url = img_data.get('url')
-            if not img_url: 
-                continue
-            
-            image_urls.append(img_url)
-            
-            # 下载每一张图
+        for idx, img_url in enumerate(generated_urls):
+            final_urls.append(img_url)
             try:
                 img_resp = requests.get(img_url, verify=False, timeout=60)
                 if img_resp.status_code == 200:
-                    # 文件名加上序号，防止覆盖
                     file_name = f"Gen_{model_choice}_{base_timestamp}_{idx+1}.png" 
                     file_path = os.path.join(downloads_dir, file_name)
                     with open(file_path, 'wb') as f:
@@ -1506,11 +1588,10 @@ def api_generate_and_download(request):
             except Exception as e:
                 print(f"下载第 {idx+1} 张图片失败: {e}")
 
-        # 将所有的 URL 和 本地路径 数组传给前端
         return JsonResponse({
             'status': 'success',
             'message': f'成功生成并下载了 {len(saved_paths)} 张图片！',
-            'image_urls': image_urls, # 变成复数数组
+            'image_urls': final_urls,
             'saved_paths': saved_paths
         })
 
@@ -1582,3 +1663,108 @@ def api_publish_studio_creation(request):
         import traceback
         traceback.print_exc()
         return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+
+@csrf_exempt
+@require_POST
+def api_get_similar_groups_by_prompt(request):
+    """根据前端传来的 Prompt 文本，计算全库相似度并返回排序后的作品列表"""
+    try:
+        data = json.loads(request.body)
+        prompt_text = data.get('prompt', '').strip().lower()
+        
+        # 1. 获取所有组的最新版本 ID (避免推荐同一系列的冗余历史版本)
+        group_stats = PromptGroup.objects.values('group_id').annotate(max_id=Max('id'))
+        latest_ids = [item['max_id'] for item in group_stats]
+        
+        # 2. 查询候选集 (限制前1000个保证性能)
+        candidates = PromptGroup.objects.filter(id__in=latest_ids).order_by('-id')[:1000]
+        
+        recommendations = []
+        
+        for other in candidates:
+            other_content = (other.prompt_text or "").strip().lower()
+            
+            # 计算相似度 (如果前端 Prompt 为空，则退化为按时间最新排序)
+            if len(prompt_text) > 0 and len(other_content) > 0:
+                ratio = difflib.SequenceMatcher(None, prompt_text, other_content).ratio()
+            elif len(prompt_text) == 0:
+                ratio = 0.0 
+            else:
+                continue
+                
+            recommendations.append((ratio, other))
+            
+        # 3. 按相似度降序排列，取前 15 个
+        recommendations.sort(key=lambda x: x[0], reverse=True)
+        top_recs = recommendations[:15]
+        
+        results = []
+        for ratio, group in top_recs:
+            # 提取封面
+            cover_url = ""
+            cover_img = group.cover_image
+            if not cover_img:
+                images = group.images.all()
+                for img in images:
+                    if not img.is_video:
+                        cover_img = img
+                        break
+                if not cover_img and images.exists():
+                    cover_img = images.first()
+            
+            if cover_img:
+                 try:
+                    if not cover_img.is_video and cover_img.thumbnail:
+                        cover_url = cover_img.thumbnail.url
+                    else:
+                        cover_url = cover_img.image.url
+                 except:
+                     pass
+                     
+            results.append({
+                'id': group.id,
+                'title': group.title,
+                'prompt_text': group.prompt_text[:100] + '...' if group.prompt_text and len(group.prompt_text)>100 else (group.prompt_text or '无提示词'),
+                'cover_url': cover_url,
+                'similarity': f"{int(ratio*100)}%" if len(prompt_text) > 0 else "-"
+            })
+            
+        return JsonResponse({'status': 'success', 'results': results})
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': str(e)})
+
+@csrf_exempt
+@require_POST
+def api_append_to_existing_group(request):
+    """将生成的本地图片追加到现有的 PromptGroup 中"""
+    try:
+        group_id = request.POST.get('group_id')
+        saved_paths = request.POST.getlist('saved_paths')
+        
+        if not group_id or not saved_paths:
+            return JsonResponse({'status': 'error', 'message': '参数缺失'})
+            
+        group = PromptGroup.objects.get(pk=group_id)
+        created_image_ids = []
+        
+        for path in saved_paths:
+            if os.path.exists(path):
+                with open(path, 'rb') as f:
+                    file_content = ContentFile(f.read())
+                    file_name = os.path.basename(path)
+                    img_item = ImageItem(group=group)
+                    img_item.image.save(file_name, file_content, save=True)
+                    created_image_ids.append(img_item.id)
+                    
+        # 触发后台处理（生成特征向量、缩略图等）
+        if created_image_ids:
+            from .services import trigger_background_processing
+            trigger_background_processing(created_image_ids)
+            
+        return JsonResponse({'status': 'success', 'group_id': group.id, 'message': '成功追加到该作品！'})
+    except PromptGroup.DoesNotExist:
+        return JsonResponse({'status': 'error', 'message': '目标作品组不存在'})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({'status': 'error', 'message': str(e)})

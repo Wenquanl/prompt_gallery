@@ -281,6 +281,126 @@
             box-shadow: 0 0 0 0 rgba(40, 167, 69, 0);
         }
     }
+
+    /* === 生成结果可选卡片样式 === */
+    .gen-result-card {
+        position: relative;
+        cursor: pointer;
+        border-radius: 16px;
+        overflow: hidden;
+        background: #fff;
+        padding: 10px;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+        border: 3px solid transparent;
+        transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+        width: 100%; 
+        height: 100%; 
+        display: flex; 
+        align-items: center; 
+        justify-content: center;
+    }
+
+    /* 选中时的外发光和边框 */
+    .gen-result-card.selected {
+        border-color: #8a2be2;
+        background: #f4ecff;
+        box-shadow: 0 8px 25px rgba(138, 43, 226, 0.25);
+    }
+
+    /* 右上角的复选框徽章 */
+    .gen-result-card .select-badge {
+        position: absolute;
+        top: 15px;
+        right: 15px;
+        width: 28px;
+        height: 28px;
+        background: rgba(255, 255, 255, 0.9);
+        border: 2px solid #adb5bd;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.2s;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+        z-index: 5;
+    }
+
+    .gen-result-card:hover .select-badge {
+        transform: scale(1.1);
+    }
+
+    .gen-result-card.selected .select-badge {
+        background: #8a2be2;
+        border-color: #8a2be2;
+    }
+
+    .gen-result-card .select-badge i {
+        color: white;
+        font-size: 16px;
+        display: none;
+    }
+
+    .gen-result-card.selected .select-badge i {
+        display: block;
+    }
+
+    /* === AI 核心加载动画 === */
+    .fluid-blob {
+        width: 110px;
+        height: 110px;
+        background: linear-gradient(135deg, #8a2be2, #20c997, #0d6efd);
+        background-size: 200% 200%;
+        /* 核心：通过不断变化的圆角实现类似水滴/液体的流体感 */
+        animation: fluidShape 5s ease-in-out infinite, gradientShift 4s ease infinite;
+        margin: 0 auto 20px auto;
+        box-shadow: 0 10px 30px rgba(138, 43, 226, 0.4);
+    }
+    
+    @keyframes fluidShape {
+        0% { border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%; }
+        34% { border-radius: 70% 30% 50% 50% / 30% 30% 70% 70%; }
+        67% { border-radius: 100% 60% 60% 100% / 100% 100% 60% 60%; }
+        100% { border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%; }
+    }
+    @keyframes gradientShift { 
+        0% { background-position: 0% 50%; } 
+        50% { background-position: 100% 50%; } 
+        100% { background-position: 0% 50%; } 
+    }
+
+    /* 加载文本排版 */
+    .loading-title {
+        font-size: 1.25rem;
+        font-weight: 700;
+        color: #343a40;
+        margin-bottom: 8px;
+    }
+    .loading-timer {
+        font-family: 'Courier New', Courier, monospace;
+        font-size: 1.15rem;
+        color: #8a2be2;
+        font-weight: bold;
+    }
+    .loading-tips {
+        margin-top: 25px;
+        font-size: 0.9rem;
+        color: #6c757d;
+        background: rgba(255, 255, 255, 0.9);
+        padding: 10px 20px;
+        border-radius: 30px;
+        display: inline-block;
+        transition: opacity 0.5s ease;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.04);
+        border: 1px solid #e9ecef;
+        max-width: 80%;
+    }
+    
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    @keyframes spin-reverse { 0% { transform: rotate(360deg); } 100% { transform: rotate(0deg); } }
+    @keyframes pulse-core { 
+        0% { transform: scale(0.8); box-shadow: 0 0 10px #8a2be2; } 
+        100% { transform: scale(1.2); box-shadow: 0 0 25px #8a2be2, 0 0 40px #20c997; } 
+    }
 </style>
 {% endblock %}
 
@@ -337,17 +457,25 @@
 
                 <div class="scanning-effect" id="canvas-scanning"></div>
                 
-                <div id="canvas-loading" style="display: none; position: absolute; z-index: 11; text-align: center;">
-                    <div class="spinner-border text-primary" style="width: 3rem; height: 3rem;" role="status"></div>
-                    <h5 class="mt-3 fw-bold text-dark" style="text-shadow: 0 0 10px white;">正在向云端请求算力，请耐心等待...</h5>
+                <div id="canvas-loading" style="display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 11; text-align: center; width: 100%;">
+                    <div class="fluid-blob"></div>
+                    
+                    <div class="loading-title">✨ 正在云端渲染您的专属画作</div>
+                    
+                    <div class="loading-timer">已等待: <span id="loading-timer-sec">00:00</span></div>
+                    
+                    <div class="loading-tips" id="loading-tips">💡 小贴士：准备画布中...</div>
                 </div>
 
                 <div id="result-gallery" style="display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; padding: 20px; gap: 16px; z-index: 5;">
                 </div>
 
-                <div id="publish-bar" style="display: none; position: absolute; bottom: 30px; right: 30px; z-index: 20;">
+                <div id="publish-bar" style="display: none; position: absolute; bottom: 30px; right: 30px; z-index: 20;" class="d-flex gap-3">
+                    <button class="btn btn-primary rounded-pill px-4 py-2 shadow-lg fw-bold d-flex align-items-center" onclick="openAddToGroupModal()" style="border:none; transition: transform 0.2s;">
+                        <i class="bi bi-collection-fill fs-5 me-2"></i>追加到现有作品
+                    </button>
                     <button class="btn btn-success rounded-pill px-4 py-2 shadow-lg fw-bold d-flex align-items-center btn-publish-glow" onclick="publishCreation()" style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); border:none;">
-                        <i class="bi bi-box-arrow-up fs-5 me-2"></i>保存为作品卡片
+                        <i class="bi bi-box-arrow-up fs-5 me-2"></i>保存为新作品
                     </button>
                 </div>
                 <div class="modal fade" id="publishModal" tabindex="-1" aria-hidden="true">
@@ -384,7 +512,21 @@
                         </div>
                     </div>
                 </div>
-
+                <div class="modal fade" id="addToGroupModal" tabindex="-1" aria-hidden="true">
+                    <div class="modal-dialog modal-dialog-centered modal-lg">
+                        <div class="modal-content border-0 shadow-lg rounded-4">
+                            <div class="modal-header border-0 pb-0">
+                                <h5 class="modal-title fw-bold"><i class="bi bi-magic text-primary me-2"></i>选择目标作品 (按相似度排序)</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                            </div>
+                            <div class="modal-body pt-3">
+                                <p class="text-muted small mb-3">系统已根据您当前使用的 Prompt 计算了全库相似度：</p>
+                                <div id="similarGroupsContainer" class="list-group custom-scrollbar" style="max-height: 450px; overflow-y: auto;">
+                                    </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -741,6 +883,21 @@
         renderPreviews();
     }
 
+    // 切换图片的选中状态
+    function toggleGenResultSelect(element) {
+        element.classList.toggle('selected');
+    }
+
+    // 获取当前被选中的图片路径数组
+    function getSelectedSavedPaths() {
+        const selectedCards = document.querySelectorAll('.gen-result-card.selected');
+        const paths = [];
+        selectedCards.forEach(card => {
+            paths.push(card.getAttribute('data-path'));
+        });
+        return paths;
+    }
+
     // === 开始生成通信 ===
     function startGeneration() {
         const modelChoice = document.getElementById('ai-model-select').value;
@@ -769,6 +926,48 @@
         document.getElementById('canvas-scanning').style.display = 'block';
         document.getElementById('canvas-loading').style.display = 'block';
 
+        // ==========================================
+        // 启动计时器与小贴士轮播
+        // ==========================================
+        const promptTips = [
+            "💡 小贴士：想要大片感？尝试在提示词加入「丁达尔效应」、「逆光」或「电影级体积光」。",
+            "💡 小贴士：遇到报错？可能是不小心触发了安全词，尝试换个更委婉的说法吧。",
+            "💡 小贴士：不知道怎么选尺寸？人物肖像推荐 3:4，风景和宽屏壁纸推荐 16:9。",
+            "💡 小贴士：多图融合时，上传两张风格差异大的图片，可能会有巨大的惊喜！",
+            "💡 小贴士：在提示词开头明确「主体」和「环境」，能大幅提高 AI 的理解准确度。",
+            "💡 小贴士：加入「胶片质感」、「宝丽来风格」或「噪点」，能让画面充满复古氛围。"
+        ];
+        
+        let elapsedSeconds = 0;
+        let tipIndex = 0;
+        const timerElement = document.getElementById('loading-timer-sec');
+        const tipsElement = document.getElementById('loading-tips');
+        
+        // 重置初始状态
+        timerElement.innerText = "00:00";
+        tipsElement.innerText = promptTips[0];
+        tipsElement.style.opacity = 1;
+
+        // 核心计时与轮播器 (每秒执行一次)
+        const loadingInterval = setInterval(() => {
+            elapsedSeconds++;
+            
+            // 1. 更新真实等待时间 (00:05 格式)
+            const m = Math.floor(elapsedSeconds / 60).toString().padStart(2, '0');
+            const s = (elapsedSeconds % 60).toString().padStart(2, '0');
+            timerElement.innerText = `${m}:${s}`;
+
+            // 2. 每隔 4 秒切换一条小贴士
+            if (elapsedSeconds % 4 === 0) {
+                tipsElement.style.opacity = 0; // 先淡出
+                setTimeout(() => {
+                    tipIndex++;
+                    tipsElement.innerText = promptTips[tipIndex % promptTips.length];
+                    tipsElement.style.opacity = 1; // 再淡入
+                }, 500); 
+            }
+        }, 1000);
+
         const formData = new FormData();
         formData.append('model_choice', modelChoice);
         formData.append('prompt', promptText);
@@ -796,6 +995,7 @@
         })
         .then(response => response.json())
         .then(data => {
+            clearInterval(loadingInterval); // 成功后清除轮播动画
             if (data.status === 'success') {
                 lastSavedPaths = data.saved_paths;
                 document.getElementById('publish-bar').style.display = 'block';
@@ -825,11 +1025,13 @@
                     gallery.style.gridTemplateRows = '1fr 1fr';
                 }
 
-                // 遍历 URL 拼装 HTML
-                data.image_urls.forEach(url => {
+                // 遍历 URL 拼装 HTML (带有选择功能，默认全选)
+                data.image_urls.forEach((url, index) => {
+                    const localPath = data.saved_paths[index]; // 获取对应的本地存储路径
                     gallery.innerHTML += `
-                        <div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: #fff; border-radius: 16px; padding: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.08); overflow: hidden;">
+                        <div class="gen-result-card selected" data-path="${localPath}" onclick="toggleGenResultSelect(this)">
                             <img src="${url}" style="width: 100%; height: 100%; object-fit: contain; border-radius: 8px;">
+                            <div class="select-badge"><i class="bi bi-check-lg"></i></div>
                         </div>
                     `;
                 });
@@ -849,10 +1051,12 @@
             }
         })
         .catch(error => {
+            clearInterval(loadingInterval);
             document.getElementById('canvas-idle').style.display = 'block';
             Swal.fire('请求异常', '网络或服务端报错，请查看控制台', 'error');
         })
         .finally(() => {
+            clearInterval(loadingInterval);
             btn.disabled = false;
             btn.innerHTML = '<i class="bi bi-stars me-2"></i>开始生成';
             document.getElementById('canvas-scanning').style.display = 'none';
@@ -861,8 +1065,9 @@
     }
     // === 1. 点击悬浮按钮，弹出信息填写框并预填充数据 ===
     function publishCreation() {
-        if (!lastSavedPaths || lastSavedPaths.length === 0) {
-            Swal.fire('提示', '没有可发布的图片，请先生成！', 'warning');
+        const selectedPaths = getSelectedSavedPaths();
+        if (selectedPaths.length === 0) {
+            Swal.fire('提示', '请至少在画板中勾选一张要保存的图片！', 'warning');
             return;
         }
 
@@ -910,7 +1115,9 @@
         const finalTags = Array.from(currentSelectedTags).join(',');
         formData.append('tags', finalTags);
         
-        lastSavedPaths.forEach(path => {
+        // 【关键修改】只把选中的图片路径塞进表单
+        const selectedPaths = getSelectedSavedPaths();
+        selectedPaths.forEach(path => {
             formData.append('saved_paths', path);
         });
 
@@ -949,6 +1156,146 @@
         .catch(err => {
             console.error(err);
             Swal.fire('请求异常', '网络或服务端报错，请查看控制台', 'error');
+        });
+    }
+    // === 追加到现有组的核心逻辑 ===
+    function openAddToGroupModal() {
+        const selectedPaths = getSelectedSavedPaths();
+        if (selectedPaths.length === 0) {
+            Swal.fire('提示', '请至少在画板中勾选一张要追加的图片！', 'warning');
+            return;
+        }
+        
+        new bootstrap.Modal(document.getElementById('addToGroupModal')).show();
+        fetchSimilarGroupsForAppend();
+    }
+
+    function fetchSimilarGroupsForAppend() {
+        const promptText = document.getElementById('ai-prompt').value.trim();
+        const container = document.getElementById('similarGroupsContainer');
+        
+        container.innerHTML = '<div class="text-center text-muted py-5"><div class="spinner-border text-primary mb-3"></div><br>正在计算全库提示词相似度...</div>';
+
+        fetch('/api/get-similar-groups-by-prompt/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt: promptText })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success') {
+                renderSimilarGroups(data.results);
+            } else {
+                container.innerHTML = `<div class="text-center text-danger py-4">检索失败: ${data.message}</div>`;
+            }
+        })
+        .catch(err => {
+            console.error(err);
+            container.innerHTML = '<div class="text-center text-danger py-4">网络请求异常</div>';
+        });
+    }
+
+    function renderSimilarGroups(groups) {
+        const container = document.getElementById('similarGroupsContainer');
+        if (!groups || groups.length === 0) {
+            container.innerHTML = '<div class="text-center text-muted py-4">暂无历史作品。</div>';
+            return;
+        }
+
+        let html = '';
+        groups.forEach(group => {
+            const coverHtml = group.cover_url 
+                ? `<img src="${group.cover_url}" class="rounded shadow-sm" style="width: 70px; height: 70px; object-fit: cover;">`
+                : `<div class="rounded bg-light shadow-sm d-flex align-items-center justify-content-center text-muted" style="width: 70px; height: 70px;"><i class="bi bi-image fs-4"></i></div>`;
+
+            // 相似度标签颜色判定
+            let badgeClass = 'bg-secondary';
+            let simValue = parseInt(group.similarity);
+            if(simValue > 80) badgeClass = 'bg-danger';
+            else if(simValue > 50) badgeClass = 'bg-warning text-dark';
+            else if(simValue > 20) badgeClass = 'bg-primary';
+
+            html += `
+            <a href="javascript:void(0)" class="list-group-item list-group-item-action d-flex gap-3 align-items-center py-3" onclick="confirmAppendToGroup(${group.id}, '${group.title}')">
+                ${coverHtml}
+                <div class="flex-grow-1 overflow-hidden">
+                    <div class="d-flex w-100 justify-content-between align-items-center mb-1">
+                        <h6 class="mb-0 fw-bold text-truncate" style="max-width: 70%;">${group.title}</h6>
+                        <span class="badge ${badgeClass} rounded-pill">相似度 ${group.similarity}</span>
+                    </div>
+                    <p class="mb-0 small text-muted text-truncate">${group.prompt_text}</p>
+                </div>
+            </a>`;
+        });
+        container.innerHTML = html;
+    }
+
+    function confirmAppendToGroup(groupId, groupTitle) {
+        Swal.fire({
+            title: '确认追加?',
+            html: `即将把新生成的图片收录进作品<br><strong class="text-primary">${groupTitle}</strong>`,
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonText: '确认追加',
+            cancelButtonText: '取消',
+            confirmButtonColor: '#8a2be2'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                executeAppendRequest(groupId);
+            }
+        });
+    }
+
+    function executeAppendRequest(groupId) {
+        const modalEl = document.getElementById('addToGroupModal');
+        const modalInstance = bootstrap.Modal.getInstance(modalEl);
+        if (modalInstance) modalInstance.hide();
+
+        Swal.fire({
+            title: '正在打包并追加...',
+            allowOutsideClick: false,
+            didOpen: () => Swal.showLoading()
+        });
+
+        const formData = new FormData();
+        formData.append('group_id', groupId);
+        
+        // 【关键修改】只把选中的图片路径塞进表单
+        const selectedPaths = getSelectedSavedPaths();
+        selectedPaths.forEach(path => {
+            formData.append('saved_paths', path);
+        });
+
+        fetch('/api/append-to-existing-group/', {
+            method: 'POST',
+            body: formData
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success') {
+                Swal.fire({
+                    icon: 'success',
+                    title: '🎉 追加成功！',
+                    text: data.message,
+                    showCancelButton: true,
+                    confirmButtonText: '<i class="bi bi-eye"></i> 前往查看',
+                    cancelButtonText: '留在此页继续创作',
+                    confirmButtonColor: '#8a2be2'
+                }).then((result) => {
+                    if (result.isConfirmed) {
+                        window.open(`/image/${data.group_id}/`, '_blank');
+                    } else {
+                        // 如果留在此页，可以清空或者保持现状
+                        document.getElementById('publish-bar').style.display = 'none';
+                    }
+                });
+            } else {
+                Swal.fire('追加失败', data.message, 'error');
+            }
+        })
+        .catch(err => {
+            console.error(err);
+            Swal.fire('请求异常', '网络或服务端报错', 'error');
         });
     }
 </script>
