@@ -1344,9 +1344,53 @@ def add_ai_model(request):
     
 @require_GET
 def create_view(request):
-    """渲染 AI 独立创作工作室页面，并将配置注入前端"""
+    """渲染 AI 独立创作工作室页面，并将配置和初始数据注入前端"""
+    template_id = request.GET.get('template_id')
+    prompt_type = request.GET.get('prompt_type', 'positive')
+    
+    initial_data = {
+        'prompt': '',
+        'tags': [],
+        'reference_urls': []
+    }
+    
+    if template_id:
+        try:
+            source_group = PromptGroup.objects.get(pk=template_id)
+            
+            # 1. 根据用户的选择提取提示词
+            selected_prompt = ""
+            if prompt_type == 'positive' and source_group.prompt_text:
+                selected_prompt = source_group.prompt_text
+            elif prompt_type == 'positive_zh' and source_group.prompt_text_zh:
+                selected_prompt = source_group.prompt_text_zh
+            elif prompt_type == 'negative' and source_group.negative_prompt:
+                selected_prompt = source_group.negative_prompt
+            else:
+                # 兜底逻辑：如果选的为空，找一个有值的
+                selected_prompt = source_group.prompt_text or source_group.prompt_text_zh or ""
+                
+            # 2. 提取标签
+            tags = [tag.name for tag in source_group.tags.all()]
+            
+            # 3. 提取参考图 URL (如果没有参考图，可以选择把当前组的第一张成图作为参考)
+            ref_urls = [ref.image.url for ref in source_group.references.all() if ref.image]
+            if not ref_urls:
+                first_img = source_group.images.filter(is_video=False).first()
+                if first_img and first_img.image:
+                    ref_urls.append(first_img.image.url)
+                    
+            initial_data = {
+                'prompt': selected_prompt,
+                'tags': tags,
+                'reference_urls': ref_urls
+            }
+        except PromptGroup.DoesNotExist:
+            pass
+
     return render(request, 'gallery/create.html', {
-        'ai_config_json': json.dumps(AI_STUDIO_CONFIG)
+        'ai_config_json': json.dumps(AI_STUDIO_CONFIG),
+        'initial_data_json': json.dumps(initial_data), # 注入给前端的初始预填充数据
     })
 
 @csrf_exempt

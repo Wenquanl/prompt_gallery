@@ -611,7 +611,15 @@
                             data-bs-toggle="tooltip">
                         <i class="bi bi-star-fill" style="font-size: 1rem;"></i>
                     </button>
-                    
+
+                    <button class="btn btn-sm rounded-pill px-3 me-2 text-white shadow-sm d-flex align-items-center" 
+                            onclick="openAiStudioModal()"
+                            title="一键带入参数至 AI 工作室"
+                            data-bs-toggle="tooltip"
+                            style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border: none;">
+                        <i class="bi bi-magic me-1"></i>工作室
+                    </button>
+
                     <h2 class="fw-bold text-dark mb-0 p-2 rounded" 
                         ondblclick="enableTitleEdit(this, {{ group.pk }})" 
                         title="双击修改标题" 
@@ -1045,6 +1053,69 @@
     </div>
 </div>
 
+<div class="modal fade" id="aiStudioModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title fw-bold"><i class="bi bi-magic text-primary me-2"></i>导入 AI 工作室</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small mb-3">将自动带入当前作品的<strong>参考图</strong>和<strong>标签</strong>。如果有多个提示词，请选择您想要带入的一项作为基础：</p>
+                
+                <form id="aiStudioForm" action="{% url 'create' %}" method="get" target="_blank">
+                    <input type="hidden" name="template_id" value="{{ group.pk }}">
+                    
+                    <div class="list-group mb-4">
+                        {% if group.prompt_text or group.prompt_text_zh or group.negative_prompt %}
+                            {% if group.prompt_text %}
+                            <label class="list-group-item d-flex gap-3 align-items-center cursor-pointer">
+                                <input class="form-check-input flex-shrink-0" type="radio" name="prompt_type" value="positive" checked>
+                                <div class="flex-grow-1 overflow-hidden">
+                                    <strong class="text-primary d-block mb-1">Prompt (正向)</strong>
+                                    <small class="d-block text-muted text-truncate">{{ group.prompt_text }}</small>
+                                </div>
+                            </label>
+                            {% endif %}
+                            
+                            {% if group.prompt_text_zh %}
+                            <label class="list-group-item d-flex gap-3 align-items-center cursor-pointer">
+                                <input class="form-check-input flex-shrink-0" type="radio" name="prompt_type" value="positive_zh" {% if not group.prompt_text %}checked{% endif %}>
+                                <div class="flex-grow-1 overflow-hidden">
+                                    <strong class="text-success d-block mb-1">辅助提示词 1</strong>
+                                    <small class="d-block text-muted text-truncate">{{ group.prompt_text_zh }}</small>
+                                </div>
+                            </label>
+                            {% endif %}
+                            
+                            {% if group.negative_prompt %}
+                            <label class="list-group-item d-flex gap-3 align-items-center cursor-pointer">
+                                <input class="form-check-input flex-shrink-0" type="radio" name="prompt_type" value="negative" {% if not group.prompt_text and not group.prompt_text_zh %}checked{% endif %}>
+                                <div class="flex-grow-1 overflow-hidden">
+                                    <strong class="text-danger d-block mb-1">辅助提示词 2</strong>
+                                    <small class="d-block text-muted text-truncate">{{ group.negative_prompt }}</small>
+                                </div>
+                            </label>
+                            {% endif %}
+                        {% else %}
+                            <div class="alert alert-light border text-center text-muted mb-0">
+                                该作品暂无提示词文本，将仅带入参考图和标签。
+                                <input type="hidden" name="prompt_type" value="none">
+                            </div>
+                        {% endif %}
+                    </div>
+                    
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary rounded-pill fw-bold py-2" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border: none;">
+                            <i class="bi bi-rocket-takeoff me-2"></i>前往创作
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% include 'gallery/components/offcanvas_tags.html' %}
 {% endblock %}
 
@@ -1062,6 +1133,13 @@
     </script>
     <script src="{% static 'gallery/js/detail.js' %}"></script>
     <script>
+            // 【新增】打开 AI 工作室提示词选择弹窗
+            function openAiStudioModal() {
+                const modalEl = document.getElementById('aiStudioModal');
+                if (modalEl) {
+                    new bootstrap.Modal(modalEl).show();
+                }
+            }
         document.addEventListener('DOMContentLoaded', function () {
             var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
             var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {

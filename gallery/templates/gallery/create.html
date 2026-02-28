@@ -306,6 +306,63 @@
     document.addEventListener('DOMContentLoaded', () => {
         initDynamicUI();
         setupDragAndDrop();
+        // ==========================================
+        // 【新增】接收并处理从详情页带入的预填充数据
+        // ==========================================
+        try {
+            // 解析后端注入的 JSON 数据，如果没有或者为空则默认为空对象
+            const initialDataStr = '{{ initial_data_json|escapejs }}';
+            if (initialDataStr && initialDataStr !== "{}") {
+                const initialData = JSON.parse(initialDataStr);
+                
+                // 1. 填充提示词
+                if (initialData.prompt) {
+                    let finalPrompt = initialData.prompt;
+                    // 如果有标签，也可以选择将标签追加到提示词末尾（可选）
+                    if (initialData.tags && initialData.tags.length > 0) {
+                        finalPrompt += "\n" + initialData.tags.join(", ");
+                    }
+                    document.getElementById('ai-prompt').value = finalPrompt;
+                }
+                
+                // 2. 自动抓取并填充参考图
+                if (initialData.reference_urls && initialData.reference_urls.length > 0) {
+                    // 显示加载状态（可选）
+                    Swal.fire({
+                        title: '正在导入参考图...',
+                        allowOutsideClick: false,
+                        didOpen: () => Swal.showLoading()
+                    });
+
+                    // 将所有网络 URL 转换为 File 对象
+                    Promise.all(initialData.reference_urls.map(url => 
+                        fetch(url)
+                            .then(res => res.blob())
+                            .then(blob => {
+                                // 提取文件名或使用默认名称
+                                const filename = url.split('/').pop().split('?')[0] || 'reference_image.jpg';
+                                return new File([blob], filename, { type: blob.type || 'image/jpeg' });
+                            })
+                    )).then(files => {
+                        // 兼容你原有的 handleFiles 逻辑
+                        if (maxImagesAllowed === 1) {
+                            currentFiles = [files[0]]; 
+                        } else if (maxImagesAllowed > 1) {
+                            currentFiles = [...currentFiles, ...files].slice(0, maxImagesAllowed); 
+                        }
+                        
+                        // 重新渲染缩略图
+                        renderPreviews();
+                        Swal.close();
+                    }).catch(err => {
+                        console.error("加载参考图失败:", err);
+                        Swal.fire('导入提示', '部分参考图导入失败，请手动上传', 'warning');
+                    });
+                }
+            }
+        } catch(e) {
+            console.log("无预填充数据或解析失败", e);
+        }
     });
 
     // === 核心渲染引擎：根据后端配置生成 UI ===
