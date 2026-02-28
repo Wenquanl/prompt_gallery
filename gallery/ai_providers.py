@@ -125,12 +125,27 @@ class VolcengineProvider(BaseAIProvider):
 
 class GoogleAIProvider(BaseAIProvider):
     def generate(self, model_config, api_args, base_image_files=None):
-        # 1. 初始化 Client
-        client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+        # 1. 初始化 Client，使用官方推荐的 client_args 注入底层代理
+        proxy_url = "socks5h://127.0.0.1:10808"  # 你的 v2ray 真实代理地址
+        
+        client = genai.Client(
+            api_key=os.getenv("GEMINI_API_KEY"),
+            http_options=types.HttpOptions(
+                timeout=300.0,
+                client_args={
+                    "proxy": proxy_url  # 注入同步客户端代理
+                },
+                async_client_args={
+                    "proxy": proxy_url  # 注入异步客户端代理
+                }
+            )
+        )
         model_endpoint = model_config['endpoint']
 
-        # 2. 构建多模态输入 (Contents Array)
+        # ==========================================
+        # 3. 构建多模态输入 (Contents Array)
         # Nano Banana 允许同时传入文本和多达 14 张参考图片
+        # ==========================================
         contents = []
         if api_args.get('prompt'):
             contents.append(api_args['prompt'])
@@ -139,12 +154,14 @@ class GoogleAIProvider(BaseAIProvider):
             for f in base_image_files:
                 img_bytes = f.read()
                 mime_type = getattr(f, 'content_type', 'image/jpeg')
-                # 将图片直接转为 Google SDK 要求的 Part 对象
+                # 将图片直接转为 Google SDK 要求的 Part 对象，免去图床中转
                 contents.append(
                     types.Part.from_bytes(data=img_bytes, mime_type=mime_type)
                 )
 
-        # 3. 构建生图参数 (Image Config)
+        # ==========================================
+        # 4. 构建生图参数与核心配置 (Config)
+        # ==========================================
         image_config_kwargs = {
             "aspect_ratio": api_args.get('aspect_ratio', '1:1'),
         }
@@ -152,7 +169,6 @@ class GoogleAIProvider(BaseAIProvider):
         if 'resolution' in api_args:
             image_config_kwargs["image_size"] = api_args['resolution']
             
-        # 4. 构建核心配置 (Generate Content Config)
         config_kwargs = {
             # 强制只返回图像，避免模型啰嗦返回文本导致解析复杂
             "response_modalities": ["IMAGE"], 
@@ -171,7 +187,7 @@ class GoogleAIProvider(BaseAIProvider):
                 ))
             ]
 
-        # 💡 特性 B：控制思考深度 (仅限 Gemini 3.1 Flash)
+        # 💡 特性 B：控制思考深度 (目前仅限 Gemini 3.1 Flash 支持)
         if api_args.get('thinking_level'):
             config_kwargs["thinking_config"] = types.ThinkingConfig(
                 thinking_level=api_args['thinking_level'],
@@ -180,22 +196,27 @@ class GoogleAIProvider(BaseAIProvider):
 
         config = types.GenerateContentConfig(**config_kwargs)
 
+        # ==========================================
         # 5. 调用官方多模态生图接口
+        # ==========================================
         response = client.models.generate_content(
             model=model_endpoint,
             contents=contents,
             config=config
         )
 
+        # ==========================================
         # 6. 解析结果并转换为 Data URL
+        # ==========================================
         urls = []
         if response.parts:
             for part in response.parts:
-                # 过滤掉可能的 thought (思考过程)
+                # 过滤掉可能的 thought (思考过程输出)
                 if getattr(part, 'thought', False):
                     continue
-                # 提取最终图像
-                if part.inline_data:
+                    
+                # 提取最终图像，转换为 Base64 的 Data URL 供前端和下载器使用
+                if getattr(part, 'inline_data', None):
                     img_bytes = part.inline_data.data
                     mime = part.inline_data.mime_type or 'image/jpeg'
                     b64_str = base64.b64encode(img_bytes).decode('utf-8')

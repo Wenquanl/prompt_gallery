@@ -267,7 +267,7 @@ AI_STUDIO_CONFIG = {
                     {'value': '9:16', 'text': '9:16 (竖版)'},
                     {'value': '16:9', 'text': '16:9 (横版)'},
                     {'value': '21:9', 'text': '21:9 (宽屏)'}
-                ], 'default': '1:1'},
+                ], 'default': '9:16'},
                 {'id': 'resolution', 'label': '生成分辨率 (Image Size)', 'type': 'select', 'options': [
                     {'value': '1K', 'text': '1K (极速)'},
                     {'value': '2K', 'text': '2K (高清)'},
