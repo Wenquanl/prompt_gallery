@@ -23,6 +23,7 @@ urlpatterns = [
     path('add-tag/<int:pk>/', views.add_tag_to_group, name='add_tag'),
     path('remove-tag/<int:pk>/', views.remove_tag_from_group, name='remove_tag'),
     path('add-model/', views.add_ai_model, name='add_ai_model'),
+    path('edit-model/', views.edit_model_api, name='edit_model'),
     # 点赞接口 (API)
     path('toggle-like-group/<int:pk>/', views.toggle_like_group, name='toggle_like_group'),
     path('toggle-like-image/<int:pk>/', views.toggle_like_image, name='toggle_like_image'),

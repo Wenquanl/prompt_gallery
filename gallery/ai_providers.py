@@ -3,6 +3,8 @@ import os
 import base64
 import fal_client
 from openai import OpenAI
+from google import genai
+from google.genai import types
 
 class BaseAIProvider:
     """AI 生图提供商的基类（接口定义）"""
@@ -121,12 +123,92 @@ class VolcengineProvider(BaseAIProvider):
                 
         return urls
 
+class GoogleAIProvider(BaseAIProvider):
+    def generate(self, model_config, api_args, base_image_files=None):
+        # 1. 初始化 Client
+        client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+        model_endpoint = model_config['endpoint']
+
+        # 2. 构建多模态输入 (Contents Array)
+        # Nano Banana 允许同时传入文本和多达 14 张参考图片
+        contents = []
+        if api_args.get('prompt'):
+            contents.append(api_args['prompt'])
+
+        if base_image_files:
+            for f in base_image_files:
+                img_bytes = f.read()
+                mime_type = getattr(f, 'content_type', 'image/jpeg')
+                # 将图片直接转为 Google SDK 要求的 Part 对象
+                contents.append(
+                    types.Part.from_bytes(data=img_bytes, mime_type=mime_type)
+                )
+
+        # 3. 构建生图参数 (Image Config)
+        image_config_kwargs = {
+            "aspect_ratio": api_args.get('aspect_ratio', '1:1'),
+        }
+        # 如果前端传了分辨率参数，则加上 (如 "2K", "4K")
+        if 'resolution' in api_args:
+            image_config_kwargs["image_size"] = api_args['resolution']
+            
+        # 4. 构建核心配置 (Generate Content Config)
+        config_kwargs = {
+            # 强制只返回图像，避免模型啰嗦返回文本导致解析复杂
+            "response_modalities": ["IMAGE"], 
+            "image_config": types.ImageConfig(**image_config_kwargs)
+        }
+
+        # 💡 特性 A：启用 Google 联网搜索
+        if api_args.get('enable_web_search'):
+            # 开启网页搜索和图片搜索双重 Grounding
+            config_kwargs["tools"] = [
+                types.Tool(google_search=types.GoogleSearch(
+                    search_types=types.SearchTypes(
+                        web_search=types.WebSearch(),
+                        image_search=types.ImageSearch()
+                    )
+                ))
+            ]
+
+        # 💡 特性 B：控制思考深度 (仅限 Gemini 3.1 Flash)
+        if api_args.get('thinking_level'):
+            config_kwargs["thinking_config"] = types.ThinkingConfig(
+                thinking_level=api_args['thinking_level'],
+                include_thoughts=False # 设为 False，避免返回过程中的草图干扰最终结果
+            )
+
+        config = types.GenerateContentConfig(**config_kwargs)
+
+        # 5. 调用官方多模态生图接口
+        response = client.models.generate_content(
+            model=model_endpoint,
+            contents=contents,
+            config=config
+        )
+
+        # 6. 解析结果并转换为 Data URL
+        urls = []
+        if response.parts:
+            for part in response.parts:
+                # 过滤掉可能的 thought (思考过程)
+                if getattr(part, 'thought', False):
+                    continue
+                # 提取最终图像
+                if part.inline_data:
+                    img_bytes = part.inline_data.data
+                    mime = part.inline_data.mime_type or 'image/jpeg'
+                    b64_str = base64.b64encode(img_bytes).decode('utf-8')
+                    urls.append(f"data:{mime};base64,{b64_str}")
+                
+        return urls
 # ==========================================
 # 工厂模式：根据名称返回对应的处理类
 # ==========================================
 def get_ai_provider(provider_name="fal_ai"):
     providers = {
         'fal_ai': FalAIProvider(),
-        'volcengine': VolcengineProvider(),  # <--- 注册新的火山引擎提供商
+        'volcengine': VolcengineProvider(),
+        'google_ai': GoogleAIProvider(), 
     }
     return providers.get(provider_name, FalAIProvider())

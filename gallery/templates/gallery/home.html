@@ -115,7 +115,9 @@
             {% for tag in tags_bar %}
                 {% if tag.is_model == 1 %}
                 <a href="/?q={{ tag.name }}" 
-                   class="tag-pill model-tag {% if search_query == tag.name %}active{% endif %}">
+                   class="tag-pill model-tag {% if search_query == tag.name %}active{% endif %}"
+                   data-tag-name="{{ tag.name }}"
+                   oncontextmenu="handleTagContextMenu(event, this)">
                     <i class="bi bi-robot me-1"></i>
                     {{ tag.name }}
                     <span class="tag-count-badge">{{ tag.use_count }}</span>
@@ -290,6 +292,76 @@
             })
             .catch(err => alert('网络错误'));
         }
+
+        // === 【新增】右键编辑模型标签逻辑 ===
+        function handleTagContextMenu(event, element) {
+            event.preventDefault(); // 阻止浏览器默认的右键菜单弹出
+            
+            const oldName = element.getAttribute('data-tag-name');
+
+            Swal.fire({
+                title: '编辑模型标签',
+                text: '修改后的名称将同步更新到所有关联的画作卡片',
+                input: 'text',
+                inputValue: oldName,
+                showCancelButton: true,
+                confirmButtonText: '保存修改',
+                cancelButtonText: '取消',
+                confirmButtonColor: '#8a2be2',
+                inputValidator: (value) => {
+                    if (!value || value.trim() === '') {
+                        return '标签名称不能为空！';
+                    }
+                    if (value.trim() === oldName) {
+                        return '名称未发生改变';
+                    }
+                }
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    const newName = result.value.trim();
+                    submitEditModel(oldName, newName);
+                }
+            });
+        }
+
+        function submitEditModel(oldName, newName) {
+            const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
+
+            Swal.fire({
+                title: '正在更新...',
+                allowOutsideClick: false,
+                didOpen: () => Swal.showLoading()
+            });
+
+            fetch('/edit-model/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken
+                },
+                body: JSON.stringify({ old_name: oldName, new_name: newName })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if(data.status === 'success') {
+                    Swal.fire({
+                        icon: 'success',
+                        title: '修改成功',
+                        toast: true,
+                        position: 'top-end',
+                        showConfirmButton: false,
+                        timer: 1500
+                    }).then(() => window.location.reload()); // 刷新页面以显示最新标签
+                } else {
+                    Swal.fire('修改失败', data.message || '未知错误', 'error');
+                }
+            })
+            .catch(err => {
+                console.error(err);
+                Swal.fire('错误', '网络或服务端异常', 'error');
+            });
+        }
+
         // === 【新增】远端API 图片生成逻辑 ===
         const seedreamModal = new bootstrap.Modal(document.getElementById('seedreamModal'));
 

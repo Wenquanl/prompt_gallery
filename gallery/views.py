@@ -14,6 +14,7 @@ from django.contrib import messages
 from django.conf import settings
 from django.http import JsonResponse
 from django.db.models import Q, Count, Case, When, IntegerField, Max, Prefetch
+from django.db import transaction
 from django.core.files.base import ContentFile
 from django.core.paginator import Paginator
 from django.views.decorators.http import require_GET, require_POST
@@ -76,7 +77,7 @@ AI_STUDIO_CONFIG = {
             'provider': 'volcengine',
             'category': 'multi',
             'endpoint': 'doubao-seedream-5-0-260128', 
-            'title': 'Seedream 5.0 Lite (官方直连)',
+            'title': 'Seedream 5.0 Lite (官方)',
             'desc': '字节官方最新 API，支持多图融合、组图生成与联网搜索',
             'params': [
                 {'id': 'max_images', 'label': '生成组图数量', 'type': 'range', 'min': 1, 'max': 4, 'step': 1, 'default': 1},
@@ -100,12 +101,11 @@ AI_STUDIO_CONFIG = {
                 {'id': 'enable_web_search', 'label': '开启联网搜索', 'type': 'checkbox', 'default': False, 'help_text': '开启后模型会根据提示词自主搜索互联网内容（如近期天气、新闻等）'}
             ]
         },
-        # ▼ 火山引擎官方直连版 Seedream 4.5
         'seedream-4.5-official': {
             'provider': 'volcengine',
             'category': 'multi',
             'endpoint': 'doubao-seedream-4-5-251128',
-            'title': 'Seedream 4.5 (官方直连)',
+            'title': 'Seedream 4.5 (官方)',
             'desc': '字节官方 API，专注高质量图像输出',
             'params': [
                 {'id': 'max_images', 'label': '生成组图数量', 'type': 'range', 'min': 1, 'max': 4, 'step': 1, 'default': 1},
@@ -125,12 +125,11 @@ AI_STUDIO_CONFIG = {
                 # 文档指出 4.5 默认 jpeg 不支持自定义格式，且不支持联网搜索，故在此省略
             ]
         },
-        # ▼ 火山引擎官方直连版 Seedream 4.0
         'seedream-4.0-official': {
             'provider': 'volcengine',
             'category': 'multi',
             'endpoint': 'doubao-seedream-4-0-250828',
-            'title': 'Seedream 4.0 (官方直连)',
+            'title': 'Seedream 4.0 (官方)',
             'desc': '字节官方 API，支持牺牲部分画质的极速生成模式',
             'params': [
                 {'id': 'max_images', 'label': '生成组图数量', 'type': 'range', 'min': 1, 'max': 4, 'step': 1, 'default': 1},
@@ -158,7 +157,7 @@ AI_STUDIO_CONFIG = {
             'provider': 'fal_ai',
             'category': 'multi',
             'endpoint': 'fal-ai/bytedance/seedream/v5/lite/edit',
-            'title': 'Seedream 5.0 Lite(fal)',
+            'title': 'Seedream 5.0 Lite (Fal)',
             'desc': '支持最多10张图的复杂特征融合与编辑',
             'params': [
                 {'id': 'num_images', 'label': '生成图数量', 'type': 'range', 'min': 1, 'max': 4, 'step': 1, 'default': 1},
@@ -182,7 +181,7 @@ AI_STUDIO_CONFIG = {
             'provider': 'fal_ai',
             'category': 'multi',
             'endpoint': 'fal-ai/bytedance/seedream/v4.5/edit',
-            'title': 'Seedream 4.5(fal)',
+            'title': 'Seedream 4.5 (Fal)',
             'desc': '支持最多10张图的复杂特征融合与编辑',
             'params': [
                 {'id': 'num_images', 'label': '生成图数量', 'type': 'range', 'min': 1, 'max': 4, 'step': 1, 'default': 1},
@@ -202,11 +201,90 @@ AI_STUDIO_CONFIG = {
 
             ]
         },
+        'gemini-3-pro-image-preview': {
+            'provider': 'google_ai',
+            'category': 'multi',  # 支持多达 14 张参考图
+            'endpoint': 'gemini-3-pro-image-preview',
+            'title': 'Nano Banana Pro (官方)',
+            'desc': '专为专业资产生产设计，默认开启深度思考(Thinking)，支持最高4K画质与复杂语义渲染',
+            'params': [
+                {'id': 'num_images', 'label': '生成数量', 'type': 'range', 'min': 1, 'max': 4, 'step': 1, 'default': 1},
+                {'id': 'aspect_ratio', 'label': '画幅比例', 'type': 'select', 'options': [
+                    {'value': '1:1', 'text': '1:1 (正方形)'},
+                    {'value': '3:4', 'text': '3:4 (竖版)'},
+                    {'value': '4:3', 'text': '4:3 (横版)'},
+                    {'value': '9:16', 'text': '9:16 (竖版)'},
+                    {'value': '16:9', 'text': '16:9 (横版)'},
+                    {'value': '3:2', 'text': '3:2 (横版)'},
+                    {'value': '2:3', 'text': '2:3 (竖版)'},
+                    {'value': '5:4', 'text': '5:4 (横版)'},
+                    {'value': '4:5', 'text': '4:5 (竖版)'},
+                    {'value': '21:9', 'text': '21:9 (宽屏)'}
+                ], 'default': '1:1'},
+                {'id': 'resolution', 'label': '生成分辨率 (Image Size)', 'type': 'select', 'options': [
+                    {'value': '1K', 'text': '1K (1024px)'},
+                    {'value': '2K', 'text': '2K (高清)'},
+                    {'value': '4K', 'text': '4K (极致原画)'}
+                ], 'default': '2K'},
+                {'id': 'enable_web_search', 'label': '启用 Google 联网搜索', 'type': 'checkbox', 'default': False, 'help_text': '开启后，可让模型根据最新资讯、天气或搜到的图片来作为生成依据。'}
+            ]
+        },
+        'gemini-2.5-flash-image': {
+            'provider': 'google_ai',
+            'category': 'multi', # 官方建议最多 3 张参考图
+            'endpoint': 'gemini-2.5-flash-image',
+            'title': 'Nano Banana Flash (官方)',
+            'desc': '主打极速生成，固定 1K 分辨率，专为高吞吐、低延迟任务优化',
+            'params': [
+                {'id': 'num_images', 'label': '生成数量', 'type': 'range', 'min': 1, 'max': 4, 'step': 1, 'default': 1},
+                {'id': 'aspect_ratio', 'label': '画幅比例', 'type': 'select', 'options': [
+                    {'value': '1:1', 'text': '1:1 (正方形)'},
+                    {'value': '3:4', 'text': '3:4 (竖版)'},
+                    {'value': '4:3', 'text': '4:3 (横版)'},
+                    {'value': '9:16', 'text': '9:16 (竖版)'},
+                    {'value': '16:9', 'text': '16:9 (横版)'},
+                    {'value': '3:2', 'text': '3:2 (横版)'},
+                    {'value': '2:3', 'text': '2:3 (竖版)'},
+                    {'value': '5:4', 'text': '5:4 (横版)'},
+                    {'value': '4:5', 'text': '4:5 (竖版)'},
+                    {'value': '21:9', 'text': '21:9 (宽屏)'}
+                ], 'default': '1:1'}
+                # 注意：2.5 Flash 仅支持 1024px，因此不暴露 resolution 选择下拉框
+                # 注意：2.5 Flash 不支持 thinking_level 控制
+            ]
+        },
+        'gemini-3.1-flash-image-preview': {
+            'provider': 'google_ai',
+            'category': 'multi',  # 改为 multi，因为它原生支持多达 14 张垫图
+            'endpoint': 'gemini-3.1-flash-image-preview',
+            'title': 'Nano Banana 2 (官方)',
+            'desc': '支持最高 4K 画质、多图融合、联网搜索及深度推理的终极生图模型',
+            'params': [
+                {'id': 'aspect_ratio', 'label': '画幅比例', 'type': 'select', 'options': [
+                    {'value': '1:1', 'text': '1:1 (正方形)'},
+                    {'value': '3:4', 'text': '3:4 (竖版)'},
+                    {'value': '4:3', 'text': '4:3 (横版)'},
+                    {'value': '9:16', 'text': '9:16 (竖版)'},
+                    {'value': '16:9', 'text': '16:9 (横版)'},
+                    {'value': '21:9', 'text': '21:9 (宽屏)'}
+                ], 'default': '1:1'},
+                {'id': 'resolution', 'label': '生成分辨率 (Image Size)', 'type': 'select', 'options': [
+                    {'value': '1K', 'text': '1K (极速)'},
+                    {'value': '2K', 'text': '2K (高清)'},
+                    {'value': '4K', 'text': '4K (原画)'}
+                ], 'default': '1K'},
+                {'id': 'thinking_level', 'label': '模型思考深度', 'type': 'select', 'options': [
+                    {'value': 'minimal', 'text': 'Minimal (常规速度)'},
+                    {'value': 'High', 'text': 'High (深度构图与逻辑分析)'}
+                ], 'default': 'minimal', 'help_text': '选择 High 会增加生成时间，但在处理复杂提示词（如多重光影、精准文字渲染、复杂的空间位置关系）时效果更好。'},
+                {'id': 'enable_web_search', 'label': '启用 Google 联网搜索', 'type': 'checkbox', 'default': False, 'help_text': '开启后，可让模型根据最新资讯、天气或搜到的图片来作为生成依据。'}
+            ]
+        },
         'nano-banana-2-edit-fal': {
             'provider': 'fal_ai',
             'category': 'multi',
             'endpoint': 'fal-ai/nano-banana-2/edit',
-            'title': 'Nano Banana 2(fal)',
+            'title': 'Nano Banana 2(Fal)',
             'desc': '支持多图融合，适合创意编辑场景',
             'params': [
                 {'id': 'num_images', 'label': '生成图数量', 'type': 'range', 'min': 1, 'max': 4, 'step': 1, 'default': 1},
@@ -253,7 +331,7 @@ AI_STUDIO_CONFIG = {
             'provider': 'fal_ai',
             'category': 'multi',
             'endpoint': 'fal-ai/nano-banana-pro/edit',
-            'title': 'Nano Banana Pro(fal)',
+            'title': 'Nano Banana Pro(Fal)',
             'desc': '支持多图融合，适合创意编辑场景',
             'params': [
                 {'id': 'num_images', 'label': '生成图数量', 'type': 'range', 'min': 1, 'max': 4, 'step': 1, 'default': 1},
@@ -1573,20 +1651,29 @@ def api_generate_and_download(request):
         saved_paths = []
         final_urls = []
 
-        print(f"云端共生成了 {len(generated_urls)} 张图片，开始下载...")
+        print(f"云端共生成了 {len(generated_urls)} 张图片，开始处理...")
 
         for idx, img_url in enumerate(generated_urls):
             final_urls.append(img_url)
+            file_name = f"Gen_{model_choice}_{base_timestamp}_{idx+1}.jpg" 
+            file_path = os.path.join(downloads_dir, file_name)
+            
             try:
-                img_resp = requests.get(img_url, verify=False, timeout=60)
-                if img_resp.status_code == 200:
-                    file_name = f"Gen_{model_choice}_{base_timestamp}_{idx+1}.png" 
-                    file_path = os.path.join(downloads_dir, file_name)
+                if img_url.startswith('data:image'):
+                    # 【新增】如果是 Google 传回来的 Base64 数据，直接解码存入硬盘，无需发起网络请求
+                    header, encoded = img_url.split(",", 1)
                     with open(file_path, 'wb') as f:
-                        f.write(img_resp.content)
+                        f.write(base64.b64decode(encoded))
                     saved_paths.append(file_path)
+                else:
+                    # 【保留】如果是 Fal/火山 传回来的普通公网 URL，正常使用 requests 下载
+                    img_resp = requests.get(img_url, verify=False, timeout=60)
+                    if img_resp.status_code == 200:
+                        with open(file_path, 'wb') as f:
+                            f.write(img_resp.content)
+                        saved_paths.append(file_path)
             except Exception as e:
-                print(f"下载第 {idx+1} 张图片失败: {e}")
+                print(f"处理第 {idx+1} 张图片失败: {e}")
 
         return JsonResponse({
             'status': 'success',
@@ -1764,6 +1851,76 @@ def api_append_to_existing_group(request):
         return JsonResponse({'status': 'success', 'group_id': group.id, 'message': '成功追加到该作品！'})
     except PromptGroup.DoesNotExist:
         return JsonResponse({'status': 'error', 'message': '目标作品组不存在'})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({'status': 'error', 'message': str(e)})
+    
+@require_POST
+def edit_model_api(request):
+    """处理前端修改模型标签名称的请求（终极容错与脏数据清理版）"""
+    try:
+        data = json.loads(request.body)
+        old_name = data.get('old_name', '').strip()
+        new_name = data.get('new_name', '').strip()
+
+        if not old_name or not new_name:
+            return JsonResponse({'status': 'error', 'message': '标签名称不能为空'})
+
+        if old_name == new_name:
+            return JsonResponse({'status': 'success', 'message': '名称未改变'})
+
+        with transaction.atomic(): 
+            # ==========================================
+            # 1. 安全获取或创建新标签 (免疫 MultipleObjectsReturned)
+            # ==========================================
+            new_tags = list(Tag.objects.filter(name__iexact=new_name))
+            if new_tags:
+                new_tag = new_tags[0] # 如果有多个同名新标签，选第一个当“老大”
+                # 如果老大名字大小写跟用户输入的不完全一致，纠正它
+                if new_tag.name != new_name:
+                    new_tag.name = new_name
+                    new_tag.save()
+            else:
+                new_tag = Tag.objects.create(name=new_name)
+
+            # ==========================================
+            # 2. 找到所有旧标签（包括重复的脏数据），全部合并到老大身上
+            # ==========================================
+            old_tags = list(Tag.objects.filter(name__iexact=old_name))
+            
+            for old_tag in old_tags:
+                if old_tag.id != new_tag.id:
+                    # 获取使用了这个旧标签的所有画作组
+                    groups_with_old_tag = old_tag.promptgroup_set.all()
+                    for group in groups_with_old_tag:
+                        group.tags.add(new_tag)    # 绑上新标签老大
+                        group.tags.remove(old_tag) # 解绑旧标签
+                    
+                    # 榨干利用价值后，把这个旧标签（或重复的脏标签）无情删除
+                    old_tag.delete()
+
+            # ==========================================
+            # 3. 处理 AIModel 表，保证顶部的 Tab 栏更新
+            # ==========================================
+            old_ai_models = AIModel.objects.filter(name__iexact=old_name)
+            old_ai_models.delete() # 删掉所有旧的 Tab 名
+            
+            # 确保新名字被注册到 AIModel 表中 (使用 filter_first 逻辑防报错)
+            if not AIModel.objects.filter(name__iexact=new_name).exists():
+                AIModel.objects.create(name=new_name)
+
+            # ==========================================
+            # 4. 同步更新纯文本字段 model_info
+            # ==========================================
+            groups_to_update = PromptGroup.objects.filter(model_info__iexact=old_name)
+            updated_count = groups_to_update.update(model_info=new_name)
+
+        return JsonResponse({
+            'status': 'success', 
+            'message': f'重命名成功！已清理重复脏数据，并同步了 {updated_count} 张卡片。'
+        })
+        
     except Exception as e:
         import traceback
         traceback.print_exc()
