@@ -92,6 +92,29 @@ AI_STUDIO_CONFIG = {
 
             ]
         },
+        'seedream-4.5-edit': {
+            'category': 'multi',
+            'endpoint': 'fal-ai/bytedance/seedream/v4.5/edit',
+            'title': 'Seedream 4.5',
+            'desc': '支持最多10张图的复杂特征融合与编辑',
+            'params': [
+                {'id': 'num_images', 'label': '生成图数量', 'type': 'range', 'min': 1, 'max': 4, 'step': 1, 'default': 1},
+                {'id': 'max_images', 'label': '最大生成图数量', 'type': 'range', 'min': 1, 'max': 4, 'step': 1, 'default': 1},
+                {'id': 'image_size', 'label': '生成尺寸 (Size)', 'type': 'select', 'options': [
+                    {'value': 'auto_2K', 'text': '2K'},
+                    {'value': 'auto_4K', 'text': '4K'},
+                    {'value': 'portrait_16_9', 'text': '竖版 9:16'},
+                    {'value': 'portrait_4_3', 'text': '竖版 3:4'},
+                    {'value': 'landscape_16_9', 'text': '横版 16:9'},
+                    {'value': 'landscape_4_3', 'text': '横版 4:3'},
+                    {'value': 'landscape_16_9', 'text': '横版 16:9'},
+                    {'value': 'square_hd', 'text': '1:1 正方形 HD'},
+                    {'value': 'square', 'text': '1:1 正方形'}
+                ], 'default': 'auto_2K'},
+                {'id': 'enable_safety_checker', 'label': '启用安全检查', 'type': 'checkbox', 'default': False}
+
+            ]
+        },
         'nano-banana-2-edit': {
             'category': 'multi',
             'endpoint': 'fal-ai/nano-banana-2/edit',
@@ -1397,19 +1420,50 @@ def api_generate_and_download(request):
         
         # 4. 统一调用接口并下载
         result = fal_client.subscribe(endpoint, arguments=api_args)
-        gen_image_url = result['images'][0]['url']
-        
-        image_response = requests.get(gen_image_url, verify=False, timeout=60)
-        if image_response.status_code != 200:
-            return JsonResponse({'status': 'error', 'message': '下载失败'})
+        # ==========================================
+        # 5. 【核心修复】遍历并下载所有生成的图片
+        # ==========================================
+        gen_images = result.get('images', [])
+        if not gen_images:
+            return JsonResponse({'status': 'error', 'message': '云端未返回任何图片'})
 
         downloads_dir = r"G:\CommonData\图片\Imagegeneration_API"
         os.makedirs(downloads_dir, exist_ok=True) 
-        file_path = os.path.join(downloads_dir, f"Gen_{model_choice}_{int(time.time())}.png")
-        with open(file_path, 'wb') as f:
-            f.write(image_response.content)
+        
+        base_timestamp = int(time.time())
+        saved_paths = []
+        image_urls = []
 
-        return JsonResponse({'status': 'success', 'message': f'已成功下载到:\n{file_path}', 'image_url': gen_image_url})
+        print(f"云端共生成了 {len(gen_images)} 张图片，开始下载...")
+
+        for idx, img_data in enumerate(gen_images):
+            img_url = img_data.get('url')
+            if not img_url: 
+                continue
+            
+            image_urls.append(img_url)
+            
+            # 下载每一张图
+            try:
+                img_resp = requests.get(img_url, verify=False, timeout=60)
+                if img_resp.status_code == 200:
+                    # 文件名加上序号，防止覆盖
+                    file_name = f"Gen_{model_choice}_{base_timestamp}_{idx+1}.png" 
+                    file_path = os.path.join(downloads_dir, file_name)
+                    with open(file_path, 'wb') as f:
+                        f.write(img_resp.content)
+                    saved_paths.append(file_path)
+            except Exception as e:
+                print(f"下载第 {idx+1} 张图片失败: {e}")
+
+        # 将所有的 URL 和 本地路径 数组传给前端
+        return JsonResponse({
+            'status': 'success',
+            'message': f'成功生成并下载了 {len(saved_paths)} 张图片！',
+            'image_urls': image_urls, # 变成复数数组
+            'saved_paths': saved_paths
+        })
+
     except Exception as e:
         import traceback
         traceback.print_exc()
