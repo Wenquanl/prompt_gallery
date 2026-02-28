@@ -39,6 +39,12 @@ urlpatterns = [
     path('api/set-cover/<int:group_id>/<int:image_id>/', views.set_group_cover, name='set_group_cover'),
     path('api/similar-groups/<int:pk>/', views.get_similar_candidates, name='get_similar_candidates'),
     path('api/set-main/<int:pk>/', views.set_main_variant, name='set_main_variant'),
+
+    # fal.ai接口外部图生成模型api接入
+    path('api/generate-direct/', views.api_generate_and_download, name='api_generate_direct'),
+    # 【新增】工作室一键发布作品卡片接口
+    path('api/publish-studio/', views.api_publish_studio_creation, name='api_publish_studio'),
+
     # fal.ai接口外部图生成模型api接入
     path('api/generate-direct/', views.api_generate_and_download, name='api_generate_direct'),
 

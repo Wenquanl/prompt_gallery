@@ -225,6 +225,30 @@
         transform: scale(1.15);
         background: #bb2d3b;
     }
+    /* === 标签多选样式 === */
+    .pub-tag-badge {
+        cursor: pointer;
+        padding: 6px 14px;
+        border-radius: 20px;
+        background-color: #f8f9fa;
+        color: #6c757d;
+        border: 1px solid #dee2e6;
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        font-size: 0.85rem;
+        user-select: none;
+        display: inline-flex;
+        align-items: center;
+    }
+    .pub-tag-badge:hover {
+        background-color: #e9ecef;
+        transform: translateY(-1px);
+    }
+    .pub-tag-badge.active {
+        background-color: #8a2be2;
+        color: white;
+        border-color: #8a2be2;
+        box-shadow: 0 4px 10px rgba(138, 43, 226, 0.25);
+    }
 </style>
 {% endblock %}
 
@@ -287,7 +311,47 @@
                 </div>
 
                 <div id="result-gallery" style="display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; padding: 20px; gap: 16px; z-index: 5;">
+                </div>
+
+                <div id="publish-bar" style="display: none; position: absolute; bottom: 30px; right: 30px; z-index: 20;">
+                    <button class="btn btn-success rounded-pill px-4 py-2 shadow-lg fw-bold d-flex align-items-center" onclick="publishCreation()" style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); border:none; transition: transform 0.2s;">
+                        <i class="bi bi-box-arrow-up fs-5 me-2"></i>保存为作品卡片
+                    </button>
+                </div>
+                <div class="modal fade" id="publishModal" tabindex="-1" aria-hidden="true">
+                    <div class="modal-dialog modal-dialog-centered">
+                        <div class="modal-content border-0 shadow-lg rounded-4">
+                            <div class="modal-header border-0 pb-0">
+                                <h5 class="modal-title fw-bold"><i class="bi bi-send-check text-success me-2"></i>发布作品卡片</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                            </div>
+                            <div class="modal-body pt-4">
+                                <div class="mb-3">
+                                    <label class="form-label fw-bold text-secondary small">卡片标题 <span class="text-danger">*</span></label>
+                                    <input type="text" class="form-control" id="pub-title" placeholder="给你的作品起个生动的名字...">
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label fw-bold text-secondary small">所属模型</label>
+                                    <input type="text" class="form-control" id="pub-model" placeholder="使用的 AI 模型 (可修改)">
+                                </div>
+                                <div class="mb-4">
+                                    <label class="form-label fw-bold text-secondary small">关联标签 (点击多选)</label>
+                                    <div class="d-flex flex-wrap gap-2 mb-2 custom-scrollbar" id="pub-tags-container" style="max-height: 140px; overflow-y: auto; padding-bottom: 5px;">
+                                        </div>
+                                    <div class="input-group input-group-sm">
+                                        <span class="input-group-text bg-white"><i class="bi bi-plus-lg text-muted"></i></span>
+                                        <input type="text" class="form-control" id="pub-custom-tag" placeholder="没有想要的标签？输入后按回车补充 (支持逗号批量输入)">
+                                    </div>
+                                </div>
+                                <div class="d-grid">
+                                    <button type="button" class="btn btn-success rounded-pill fw-bold py-2 shadow-sm" onclick="confirmPublish()">
+                                        <i class="bi bi-cloud-arrow-up me-2"></i>确认发布
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
+                </div>
 
             </div>
         </div>
@@ -302,10 +366,49 @@
     const AI_CONFIG = JSON.parse('{{ ai_config_json|safe }}');
     let currentFiles = []; 
     let maxImagesAllowed = 0;
+    let lastSavedPaths = []; // 暂存最新生成的本地图片路径
+    let initialTagsForPublish = [];
+    let allAvailableTags = [];    // 【新增】保存系统里的所有标签
+    let currentSelectedTags = new Set(); // 【新增】保存当前被选中的标签
 
     document.addEventListener('DOMContentLoaded', () => {
         initDynamicUI();
         setupDragAndDrop();
+        // 解析全库标签
+        try {
+            allAvailableTags = JSON.parse('{{ all_tags_json|escapejs }}');
+        } catch(e) {
+            console.log("解析系统标签失败", e);
+        }
+        
+        // 绑定自定义标签框的回车事件
+        const customTagInput = document.getElementById('pub-custom-tag');
+        if (customTagInput) {
+            customTagInput.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    // 支持中英文逗号同时分隔添加多个
+                    const newTags = this.value.split(/[,，]/); 
+                    let added = false;
+                    
+                    newTags.forEach(tag => {
+                        const t = tag.trim();
+                        if (t && !currentSelectedTags.has(t)) {
+                            currentSelectedTags.add(t);
+                            if (!allAvailableTags.includes(t)) {
+                                allAvailableTags.push(t);
+                            }
+                            added = true;
+                        }
+                    });
+                    
+                    if (added) {
+                        this.value = ''; // 清空输入框
+                        renderPublishTags(Array.from(currentSelectedTags)); // 重新渲染标签云
+                    }
+                }
+            });
+        }
         // ==========================================
         // 【新增】接收并处理从详情页带入的预填充数据
         // ==========================================
@@ -315,14 +418,14 @@
             if (initialDataStr && initialDataStr !== "{}") {
                 const initialData = JSON.parse(initialDataStr);
                 
-                // 1. 填充提示词
+                // 1. 填充纯净的提示词
                 if (initialData.prompt) {
-                    let finalPrompt = initialData.prompt;
-                    // 如果有标签，也可以选择将标签追加到提示词末尾（可选）
-                    if (initialData.tags && initialData.tags.length > 0) {
-                        finalPrompt += "\n" + initialData.tags.join(", ");
-                    }
-                    document.getElementById('ai-prompt').value = finalPrompt;
+                    document.getElementById('ai-prompt').value = initialData.prompt;
+                }
+                
+                // 2. 单独保存标签，仅供右下角“发布卡片”弹窗里的标签云使用，不污染提示词文本框
+                if (initialData.tags && initialData.tags.length > 0) {
+                    initialTagsForPublish = initialData.tags; 
                 }
                 
                 // 2. 自动抓取并填充参考图
@@ -506,6 +609,50 @@
         dropZone.addEventListener('drop', (e) => { e.preventDefault(); dropZone.classList.remove('dragover'); handleFiles(e.dataTransfer.files); });
     }
 
+    // === 渲染多选标签云 ===
+    function renderPublishTags(preSelectedTags) {
+        const container = document.getElementById('pub-tags-container');
+        container.innerHTML = '';
+        
+        // 确保预选标签被加入到 Set 中
+        preSelectedTags.forEach(t => currentSelectedTags.add(t));
+        
+        // 把“全库标签”和“预带入的标签”合并去重 (以防预选标签还没存进数据库)
+        const combinedTags = Array.from(new Set([...allAvailableTags, ...preSelectedTags]));
+        
+        if (combinedTags.length === 0) {
+            container.innerHTML = '<span class="text-muted small">暂无系统标签，请在下方手动添加</span>';
+            return;
+        }
+
+        combinedTags.forEach(tag => {
+            const badge = document.createElement('span');
+            badge.className = 'pub-tag-badge';
+            
+            // 判断是否应该处于高亮(选中)状态
+            if (currentSelectedTags.has(tag)) {
+                badge.classList.add('active');
+                badge.innerHTML = `<i class="bi bi-check2 me-1"></i>${tag}`; // 打个勾
+            } else {
+                badge.textContent = tag;
+            }
+            
+            // 绑定点击切换逻辑
+            badge.onclick = function() {
+                if (currentSelectedTags.has(tag)) {
+                    currentSelectedTags.delete(tag);
+                    this.classList.remove('active');
+                    this.textContent = tag; 
+                } else {
+                    currentSelectedTags.add(tag);
+                    this.classList.add('active');
+                    this.innerHTML = `<i class="bi bi-check2 me-1"></i>${tag}`;
+                }
+            };
+            container.appendChild(badge);
+        });
+    }
+
     function handleFiles(files) {
         if (!files || files.length === 0 || maxImagesAllowed === 0) return;
         
@@ -581,6 +728,7 @@
         btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>生成中...';
         
         document.getElementById('canvas-idle').style.display = 'none';
+        document.getElementById('publish-bar').style.display = 'none';
         const gallery = document.getElementById('result-gallery');
         if(gallery) {
             gallery.style.display = 'none';
@@ -617,8 +765,11 @@
         .then(response => response.json())
         .then(data => {
             if (data.status === 'success') {
+                lastSavedPaths = data.saved_paths;
+                document.getElementById('publish-bar').style.display = 'block';
+
                 const gallery = document.getElementById('result-gallery');
-                gallery.innerHTML = ''; 
+                gallery.innerHTML = '';
                 
                 const imgCount = data.image_urls.length;
 
@@ -674,6 +825,98 @@
             btn.innerHTML = '<i class="bi bi-stars me-2"></i>开始生成';
             document.getElementById('canvas-scanning').style.display = 'none';
             document.getElementById('canvas-loading').style.display = 'none';
+        });
+    }
+    // === 1. 点击悬浮按钮，弹出信息填写框并预填充数据 ===
+    function publishCreation() {
+        if (!lastSavedPaths || lastSavedPaths.length === 0) {
+            Swal.fire('提示', '没有可发布的图片，请先生成！', 'warning');
+            return;
+        }
+
+        const activeModelCard = document.querySelector('.model-card.active');
+        const modelName = activeModelCard ? activeModelCard.querySelector('.model-card-title').innerText.trim() : document.getElementById('ai-model-select').value;
+        
+        const promptText = document.getElementById('ai-prompt').value.trim();
+        let suggestedTitle = promptText ? promptText.substring(0, 15) : 'AI 独立创作';
+        if (promptText.length > 15) suggestedTitle += '...';
+
+        document.getElementById('pub-title').value = suggestedTitle;
+        document.getElementById('pub-model').value = modelName;
+        
+        // 【关键新增】：调用刚才写的渲染函数，并将带入的标签喂给它，它会自动高亮
+        renderPublishTags(initialTagsForPublish);
+
+        new bootstrap.Modal(document.getElementById('publishModal')).show();
+    }
+
+    // === 2. 在弹窗内点击“确认发布”，真正向后端发送请求 ===
+    function confirmPublish() {
+        const titleInput = document.getElementById('pub-title').value.trim();
+        if (!titleInput) {
+            Swal.fire('提示', '请填写卡片标题！', 'warning');
+            return;
+        }
+
+        const modalEl = document.getElementById('publishModal');
+        const modalInstance = bootstrap.Modal.getInstance(modalEl);
+        if (modalInstance) modalInstance.hide();
+
+        Swal.fire({
+            title: '正在打包并发布...',
+            text: '请稍候，服务器正在生成记录',
+            allowOutsideClick: false,
+            didOpen: () => Swal.showLoading()
+        });
+
+        const formData = new FormData();
+        formData.append('prompt', document.getElementById('ai-prompt').value);
+        formData.append('title', titleInput);
+        formData.append('model_info', document.getElementById('pub-model').value.trim());
+        
+        // 【关键修改】：从 currentSelectedTags 集合中提取选中的标签，转为字符串发给后端
+        const finalTags = Array.from(currentSelectedTags).join(',');
+        formData.append('tags', finalTags);
+        
+        lastSavedPaths.forEach(path => {
+            formData.append('saved_paths', path);
+        });
+
+        if (currentFiles && currentFiles.length > 0) {
+            currentFiles.forEach(file => {
+                formData.append('references', file);
+            });
+        }
+
+        fetch('/api/publish-studio/', {
+            method: 'POST',
+            body: formData
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success') {
+                Swal.fire({
+                    icon: 'success',
+                    title: '🎉 发布成功！',
+                    text: '已保存至您的提示词画廊。',
+                    showCancelButton: true,
+                    confirmButtonText: '<i class="bi bi-eye"></i> 前往查看该卡片',
+                    cancelButtonText: '留在此页继续创作',
+                    confirmButtonColor: '#8a2be2'
+                }).then((result) => {
+                    if (result.isConfirmed) {
+                        window.open(`/image/${data.group_id}/`, '_blank');
+                    } else {
+                        document.getElementById('publish-bar').style.display = 'none';
+                    }
+                });
+            } else {
+                Swal.fire('发布失败', data.message, 'error');
+            }
+        })
+        .catch(err => {
+            console.error(err);
+            Swal.fire('请求异常', '网络或服务端报错，请查看控制台', 'error');
         });
     }
 </script>

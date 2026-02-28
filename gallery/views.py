@@ -1348,17 +1348,12 @@ def create_view(request):
     template_id = request.GET.get('template_id')
     prompt_type = request.GET.get('prompt_type', 'positive')
     
-    initial_data = {
-        'prompt': '',
-        'tags': [],
-        'reference_urls': []
-    }
+    initial_data = {'prompt': '', 'tags': [], 'reference_urls': []}
     
     if template_id:
         try:
             source_group = PromptGroup.objects.get(pk=template_id)
             
-            # 1. 根据用户的选择提取提示词
             selected_prompt = ""
             if prompt_type == 'positive' and source_group.prompt_text:
                 selected_prompt = source_group.prompt_text
@@ -1367,30 +1362,27 @@ def create_view(request):
             elif prompt_type == 'negative' and source_group.negative_prompt:
                 selected_prompt = source_group.negative_prompt
             else:
-                # 兜底逻辑：如果选的为空，找一个有值的
                 selected_prompt = source_group.prompt_text or source_group.prompt_text_zh or ""
                 
-            # 2. 提取标签
             tags = [tag.name for tag in source_group.tags.all()]
             
-            # 3. 提取参考图 URL (如果没有参考图，可以选择把当前组的第一张成图作为参考)
             ref_urls = [ref.image.url for ref in source_group.references.all() if ref.image]
             if not ref_urls:
                 first_img = source_group.images.filter(is_video=False).first()
                 if first_img and first_img.image:
                     ref_urls.append(first_img.image.url)
                     
-            initial_data = {
-                'prompt': selected_prompt,
-                'tags': tags,
-                'reference_urls': ref_urls
-            }
+            initial_data = {'prompt': selected_prompt, 'tags': tags, 'reference_urls': ref_urls}
         except PromptGroup.DoesNotExist:
             pass
 
+    # 【新增】获取全库所有已有的标签名称列表
+    all_tags = list(Tag.objects.values_list('name', flat=True).distinct())
+
     return render(request, 'gallery/create.html', {
         'ai_config_json': json.dumps(AI_STUDIO_CONFIG),
-        'initial_data_json': json.dumps(initial_data), # 注入给前端的初始预填充数据
+        'initial_data_json': json.dumps(initial_data),
+        'all_tags_json': json.dumps(all_tags), # 将全部标签传给前端
     })
 
 @csrf_exempt
@@ -1508,6 +1500,70 @@ def api_generate_and_download(request):
             'saved_paths': saved_paths
         })
 
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+    
+@csrf_exempt
+@require_POST
+def api_publish_studio_creation(request):
+    """处理从 AI 创作室一键发布作品卡片的请求"""
+    try:
+        prompt = request.POST.get('prompt', '').strip()
+        model_info = request.POST.get('model_info', '').strip()
+        title = request.POST.get('title', '').strip()
+        tags_str = request.POST.get('tags', '').strip()
+        saved_paths = request.POST.getlist('saved_paths') 
+        
+        if not saved_paths:
+            return JsonResponse({'status': 'error', 'message': '没有找到生成的图片路径'})
+
+        # 1. 创建 PromptGroup (如果没有输入标题，兜底使用 Prompt 前 15 个字)
+        if not title:
+            title = (prompt[:15] + '...') if len(prompt) > 15 else (prompt or 'AI 独立创作')
+            
+        group = PromptGroup.objects.create(
+            title=title,
+            prompt_text=prompt,
+            model_info=model_info
+        )
+        
+        # 2. 自动添加模型专属标签
+        if model_info:
+            m_tag, _ = Tag.objects.get_or_create(name=model_info)
+            group.tags.add(m_tag)
+            
+        # 3. 处理用户输入的自定义标签 (支持中英文逗号分隔)
+        if tags_str:
+            for tag_name in tags_str.replace('，', ',').split(','):
+                t_name = tag_name.strip()
+                if t_name:
+                    tag_obj, _ = Tag.objects.get_or_create(name=t_name)
+                    group.tags.add(tag_obj)
+        
+        # 4. 将本地成图文件读取并存入 Django 的 ImageItem (绑定到组)
+        created_image_ids = []
+        for path in saved_paths:
+            if os.path.exists(path):
+                with open(path, 'rb') as f:
+                    file_content = ContentFile(f.read())
+                    file_name = os.path.basename(path)
+                    img_item = ImageItem(group=group)
+                    img_item.image.save(file_name, file_content, save=True)
+                    created_image_ids.append(img_item.id)
+        
+        # 5. 如果用户上传了参考图，一并存为参考图
+        ref_files = request.FILES.getlist('references')
+        for rf in ref_files:
+            ReferenceItem.objects.create(group=group, image=rf)
+        
+        # 6. 触发后台处理生成缩略图等
+        if created_image_ids:
+            trigger_background_processing(created_image_ids)
+            
+        return JsonResponse({'status': 'success', 'group_id': group.id, 'message': '发布成功！'})
+        
     except Exception as e:
         import traceback
         traceback.print_exc()
