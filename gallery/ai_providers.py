@@ -1,10 +1,13 @@
 # gallery/ai_providers.py
 import os
+import io
 import base64
 import fal_client
+import httpx # 确保引入了 httpx
 from openai import OpenAI
 from google import genai
 from google.genai import types
+from PIL import Image
 
 class BaseAIProvider:
     """AI 生图提供商的基类（接口定义）"""
@@ -125,19 +128,30 @@ class VolcengineProvider(BaseAIProvider):
 
 class GoogleAIProvider(BaseAIProvider):
     def generate(self, model_config, api_args, base_image_files=None):
-        # 1. 初始化 Client，使用官方推荐的 client_args 注入底层代理
-        proxy_url = "socks5h://127.0.0.1:10808"  # 你的 v2ray 真实代理地址
-        
+        # 1. 获取反代地址
+        base_url = os.getenv("GOOGLE_API_BASE_URL", "https://generativelanguage.googleapis.com")
+        proxy_token = os.getenv("GOOGLE_PROXY_TOKEN", "")
+        # 【核心修复】：手动构造 Header，强制覆盖 SDK 自动生成的 1s
+        # 1. 这里是传给底层 httpx 的，单位必须是【秒】(浮点数)
+        client_args = {
+            "http2": False,
+            "headers": {
+                "X-Proxy-Token": proxy_token
+            },
+            "timeout": 600.0  # 600毫秒
+        }
+
+        # 2. 初始化 Client
         client = genai.Client(
             api_key=os.getenv("GEMINI_API_KEY"),
             http_options=types.HttpOptions(
-                timeout=300.0,
-                client_args={
-                    "proxy": proxy_url  # 注入同步客户端代理
-                },
-                async_client_args={
-                    "proxy": proxy_url  # 注入异步客户端代理
-                }
+                api_version="v1beta",
+                base_url=base_url,
+                # 【核心修复！！！】：这里传给 Google SDK，单位必须是【毫秒】(整数)
+                # 600 秒 * 1000 = 600,000 毫秒
+                timeout=600000, 
+                client_args=client_args,
+                async_client_args=client_args
             )
         )
         model_endpoint = model_config['endpoint']
@@ -152,11 +166,18 @@ class GoogleAIProvider(BaseAIProvider):
 
         if base_image_files:
             for f in base_image_files:
-                img_bytes = f.read()
-                mime_type = getattr(f, 'content_type', 'image/jpeg')
-                # 将图片直接转为 Google SDK 要求的 Part 对象，免去图床中转
+                # 【新增：安全性高的压缩逻辑】
+                img = Image.open(f)
+                if img.mode != 'RGB':
+                    img = img.convert('RGB')
+                
+                output = io.BytesIO()
+                # 强行压缩到 80% 质量，减小 MTU 压力
+                img.save(output, format='JPEG', quality=80, optimize=True)
+                img_bytes = output.getvalue()
+                
                 contents.append(
-                    types.Part.from_bytes(data=img_bytes, mime_type=mime_type)
+                    types.Part.from_bytes(data=img_bytes, mime_type='image/jpeg')
                 )
 
         # ==========================================

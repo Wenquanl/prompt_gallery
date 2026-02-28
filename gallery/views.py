@@ -7,6 +7,7 @@ import re
 import shutil
 import fal_client
 import requests
+import base64
 import warnings # 新增引入 warnings 模块
 from urllib3.exceptions import InsecureRequestWarning # 引入具体的警告类型
 from django.shortcuts import render, redirect, get_object_or_404
