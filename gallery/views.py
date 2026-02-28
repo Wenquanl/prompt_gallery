@@ -532,9 +532,23 @@ def detail(request, pk):
         sib.diff_html = generate_diff_html(current_prompt, sib_prompt)
         siblings.append(sib)
 
-    related_groups = PromptGroup.objects.filter(
-        tags__in=group.tags.all()
-    ).exclude(pk=pk).distinct()[:4]
+    # 1. 获取当前卡片的标签 ID 列表
+    tag_ids = group.tags.values_list('id', flat=True)
+
+    if not tag_ids:
+        related_groups = []
+    else:
+        # 2. 核心改进逻辑：
+        related_groups = PromptGroup.objects.filter(
+            tags__id__in=tag_ids                 # 匹配拥有相同标签的作品
+        ).exclude(
+            group_id=group.group_id              # 排除掉当前作品及其变体系列
+        ).annotate(
+            same_tag_count=Count('tags')         # 【关键】统计每张候选卡片与当前卡片重合的标签数量
+        ).order_by(
+            '-same_tag_count',                   # 1. 标签重合越多（越像）的排越前面
+            '?'                                  # 2. 在相似度相同时随机打乱（打破“永远一样”的僵局）
+        ).distinct()[:4]
     
     tags_bar = get_tags_bar_data()
 

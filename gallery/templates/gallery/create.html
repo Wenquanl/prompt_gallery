@@ -249,6 +249,38 @@
         border-color: #8a2be2;
         box-shadow: 0 4px 10px rgba(138, 43, 226, 0.25);
     }
+    /* === 发布作品卡片按钮动效 === */
+    .btn-publish-glow {
+        /* 默认播放呼吸发光动画 */
+        animation: pulseGlow 2s infinite cubic-bezier(0.4, 0, 0.2, 1);
+        transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1) !important;
+    }
+    
+    /* 鼠标悬浮时：停止呼吸，向上浮动并放大，增加阴影 */
+    .btn-publish-glow:hover {
+        transform: translateY(-5px) scale(1.05) !important;
+        box-shadow: 0 15px 30px rgba(32, 201, 151, 0.4) !important;
+        animation: none; /* 悬停时取消发光动画，避免视觉冲突 */
+    }
+
+    /* 鼠标点击时：微微缩小，产生真实的按压感 */
+    .btn-publish-glow:active {
+        transform: translateY(-2px) scale(0.98) !important;
+        box-shadow: 0 8px 15px rgba(32, 201, 151, 0.3) !important;
+    }
+
+    /* 呼吸发光关键帧 */
+    @keyframes pulseGlow {
+        0% {
+            box-shadow: 0 0 0 0 rgba(40, 167, 69, 0.7);
+        }
+        70% {
+            box-shadow: 0 0 0 15px rgba(40, 167, 69, 0);
+        }
+        100% {
+            box-shadow: 0 0 0 0 rgba(40, 167, 69, 0);
+        }
+    }
 </style>
 {% endblock %}
 
@@ -314,7 +346,7 @@
                 </div>
 
                 <div id="publish-bar" style="display: none; position: absolute; bottom: 30px; right: 30px; z-index: 20;">
-                    <button class="btn btn-success rounded-pill px-4 py-2 shadow-lg fw-bold d-flex align-items-center" onclick="publishCreation()" style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); border:none; transition: transform 0.2s;">
+                    <button class="btn btn-success rounded-pill px-4 py-2 shadow-lg fw-bold d-flex align-items-center btn-publish-glow" onclick="publishCreation()" style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); border:none;">
                         <i class="bi bi-box-arrow-up fs-5 me-2"></i>保存为作品卡片
                     </button>
                 </div>

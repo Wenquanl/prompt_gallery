@@ -497,6 +497,128 @@
         color: white;
         transform: scale(1.1);
     }
+/* === 猜你喜欢：极简纯图 + 前3标签布局 === */
+    .recommend-section {
+        margin-top: 4rem;
+        padding-top: 2rem;
+        border-top: 1px solid #f1f3f5;
+    }
+
+    .recommend-scroll-wrapper {
+        display: flex;
+        flex-wrap: nowrap;
+        gap: 12px;
+        overflow-x: auto;
+        padding: 5px 2px 20px 2px;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    /* 极简滚动条 */
+    .recommend-scroll-wrapper::-webkit-scrollbar {
+        height: 4px;
+    }
+    .recommend-scroll-wrapper::-webkit-scrollbar-track {
+        background: transparent;
+    }
+    .recommend-scroll-wrapper::-webkit-scrollbar-thumb {
+        background: #e2e8f0;
+        border-radius: 10px;
+    }
+
+    .rec-item-container {
+        flex: 0 0 auto;
+        display: flex;
+    }
+
+    /* 参考首页 .gallery-card 样式，去除多余内边距 */
+    .rec-card-ultra {
+        background: #fff;
+        border-radius: 14px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+        border: 1px solid rgba(0,0,0,0.05);
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        width: 220px; /* 紧凑宽度 */
+    }
+
+    .rec-card-ultra:hover {
+        transform: translateY(-6px);
+        box-shadow: 0 12px 24px rgba(0,0,0,0.12);
+    }
+
+    /* 图片容器：占比极大，强制 cover 去除留白 */
+    .rec-img-full {
+        width: 100%;
+        height: 320px; /* 极高占比 */
+        background: #f8fafc;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .rec-img-full img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover; /* 核心：铺满容器，绝不留白 */
+        display: block;
+        transition: transform 0.6s ease;
+    }
+    
+    .rec-card-ultra:hover .rec-img-full img {
+        transform: scale(1.08); /* 首页同款动感 */
+    }
+
+    /* 底部仅展示标签：精简至极 */
+    .rec-footer-tags-only {
+        padding: 10px 12px;
+        background: #fff;
+        border-top: 1px solid #f8f9fa;
+    }
+
+    /* 首页同款药丸标签样式 */
+    .rec-tag-pill-home {
+        display: inline-block;
+        padding: 2px 8px;
+        background: #f1f5f9;
+        color: #475569;
+        border-radius: 6px;
+        font-size: 0.7rem;
+        font-weight: 500;
+        margin-right: 4px;
+        border: 1px solid #e2e8f0;
+        text-decoration: none !important;
+        transition: all 0.2s;
+    }
+    .rec-tag-pill-home:hover {
+        background: #e2e8f0;
+        color: #1e293b;
+    }
+
+    /* === 图片/视频栏独立竖向滚动样式 === */
+    .media-scroll-area {
+        max-height: 65vh; /* 核心：限制最大高度为屏幕可视高度的 65% (可自行调整) */
+        overflow-y: auto; /* 核心：超出高度时自动出现垂直滚动条 */
+        overflow-x: hidden;
+        padding-right: 8px; /* 给滚动条留出呼吸空间，防止内容贴紧边缘 */
+        padding-bottom: 10px;
+        margin-bottom: 1rem;
+    }
+
+    /* 美化独立滚动条，保持页面清爽 */
+    .media-scroll-area::-webkit-scrollbar {
+        width: 6px;
+    }
+    .media-scroll-area::-webkit-scrollbar-track {
+        background: transparent;
+    }
+    .media-scroll-area::-webkit-scrollbar-thumb {
+        background: #dee2e6;
+        border-radius: 10px;
+    }
+    .media-scroll-area::-webkit-scrollbar-thumb:hover {
+        background: #adb5bd; /* 鼠标悬停时稍微加深 */
+    }
 </style>
 
 <button class="fab-like-btn {% if group.is_liked %}liked{% endif %}" 
@@ -667,54 +789,65 @@
                 <h5 class="fw-bold text-secondary mb-0"><i class="bi bi-images me-2"></i>图片</h5>
                 <span class="ms-2 badge bg-light text-secondary border" id="image-count-badge">{{ images_list|length }}</span>
             </div>
-            
-            <div id="detail-masonry-grid-images" class="row mb-5">
-                {% for img in images_list %}
-                    {% include 'gallery/components/detail_image_card.html' with img=img index=forloop.counter0 %}
-                {% empty %}
-                <div class="col-12"><div class="alert alert-light border text-center py-4 text-muted rounded-3" style="background: rgba(255,255,255,0.5)"><i class="bi bi-image fs-1 d-block mb-3 opacity-50"></i>暂无图片</div></div>
-                {% endfor %}
+            <div class="media-scroll-area">
+                <div id="detail-masonry-grid-images" class="row mb-5">
+                    {% for img in images_list %}
+                        {% include 'gallery/components/detail_image_card.html' with img=img index=forloop.counter0 %}
+                    {% empty %}
+                    <div class="col-12"><div class="alert alert-light border text-center py-4 text-muted rounded-3" style="background: rgba(255,255,255,0.5)"><i class="bi bi-image fs-1 d-block mb-3 opacity-50"></i>暂无图片</div></div>
+                    {% endfor %}
+                </div>
             </div>
-
             <div class="section-divider mb-3 pb-2 border-bottom d-flex align-items-center">
                 <h5 class="fw-bold text-secondary mb-0"><i class="bi bi-camera-reels me-2"></i>视频</h5>
                 <span class="ms-2 badge bg-light text-secondary border" id="video-count-badge">{{ videos_list|length }}</span>
             </div>
-
-            <div id="detail-masonry-grid-videos" class="row">
-                {% for img in videos_list %}
-                    {% include 'gallery/components/detail_image_card.html' with img=img %}
-                {% empty %}
-                <div class="col-12"><div class="alert alert-light border text-center py-4 text-muted rounded-3" style="background: rgba(255,255,255,0.5)"><i class="bi bi-film fs-1 d-block mb-3 opacity-50"></i>暂无视频</div></div>
-                {% endfor %}
+            <div class="media-scroll-area">
+                <div id="detail-masonry-grid-videos" class="row">
+                    {% for img in videos_list %}
+                        {% include 'gallery/components/detail_image_card.html' with img=img %}
+                    {% empty %}
+                    <div class="col-12"><div class="alert alert-light border text-center py-4 text-muted rounded-3" style="background: rgba(255,255,255,0.5)"><i class="bi bi-film fs-1 d-block mb-3 opacity-50"></i>暂无视频</div></div>
+                    {% endfor %}
+                </div>
             </div>
-
             {% if related_groups %}
-            <div class="mt-5 pt-4 border-top border-light">
-                <h4 class="mb-4 fw-bold text-secondary"><i class="bi bi-stars text-primary me-2"></i>猜你喜欢</h4>
-                <div class="horizontal-scroll-wrapper" id="horizontal-scroll">
+            <div class="recommend-section">
+                <h5 class="fw-bold mb-4 text-dark d-flex align-items-center">
+                    <i class="bi bi-grid-fill text-primary me-2"></i>猜你喜欢
+                </h5>
+                
+                <div class="recommend-scroll-wrapper custom-scrollbar">
                     {% for related in related_groups %}
-                    <div class="horizontal-card-item">
-                        <div class="gallery-card h-100 d-block position-relative group-card-container">
-                            <a href="{% url 'detail' related.pk %}?back_to_detail_id={{ group.pk }}&from={{ request.GET.from|default:'home' }}&page={{ request.GET.page|default:'1' }}{% if request.GET.q %}&q={{ request.GET.q }}{% endif %}" class="text-decoration-none text-dark">
-                                <div class="horizontal-img-wrapper">
+                    <div class="rec-item-container">
+                        <div class="rec-card-ultra">
+                            <a href="{% url 'detail' related.pk %}?back_to_detail_id={{ group.pk }}" class="text-decoration-none d-block">
+                                <div class="rec-img-full">
                                     {% with cover=related.cover_image|default:related.images.first %}
                                         {% if cover %}
-                                            {% if cover.is_video %}
-                                                <div class="d-flex align-items-center justify-content-center h-100 w-100 bg-dark text-white"><i class="bi bi-play-circle fs-1"></i></div>
+                                            {% if cover.is_video and not cover.thumbnail %}
+                                                <div class="d-flex align-items-center justify-content-center h-100 w-100 bg-dark text-white">
+                                                    <i class="bi bi-play-circle fs-1"></i>
+                                                </div>
                                             {% else %}
-                                                <img src="{{ cover.thumbnail.url }}" alt="{{ related.title }}" loading="lazy">
+                                                <img src="{{ cover.thumbnail.url|default:cover.image.url }}" 
+                                                    alt="{{ related.title }}"
+                                                    onerror="this.src='/static/gallery/img/gemini.png'">
                                             {% endif %}
                                         {% else %}
-                                            <div class="d-flex align-items-center justify-content-center h-100 w-100 text-secondary bg-light bg-opacity-50">
-                                                <i class="bi bi-image fs-1 opacity-50"></i>
+                                            <div class="d-flex align-items-center justify-content-center h-100 w-100 text-secondary opacity-20">
+                                                <i class="bi bi-image fs-1"></i>
                                             </div>
                                         {% endif %}
                                     {% endwith %}
                                 </div>
-                                <div class="card-body p-2">
-                                    <h6 class="card-title text-truncate mb-1 small">{{ related.title }}</h6>
-                                    <p class="text-muted small mb-0 text-truncate">{{ related.prompt_text }}</p>
+                                
+                                <div class="rec-footer-tags-only">
+                                    <div class="d-flex flex-wrap gap-1">
+                                        {% for tag in related.tags.all|slice:":3" %}
+                                        <object><a href="/?q={{ tag.name }}" class="rec-tag-pill-home">#{{ tag.name }}</a></object>
+                                        {% endfor %}
+                                    </div>
                                 </div>
                             </a>
                         </div>
