@@ -494,6 +494,15 @@
                                     <label class="form-label fw-bold text-secondary small">所属模型</label>
                                     <input type="text" class="form-control" id="pub-model" placeholder="使用的 AI 模型 (可修改)">
                                 </div>
+                                <div class="mb-3">
+                                    <label class="form-label fw-bold text-secondary small">出场人物 (点击多选)</label>
+                                    <div class="d-flex flex-wrap gap-2 mb-2 custom-scrollbar" id="pub-chars-container" style="max-height: 100px; overflow-y: auto; padding-bottom: 5px;">
+                                    </div>
+                                    <div class="input-group input-group-sm">
+                                        <span class="input-group-text bg-white"><i class="bi bi-person-plus text-muted"></i></span>
+                                        <input type="text" class="form-control" id="pub-custom-char" placeholder="输入人物后按回车补充 (支持逗号批量)">
+                                    </div>
+                                </div>
                                 <div class="mb-4">
                                     <label class="form-label fw-bold text-secondary small">关联标签 (点击多选)</label>
                                     <div class="d-flex flex-wrap gap-2 mb-2 custom-scrollbar" id="pub-tags-container" style="max-height: 140px; overflow-y: auto; padding-bottom: 5px;">
@@ -542,8 +551,11 @@
     let maxImagesAllowed = 0;
     let lastSavedPaths = []; // 暂存最新生成的本地图片路径
     let initialTagsForPublish = [];
-    let allAvailableTags = [];    // 【新增】保存系统里的所有标签
+    let initialCharsForPublish = [];
+    let allAvailableTags = [];
+    let allAvailableChars = [];
     let currentSelectedTags = new Set(); // 【新增】保存当前被选中的标签
+    let currentSelectedChars = new Set();
 
     document.addEventListener('DOMContentLoaded', () => {
         initDynamicUI();
@@ -551,8 +563,31 @@
         // 解析全库标签
         try {
             allAvailableTags = JSON.parse('{{ all_tags_json|escapejs }}');
-        } catch(e) {
-            console.log("解析系统标签失败", e);
+            allAvailableChars = JSON.parse('{{ all_chars_json|escapejs }}'); // 【新增】
+        } catch(e) { console.log("解析系统标签失败", e); }
+
+        // 【新增】绑定人物自定义输入框的回车事件
+        const customCharInput = document.getElementById('pub-custom-char');
+        if (customCharInput) {
+            customCharInput.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    const newChars = this.value.split(/[,，]/); 
+                    let added = false;
+                    newChars.forEach(char => {
+                        const c = char.trim();
+                        if (c && !currentSelectedChars.has(c)) {
+                            currentSelectedChars.add(c);
+                            if (!allAvailableChars.includes(c)) allAvailableChars.push(c);
+                            added = true;
+                        }
+                    });
+                    if (added) {
+                        this.value = '';
+                        renderPublishChars(Array.from(currentSelectedChars));
+                    }
+                }
+            });
         }
         
         // 绑定自定义标签框的回车事件
@@ -600,6 +635,9 @@
                 // 2. 单独保存标签，仅供右下角“发布卡片”弹窗里的标签云使用，不污染提示词文本框
                 if (initialData.tags && initialData.tags.length > 0) {
                     initialTagsForPublish = initialData.tags; 
+                }
+                if (initialData.characters && initialData.characters.length > 0) {
+                    initialCharsForPublish = initialData.characters; 
                 }
                 let modelToastMsg = null;
                 
@@ -977,6 +1015,46 @@
         });
     }
 
+    // 【新增】渲染人物云
+    function renderPublishChars(preSelectedChars) {
+        const container = document.getElementById('pub-chars-container');
+        container.innerHTML = '';
+        
+        preSelectedChars.forEach(c => currentSelectedChars.add(c));
+        const combinedChars = Array.from(new Set([...allAvailableChars, ...preSelectedChars]));
+        
+        if (combinedChars.length === 0) {
+            container.innerHTML = '<span class="text-muted small">暂无记录人物，请在下方手动添加</span>';
+            return;
+        }
+
+        combinedChars.forEach(char => {
+            const badge = document.createElement('span');
+            badge.className = 'pub-tag-badge'; // 复用你的原有样式
+            
+            if (currentSelectedChars.has(char)) {
+                // 人物选中时给个不同颜色的区分（比如 Bootstrap 的 info 蓝）
+                badge.className = 'badge bg-info text-dark rounded-pill px-3 py-2 cursor-pointer shadow-sm';
+                badge.innerHTML = `<i class="bi bi-person-check-fill me-1"></i>${char}`;
+            } else {
+                badge.innerHTML = `<i class="bi bi-person me-1"></i>${char}`;
+            }
+            
+            badge.onclick = function() {
+                if (currentSelectedChars.has(char)) {
+                    currentSelectedChars.delete(char);
+                    this.className = 'pub-tag-badge';
+                    this.innerHTML = `<i class="bi bi-person me-1"></i>${char}`;
+                } else {
+                    currentSelectedChars.add(char);
+                    this.className = 'badge bg-info text-dark rounded-pill px-3 py-2 cursor-pointer shadow-sm';
+                    this.innerHTML = `<i class="bi bi-person-check-fill me-1"></i>${char}`;
+                }
+            };
+            container.appendChild(badge);
+        });
+    }
+
     function handleFiles(files) {
         if (!files || files.length === 0 || maxImagesAllowed === 0) return;
         
@@ -1229,17 +1307,9 @@
     // 填充模型名称
     document.getElementById('pub-model').value = modelName;
     
-    // 【修复1】：将模型名称手动加入到“当前选中”的标签集合中
-    if (modelName) {
-        currentSelectedTags.add(modelName);
-        if (!allAvailableTags.includes(modelName)) {
-            allAvailableTags.push(modelName);
-        }
-    }
-    
     // 调用渲染函数，传入初始化标签，此时模型标签会自动高亮打勾
     renderPublishTags(initialTagsForPublish);
-
+    renderPublishChars(initialCharsForPublish);
     // 【修复2】：异步调用后端大模型生成标题并回显到输入框
     const promptText = document.getElementById('ai-prompt').value.trim();
     const titleInput = document.getElementById('pub-title');
@@ -1298,11 +1368,13 @@
         formData.append('title', titleInput);
         formData.append('model_info', document.getElementById('pub-model').value.trim());
         
-        // 【关键修改】：从 currentSelectedTags 集合中提取选中的标签，转为字符串发给后端
+        // 从 currentSelectedTags 集合中提取选中的标签，转为字符串发给后端
         const finalTags = Array.from(currentSelectedTags).join(',');
         formData.append('tags', finalTags);
+        const finalChars = Array.from(currentSelectedChars).join(',');
+        formData.append('characters', finalChars);
         
-        // 【关键修改】只把选中的图片路径塞进表单
+        // 只把选中的图片路径塞进表单
         const selectedPaths = getSelectedSavedPaths();
         selectedPaths.forEach(path => {
             formData.append('saved_paths', path);
@@ -1360,7 +1432,8 @@
     function fetchSimilarGroupsForAppend() {
         const promptText = document.getElementById('ai-prompt').value.trim();
         const container = document.getElementById('similarGroupsContainer');
-        
+        const activeModelCard = document.querySelector('.model-card.active');
+        const currentModelName = activeModelCard ? activeModelCard.querySelector('.model-card-title').innerText.trim() : '';
         container.innerHTML = '<div class="text-center text-muted py-5"><div class="spinner-border text-primary mb-3"></div><br>正在计算全库提示词相似度...</div>';
 
         fetch('/api/get-similar-groups-by-prompt/', {
@@ -1371,7 +1444,7 @@
         .then(res => res.json())
         .then(data => {
             if (data.status === 'success') {
-                renderSimilarGroups(data.results);
+                renderSimilarGroups(data.results, currentModelName);
             } else {
                 container.innerHTML = `<div class="text-center text-danger py-4">检索失败: ${data.message}</div>`;
             }
@@ -1382,7 +1455,7 @@
         });
     }
 
-    function renderSimilarGroups(groups) {
+    function renderSimilarGroups(groups, currentModelName) {
         const container = document.getElementById('similarGroupsContainer');
         if (!groups || groups.length === 0) {
             container.innerHTML = '<div class="text-center text-muted py-4">暂无历史作品。</div>';
@@ -1403,11 +1476,32 @@
             else if(simValue > 50) badgeClass = 'bg-warning text-dark';
             else if(simValue > 20) badgeClass = 'bg-primary';
 
-            // 3. 【新增】处理模型标签的 UI 展示
-            // 读取后端传过来的 model_info 字段
-            let modelBadge = group.model_info && group.model_info !== '无模型' 
-                ? `<span class="badge bg-secondary fw-normal me-2" style="font-size: 0.75rem;"><i class="bi bi-cpu me-1"></i>${group.model_info}</span>` 
-                : `<span class="badge bg-light text-secondary border fw-normal me-2" style="font-size: 0.75rem;">无模型</span>`;
+            // 3. 【修改】处理模型标签 UI，并加入“同款模型”的高亮逻辑
+            let isModelMatch = false;
+            if (currentModelName && group.model_info && currentModelName.toLowerCase() === group.model_info.toLowerCase()) {
+                isModelMatch = true;
+            }
+
+            let modelBadge = '';
+            if (group.model_info && group.model_info !== '无模型') {
+                if (isModelMatch) {
+                    // 特殊UI：当前同款模型（紫色渐变发光样式，跟按钮风格统一）
+                    modelBadge = `<span class="badge text-white fw-bold me-2 shadow" style="background: linear-gradient(135deg, #8a2be2 0%, #4a00e0 100%); font-size: 0.75rem;"><i class="bi bi-cpu-fill me-1"></i>${group.model_info} (同款)</span>`;
+                } else {
+                    // 普通模型样式
+                    modelBadge = `<span class="badge bg-secondary fw-normal me-2" style="font-size: 0.75rem;"><i class="bi bi-cpu me-1"></i>${group.model_info}</span>`;
+                }
+            } else {
+                modelBadge = `<span class="badge bg-light text-secondary border fw-normal me-2" style="font-size: 0.75rem;">无模型</span>`;
+            }
+
+            // 4. 【重点新增】：遍历生成人物小蓝标
+            let charBadges = '';
+            if (group.characters && group.characters.length > 0) {
+                group.characters.forEach(char => {
+                    charBadges += `<span class="badge bg-info text-dark fw-normal me-2" style="font-size: 0.75rem;"><i class="bi bi-person-fill me-1"></i>${char}</span>`;
+                });
+            }
 
             // 4. 组装最终的卡片 HTML
             html += `
@@ -1420,10 +1514,10 @@
                     </div>
                     <div class="mb-0 text-truncate mt-1 d-flex align-items-center">
                         ${modelBadge}
-                        <span class="small text-muted text-truncate">${group.prompt_text}</span>
+                        ${charBadges} <span class="small text-muted text-truncate">${group.prompt_text}</span>
                     </div>
                 </div>
-            </a>`;
+            </a>`;;
         });
         container.innerHTML = html;
     }

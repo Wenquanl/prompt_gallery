@@ -226,12 +226,16 @@
             <a href="/" class="tag-pill text-decoration-none {% if not request.GET.q %}active{% endif %}" style="flex-shrink: 0;">
                 <span class="tag-pill-inner">
                     <i class="bi bi-grid-fill me-1"></i>全部
+                    <span class="badge rounded-pill ms-1">{{ total_groups_count|default:"0" }}</span>
                 </span>
             </a>
 
             {% for tag in tags_bar %}
                 {% if tag.is_model == 1 %}
-                <a href="/?q={{ tag.name|urlencode }}" class="tag-pill text-decoration-none {% if request.GET.q == tag.name %}active{% endif %}">
+                <a href="/?q={{ tag.name|urlencode }}" 
+                   class="tag-pill text-decoration-none {% if request.GET.q == tag.name %}active{% endif %}"
+                   oncontextmenu="handleTagContextMenu(event, this)" 
+                   data-tag-name="{{ tag.name }}">
                     <span class="tag-pill-inner">
                         <i class="bi bi-robot me-1"></i>{{ tag.name }}
                         <span class="badge rounded-pill ms-1">{{ tag.use_count }}</span>

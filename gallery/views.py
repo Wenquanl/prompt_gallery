@@ -1659,7 +1659,7 @@ def create_view(request):
     template_id = request.GET.get('template_id')
     prompt_type = request.GET.get('prompt_type', 'positive')
     
-    initial_data = {'prompt': '', 'tags': [], 'reference_urls': []}
+    initial_data = {'prompt': '', 'tags': [], 'characters': [], 'reference_urls': []}
     
     if template_id:
         try:
@@ -1676,6 +1676,10 @@ def create_view(request):
                 selected_prompt = source_group.prompt_text or source_group.prompt_text_zh or ""
                 
             tags = [tag.name for tag in source_group.tags.all()]
+
+            chars = []
+            if hasattr(source_group, 'characters'):
+                chars = [char.name for char in source_group.characters.all()]
             
             ref_urls = [ref.image.url for ref in source_group.references.all() if ref.image]
             if not ref_urls:
@@ -1686,6 +1690,7 @@ def create_view(request):
             initial_data = {
                 'prompt': selected_prompt, 
                 'tags': tags, 
+                'characters': chars,
                 'reference_urls': ref_urls,
                 'model_info': source_group.model_info  
             }
@@ -1694,11 +1699,18 @@ def create_view(request):
 
     # 【新增】获取全库所有已有的标签名称列表
     all_tags = list(Tag.objects.values_list('name', flat=True).distinct())
+    all_chars = []
+    try:
+        from .models import Character
+        all_chars = list(Character.objects.values_list('name', flat=True).distinct())
+    except Exception:
+        pass
 
     return render(request, 'gallery/create.html', {
         'ai_config_json': json.dumps(AI_STUDIO_CONFIG),
         'initial_data_json': json.dumps(initial_data),
-        'all_tags_json': json.dumps(all_tags), # 将全部标签传给前端
+        'all_tags_json': json.dumps(all_tags),
+        'all_chars_json': json.dumps(all_chars),
     })
 
 @csrf_exempt
@@ -1835,7 +1847,11 @@ def api_publish_studio_creation(request):
         prompt = request.POST.get('prompt', '').strip()
         model_info = request.POST.get('model_info', '').strip()
         title = request.POST.get('title', '').strip()
+        
+        # 【关键修正】：确保在这里一起获取 tags_str 和 chars_str
         tags_str = request.POST.get('tags', '').strip()
+        chars_str = request.POST.get('characters', '').strip() 
+        
         saved_paths = request.POST.getlist('saved_paths') 
         
         if not saved_paths:
@@ -1852,7 +1868,7 @@ def api_publish_studio_creation(request):
             model_info=model_info
         )
         
-        # 2. 处理用户输入的普通自定义标签 (支持中英文逗号分隔)
+        # 2. 保存普通标签 (单纯保存，不再有智能分流)
         if tags_str:
             for tag_name in tags_str.replace('，', ',').split(','):
                 t_name = tag_name.strip()
@@ -1860,18 +1876,17 @@ def api_publish_studio_creation(request):
                     tag_obj, _ = Tag.objects.get_or_create(name=t_name)
                     group.tags.add(tag_obj)
 
-        # 3. 强制确保模型标签的排他性处理
-        # if model_info:
-        #     AIModel.objects.get_or_create(name=model_info)
-        #     m_tag, _ = Tag.objects.get_or_create(name=model_info)
-        #     group.tags.add(m_tag)
-
-        #     # 【核心】：只保留当前的这一个模型标签，清理掉可能混入的“其他模型”标签
-        #     all_model_names = list(AIModel.objects.values_list('name', flat=True))
-        #     for tag in group.tags.all():
-        #         if tag.name in all_model_names and tag.name != model_info:
-        #             group.tags.remove(tag)
-            
+        # 3. 独立保存人物标签
+        if chars_str:
+            try:
+                from .models import Character
+                for char_name in chars_str.replace('，', ',').split(','):
+                    c_name = char_name.strip()
+                    if c_name:
+                        char_obj, _ = Character.objects.get_or_create(name=c_name)
+                        group.characters.add(char_obj)
+            except Exception as e:
+                print(f"人物保存异常: {e}")
         
         # 4. 将本地成图文件读取并存入 Django 的 ImageItem (绑定到组)
         created_image_ids = []
@@ -1891,6 +1906,8 @@ def api_publish_studio_creation(request):
         
         # 6. 触发后台处理生成缩略图等
         if created_image_ids:
+            # 引入 trigger_background_processing (如果你在文件顶部没引入，这里做个保险)
+            from .services import trigger_background_processing
             trigger_background_processing(created_image_ids)
             
         return JsonResponse({'status': 'success', 'group_id': group.id, 'message': '发布成功！'})
@@ -1908,33 +1925,24 @@ def api_get_similar_groups_by_prompt(request):
         data = json.loads(request.body)
         prompt_text = data.get('prompt', '').strip().lower()
         
-        # 【修改点 1】：去除“只获取最新版本”的限制，直接获取数据库中最新的记录（保留2000条作为候选池保证性能）
         candidates = PromptGroup.objects.all().order_by('-id')[:2000]
-        
         recommendations = []
         
         for other in candidates:
             other_content = (other.prompt_text or "").strip().lower()
-            
-            # 计算相似度 (如果前端 Prompt 为空，则退化为按时间最新排序)
             if len(prompt_text) > 0 and len(other_content) > 0:
                 ratio = difflib.SequenceMatcher(None, prompt_text, other_content).ratio()
             elif len(prompt_text) == 0:
                 ratio = 0.0 
             else:
                 continue
-                
-            # 【修改点 2】：将对象的 id（代表创建时间的先后）也存入元组，方便后续的二次排序
             recommendations.append((ratio, other.id, other))
             
-        # 【修改点 3】：按相似度降序排列；若相似度相同，则按 id 降序（即最新时间）排列
         recommendations.sort(key=lambda x: (x[0], x[1]), reverse=True)
-        # 取前 15 个展示
         top_recs = recommendations[:15]
         
         results = []
         for ratio, group_id, group in top_recs:
-            # 提取封面
             cover_url = ""
             cover_img = group.cover_image
             if not cover_img:
@@ -1954,6 +1962,11 @@ def api_get_similar_groups_by_prompt(request):
                         cover_url = cover_img.image.url
                  except:
                      pass
+            
+            # 【重点新增】：提取人物标签列表
+            chars_list = []
+            if hasattr(group, 'characters'):
+                chars_list = [char.name for char in group.characters.all()]
                      
             results.append({
                 'id': group.id,
@@ -1961,8 +1974,8 @@ def api_get_similar_groups_by_prompt(request):
                 'prompt_text': group.prompt_text[:100] + '...' if group.prompt_text and len(group.prompt_text)>100 else (group.prompt_text or '无提示词'),
                 'cover_url': cover_url,
                 'similarity': f"{int(ratio*100)}%" if len(prompt_text) > 0 else "-",
-                # 【修改点 4】：在返回的数据结构中加上该卡片的模型标签信息
-                'model_info': group.model_info or "无模型"
+                'model_info': group.model_info or "无模型",
+                'characters': chars_list # 【重点新增】：传给前端
             })
             
         return JsonResponse({'status': 'success', 'results': results})
