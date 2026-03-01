@@ -24,7 +24,7 @@ from django.template.loader import render_to_string
 from django.views.decorators.csrf import csrf_exempt
 from .models import ImageItem, PromptGroup, Tag, AIModel, ReferenceItem
 from .forms import PromptGroupForm
-from .ai_utils import search_similar_images
+from .ai_utils import search_similar_images, generate_title_with_local_llm
 from .ai_providers import get_ai_provider
 
 # === 引入 Service 层 ===
@@ -436,6 +436,46 @@ def generate_diff_html(base_text, compare_text):
         )
         
     return "".join(html_parts)
+
+def generate_smart_title(prompt_text):
+    """
+    优先使用本地大模型概括标题，如果失败则静默降级为正则截取。
+    """
+    if not prompt_text:
+        return "AI 独立创作"
+
+    # 1. 尝试使用本地 LLM 概括
+    ai_title = generate_title_with_local_llm(prompt_text)
+    if ai_title:
+        return ai_title
+
+    # 2. 降级兜底方案 (正则表达式本地截取)
+    clean_text = re.sub(r'--[a-zA-Z0-9\-]+\s+[\d\.]+', '', prompt_text)
+    clean_text = re.sub(r'<[^>]+>', '', clean_text)
+    
+    parts = re.split(r'[,，.。\n;；|]', clean_text)
+    parts = [p.strip() for p in parts if p.strip()]
+
+    title = ""
+    for part in parts:
+        part = re.sub(r'^(a|an|the|masterpiece|best quality|highres|ultra-detailed|8k|4k|photorealistic)\s+', '', part, flags=re.IGNORECASE).strip()
+        if not part: continue
+
+        if not title:
+            title = part
+        else:
+            if len(title) + len(part) + 1 <= 28:
+                title += f"，{part}"
+            else:
+                break
+
+    if len(title) > 30:
+        title = title[:28] + "..."
+    
+    if title:
+        title = title[0].upper() + title[1:]
+
+    return title or "AI 独立创作"
 # ==========================================
 # 视图函数
 # ==========================================
@@ -742,6 +782,10 @@ def upload(request):
         negative_prompt = request.POST.get('negative_prompt', '')
         title = request.POST.get('title', '') or '未命名组'
         model_id = request.POST.get('model_info')
+
+        # 【修改点 1】：智能生成标题
+        if title == '未命名组' and prompt_text:
+            title = generate_smart_title(prompt_text)
         
         model_name_str = ""
         if model_id:
@@ -773,8 +817,15 @@ def upload(request):
                 group.tags.add(tag)
         
         if model_name_str:
+            AIModel.objects.get_or_create(name=model_name_str)
             m_tag, _ = Tag.objects.get_or_create(name=model_name_str)
             group.tags.add(m_tag)
+            
+            # 清除冲突的其他模型标签
+            all_model_names = list(AIModel.objects.values_list('name', flat=True))
+            for tag in group.tags.all():
+                if tag.name in all_model_names and tag.name != model_name_str:
+                    group.tags.remove(tag)
 
         source_group_id = request.POST.get('source_group_id')
         print(f"DEBUG: 尝试克隆参考图，Source ID: {source_group_id}") # 调试打印 1
@@ -1655,6 +1706,11 @@ def api_generate_and_download(request):
         print(f"云端共生成了 {len(generated_urls)} 张图片，开始处理...")
 
         for idx, img_url in enumerate(generated_urls):
+            # 【核心修复】：增加判空保护，跳过生成失败的空 URL
+            if not img_url:
+                print(f"⚠️ 第 {idx+1} 张图片云端未返回 URL，已跳过。")
+                continue
+                
             final_urls.append(img_url)
             file_name = f"Gen_{model_choice}_{base_timestamp}_{idx+1}.jpg" 
             file_path = os.path.join(downloads_dir, file_name)
@@ -1702,28 +1758,35 @@ def api_publish_studio_creation(request):
         if not saved_paths:
             return JsonResponse({'status': 'error', 'message': '没有找到生成的图片路径'})
 
-        # 1. 创建 PromptGroup (如果没有输入标题，兜底使用 Prompt 前 15 个字)
         if not title:
-            title = (prompt[:15] + '...') if len(prompt) > 15 else (prompt or 'AI 独立创作')
+            title = generate_smart_title(prompt)
             
         group = PromptGroup.objects.create(
             title=title,
             prompt_text=prompt,
             model_info=model_info
         )
-        
-        # 2. 自动添加模型专属标签
-        if model_info:
-            m_tag, _ = Tag.objects.get_or_create(name=model_info)
-            group.tags.add(m_tag)
-            
-        # 3. 处理用户输入的自定义标签 (支持中英文逗号分隔)
+
         if tags_str:
             for tag_name in tags_str.replace('，', ',').split(','):
                 t_name = tag_name.strip()
                 if t_name:
                     tag_obj, _ = Tag.objects.get_or_create(name=t_name)
                     group.tags.add(tag_obj)
+
+        if model_info:
+            # 确保 AIModel 表中有这个模型
+            AIModel.objects.get_or_create(name=model_info)
+            # 添加当前模型标签
+            m_tag, _ = Tag.objects.get_or_create(name=model_info)
+            group.tags.add(m_tag)
+            
+            # 清理掉其他误混入的模型标签，保持普通标签不变
+            all_model_names = list(AIModel.objects.values_list('name', flat=True))
+            for tag in group.tags.all():
+                if tag.name in all_model_names and tag.name != model_info:
+                    group.tags.remove(tag)
+            
         
         # 4. 将本地成图文件读取并存入 Django 的 ImageItem (绑定到组)
         created_image_ids = []
@@ -1755,17 +1818,13 @@ def api_publish_studio_creation(request):
 @csrf_exempt
 @require_POST
 def api_get_similar_groups_by_prompt(request):
-    """根据前端传来的 Prompt 文本，计算全库相似度并返回排序后的作品列表"""
+    """根据前端传来的 Prompt 文本，计算全库相似度并返回排序后的作品列表 (包含所有系列的历史版本)"""
     try:
         data = json.loads(request.body)
         prompt_text = data.get('prompt', '').strip().lower()
         
-        # 1. 获取所有组的最新版本 ID (避免推荐同一系列的冗余历史版本)
-        group_stats = PromptGroup.objects.values('group_id').annotate(max_id=Max('id'))
-        latest_ids = [item['max_id'] for item in group_stats]
-        
-        # 2. 查询候选集 (限制前1000个保证性能)
-        candidates = PromptGroup.objects.filter(id__in=latest_ids).order_by('-id')[:1000]
+        # 【修改点 1】：去除“只获取最新版本”的限制，直接获取数据库中最新的记录（保留2000条作为候选池保证性能）
+        candidates = PromptGroup.objects.all().order_by('-id')[:2000]
         
         recommendations = []
         
@@ -1780,14 +1839,16 @@ def api_get_similar_groups_by_prompt(request):
             else:
                 continue
                 
-            recommendations.append((ratio, other))
+            # 【修改点 2】：将对象的 id（代表创建时间的先后）也存入元组，方便后续的二次排序
+            recommendations.append((ratio, other.id, other))
             
-        # 3. 按相似度降序排列，取前 15 个
-        recommendations.sort(key=lambda x: x[0], reverse=True)
+        # 【修改点 3】：按相似度降序排列；若相似度相同，则按 id 降序（即最新时间）排列
+        recommendations.sort(key=lambda x: (x[0], x[1]), reverse=True)
+        # 取前 15 个展示
         top_recs = recommendations[:15]
         
         results = []
-        for ratio, group in top_recs:
+        for ratio, group_id, group in top_recs:
             # 提取封面
             cover_url = ""
             cover_img = group.cover_image
@@ -1814,7 +1875,9 @@ def api_get_similar_groups_by_prompt(request):
                 'title': group.title,
                 'prompt_text': group.prompt_text[:100] + '...' if group.prompt_text and len(group.prompt_text)>100 else (group.prompt_text or '无提示词'),
                 'cover_url': cover_url,
-                'similarity': f"{int(ratio*100)}%" if len(prompt_text) > 0 else "-"
+                'similarity': f"{int(ratio*100)}%" if len(prompt_text) > 0 else "-",
+                # 【修改点 4】：在返回的数据结构中加上该卡片的模型标签信息
+                'model_info': group.model_info or "无模型"
             })
             
         return JsonResponse({'status': 'success', 'results': results})

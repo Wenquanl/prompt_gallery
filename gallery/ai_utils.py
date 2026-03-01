@@ -5,15 +5,19 @@ import torch
 import os
 import cv2  # 【新增】引入 OpenCV 处理视频
 import tempfile # 【新增】处理上传的视频流
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 # 全局变量存储模型 (单例模式)
 _model = None
+_text_model = None
+_text_tokenizer = None
 
 def load_model_on_startup():
     """
     系统启动时预加载模型，由 apps.py 调用
     """
-    global _model
+    global _model, _text_model, _text_tokenizer
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
     if _model is None:
         print(">>> [AI核心] 正在预加载 CLIP 模型 (首次运行可能需要下载)...")
         try:
@@ -23,6 +27,67 @@ def load_model_on_startup():
             print(f">>> [AI核心] CLIP 模型加载完毕，运行设备: {device}")
         except Exception as e:
             print(f">>> [AI核心] ❌ 模型加载失败: {e}")
+    # 【新增】加载用于生成标题的轻量级本地 LLM
+    if _text_model is None:
+        print(">>> [AI核心] 正在预加载本地文本大模型 (用于标题智能概括)...")
+        try:
+            model_id = "Qwen/Qwen2.5-0.5B-Instruct"
+            _text_tokenizer = AutoTokenizer.from_pretrained(model_id)
+            dtype = torch.float16 if device == 'cuda' else torch.float32
+            _text_model = AutoModelForCausalLM.from_pretrained(
+                model_id, 
+                torch_dtype=dtype,
+                low_cpu_mem_usage=True
+            ).to(device)
+            print(f">>> [AI核心] 本地文本大模型加载完毕！")
+        except Exception as e:
+            print(f">>> [AI核心] ❌ 文本大模型加载失败: {e}")
+
+def generate_title_with_local_llm(prompt_text):
+    """
+    调用本地加载的大模型进行提示词概括
+    """
+    global _text_model, _text_tokenizer
+    
+    if _text_model is None or _text_tokenizer is None:
+        return None
+
+    try:
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        
+        system_prompt = "你是一个AI绘画提示词分析专家。请将以下绘画提示词概括为一个简短的中文标题。要求：1.准确提取核心主体和意境；2.纯中文，严格控制在30个字以内；3.直接输出最终的标题，绝对不要带引号、书名号或任何解释。"
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"提示词：{prompt_text}"}
+        ]
+        
+        text = _text_tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        model_inputs = _text_tokenizer([text], return_tensors="pt").to(device)
+
+        generated_ids = _text_model.generate(
+            model_inputs.input_ids,
+            max_new_tokens=40,      
+            temperature=0.3,        
+            repetition_penalty=1.1, 
+            do_sample=True
+        )
+        
+        generated_ids = [
+            output_ids[len(input_ids):] for input_ids, output_ids in zip(model_inputs.input_ids, generated_ids)
+        ]
+        response = _text_tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
+        
+        # 清理可能产生的意外标点符号
+        title = response.strip().strip('"').strip('”').strip('“').strip('《').strip('》')
+        
+        if title and len(title) <= 30:
+            return title
+        elif len(title) > 30:
+            return title[:28] + "..."
+            
+    except Exception as e:
+        print(f"本地大模型生成标题时发生错误: {e}")
+        return None
 
 def get_model():
     """

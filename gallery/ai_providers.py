@@ -3,7 +3,9 @@ import os
 import io
 import base64
 import fal_client
-import httpx # 确保引入了 httpx
+import httpx 
+import json
+import copy
 from openai import OpenAI
 from google import genai
 from google.genai import types
@@ -41,6 +43,15 @@ class FalAIProvider(BaseAIProvider):
                 api_args['image_url'] = uploaded_image_urls[0]
             else:
                 api_args['image_urls'] = uploaded_image_urls
+
+        # ==================================
+        # 【新增】：控制台优美打印
+        # ==================================
+        print("\n" + "="*60)
+        print(f"🚀 [Fal.ai API] 正在请求模型: {endpoint}")
+        print("📦 最终发往云端的请求报文 (Arguments):")
+        print(json.dumps(api_args, indent=4, ensure_ascii=False))
+        print("="*60 + "\n")
 
         # 2. 调用生成接口
         result = fal_client.subscribe(endpoint, arguments=api_args)
@@ -114,6 +125,24 @@ class VolcengineProvider(BaseAIProvider):
             extra_body["tools"] = [{"type": "web_search"}]
         request_payload["extra_body"] = extra_body
         # ==================================
+        # 【新增】：控制台优美打印完整请求报文
+        # ==================================
+        debug_payload = copy.deepcopy(request_payload)
+        
+        # 过滤掉超长的 Base64 图片字符串，防止把控制台刷屏卡死
+        if "extra_body" in debug_payload and "image" in debug_payload["extra_body"]:
+            img_data = debug_payload["extra_body"]["image"]
+            if isinstance(img_data, list):
+                debug_payload["extra_body"]["image"] = [f"<图片 Base64 数据, 长度: {len(i)}>" for i in img_data]
+            else:
+                debug_payload["extra_body"]["image"] = f"<单张图片 Base64 数据, 长度: {len(img_data)}>"
+
+        print("\n" + "="*60)
+        print(f"🚀 [Volcengine API] 正在请求火山引擎节点...")
+        print("📦 最终发往云端的请求报文 (Payload):")
+        print(json.dumps(debug_payload, indent=4, ensure_ascii=False))
+        print("="*60 + "\n")
+        # ==================================
         # 调用官方接口
         # ==================================
         response = client.images.generate(**request_payload)
@@ -122,7 +151,9 @@ class VolcengineProvider(BaseAIProvider):
         urls = []
         if response.data:
             for img_obj in response.data:
-                urls.append(img_obj.url)
+                # 【核心修复】：只有当 url 存在且不为空时，才加入列表
+                if getattr(img_obj, 'url', None):
+                    urls.append(img_obj.url)
                 
         return urls
 
@@ -216,6 +247,44 @@ class GoogleAIProvider(BaseAIProvider):
             )
 
         config = types.GenerateContentConfig(**config_kwargs)
+
+        # ==================================
+        # 【新增】：控制台优美打印完整请求报文 (Google SDK 版)
+        # ==================================
+        # 因为 Google SDK 传的是对象，我们手动提取并拼装成直观的字典用于打印
+        debug_contents = []
+        for item in contents:
+            if isinstance(item, str):
+                debug_contents.append(item) # 文本提示词直接打印
+            elif hasattr(item, 'inline_data') and item.inline_data:
+                debug_contents.append(f"<参考图二进制流, 长度: {len(item.inline_data.data)} bytes, 格式: {item.inline_data.mime_type}>")
+            else:
+                debug_contents.append("<未知多模态数据块>")
+
+        # 还原 Config 参数用于展示
+        debug_config = {
+            "response_modalities": ["IMAGE"],
+            "image_config": image_config_kwargs,
+        }
+        if api_args.get('enable_web_search'):
+            debug_config["tools"] = [{"google_search": "enabled"}]
+        if api_args.get('thinking_level'):
+            debug_config["thinking_config"] = {
+                "thinking_level": api_args['thinking_level'],
+                "include_thoughts": False
+            }
+
+        debug_payload = {
+            "model": model_endpoint,
+            "contents": debug_contents,
+            "config": debug_config
+        }
+
+        print("\n" + "="*60)
+        print(f"🚀 [Google AI API] 正在请求 Google Gemini 节点...")
+        print("📦 最终发往云端的请求结构 (Parsed Payload):")
+        print(json.dumps(debug_payload, indent=4, ensure_ascii=False))
+        print("="*60 + "\n")
 
         try:
             response = client.models.generate_content(
