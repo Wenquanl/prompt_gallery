@@ -692,7 +692,56 @@
         } catch(e) {
             console.error("❌ 无预填充数据或解析失败，错误详情:", e);
         }
+
+        // ==========================================
+        // 【新增】监听动态参数的改变 (支持 select 和 range)
+        // ==========================================
+        const dynamicContainer = document.getElementById('dynamic-params-container');
+        
+        // 提取出一个通用处理函数
+        function handleDynamicInput(e) {
+            if (e.target.classList.contains('dynamic-param-input')) {
+                const modelChoice = document.getElementById('ai-model-select').value;
+                // 修正拼写为 seedream
+                if (modelChoice.toLowerCase().includes('seedream')) {
+                    const paramId = e.target.getAttribute('data-param-id');
+                    // 精确匹配你配置里的 ID
+                    if (paramId === 'max_images' || paramId === 'num_images') {
+                        updateSeedreamPrompt(e.target.value);
+                    }
+                }
+            }
+        }
+
+        // 同时监听 input(拖动中) 和 change(松开/下拉改变)
+        dynamicContainer.addEventListener('input', handleDynamicInput);
+        dynamicContainer.addEventListener('change', handleDynamicInput);
     });
+
+    // === 针对 seedream 模型的特殊处理函数 ===
+    function updateSeedreamPrompt(count) {
+        const promptInput = document.getElementById('ai-prompt');
+        let text = promptInput.value;
+        // 正则匹配：以“生成”开头，中间是任意数字，紧跟“张图片：”
+        const prefixRegex = /^生成\d+张图片：/;
+        
+        if (prefixRegex.test(text)) {
+            // 如果已经有前缀了，替换掉数字
+            promptInput.value = text.replace(prefixRegex, `生成${count}张图片：`);
+        } else {
+            // 如果没有，直接加在最前面
+            promptInput.value = `生成${count}张图片：` + text;
+        }
+    }
+
+    function removeSeedreamPrompt() {
+        const promptInput = document.getElementById('ai-prompt');
+        const prefixRegex = /^生成\d+张图片：/;
+        if (prefixRegex.test(promptInput.value)) {
+            // 切换模型时，自动清理掉这个前缀
+            promptInput.value = promptInput.value.replace(prefixRegex, '');
+        }
+    }
 
     // === 核心渲染引擎：根据后端配置生成 UI ===
     function initDynamicUI() {
@@ -825,6 +874,19 @@
         });
         html += `</div></div>`;
         container.innerHTML = html;
+        // ==========================================
+    // 【新增】模型切换时，自动处理 seedream 的前缀
+    // ==========================================
+    if (modelId.toLowerCase().includes('seedream')) {
+        // 注意：这里默认你的图片数量参数ID里包含 'num' 或 'count'（比如 'image_num' 或 'count'）
+        // 如果你的配置中叫别的名字，请修改这里的选择器
+        const numInput = container.querySelector('.dynamic-param-input[data-param-id="max_images"], .dynamic-param-input[data-param-id="num_images"]');
+            if (numInput) {
+                updateSeedreamPrompt(numInput.value);
+            }
+        } else {
+            removeSeedreamPrompt();
+        }
     }
 
     // 拖拽与预览逻辑 
