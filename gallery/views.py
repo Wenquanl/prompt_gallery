@@ -439,17 +439,21 @@ def generate_diff_html(base_text, compare_text):
 
 def generate_smart_title(prompt_text):
     """
-    优先使用本地大模型概括标题，如果失败则静默降级为正则截取。
+    智能概括标题：优先尝试本地大模型，兜底使用正则截取。
     """
     if not prompt_text:
         return "AI 独立创作"
 
-    # 1. 尝试使用本地 LLM 概括
-    ai_title = generate_title_with_local_llm(prompt_text)
-    if ai_title:
-        return ai_title
+    # 1. 尝试调用本地大模型 (如果你在 ai_utils 里写了的话)
+    try:
+        from .ai_utils import generate_title_with_local_llm
+        ai_title = generate_title_with_local_llm(prompt_text)
+        if ai_title:
+            return ai_title
+    except Exception:
+        pass
 
-    # 2. 降级兜底方案 (正则表达式本地截取)
+    # 2. 降级兜底方案 (正则表达式本地清洗与截取)
     clean_text = re.sub(r'--[a-zA-Z0-9\-]+\s+[\d\.]+', '', prompt_text)
     clean_text = re.sub(r'<[^>]+>', '', clean_text)
     
@@ -783,9 +787,10 @@ def upload(request):
         title = request.POST.get('title', '') or '未命名组'
         model_id = request.POST.get('model_info')
 
-        # 【修改点 1】：智能生成标题
+        # 【新增】：智能概括上传页的标题
         if title == '未命名组' and prompt_text:
             title = generate_smart_title(prompt_text)
+            print(f"DEBUG: 上传页生成了智能标题 -> {title}")
         
         model_name_str = ""
         if model_id:
@@ -816,12 +821,11 @@ def upload(request):
                 tag, _ = Tag.objects.get_or_create(name=tag_val)
                 group.tags.add(tag)
         
+        # 【新增】：常规上传的模型标签排他性处理
         if model_name_str:
-            AIModel.objects.get_or_create(name=model_name_str)
             m_tag, _ = Tag.objects.get_or_create(name=model_name_str)
             group.tags.add(m_tag)
             
-            # 清除冲突的其他模型标签
             all_model_names = list(AIModel.objects.values_list('name', flat=True))
             for tag in group.tags.all():
                 if tag.name in all_model_names and tag.name != model_name_str:
@@ -1758,15 +1762,18 @@ def api_publish_studio_creation(request):
         if not saved_paths:
             return JsonResponse({'status': 'error', 'message': '没有找到生成的图片路径'})
 
+        # 1. 创建 PromptGroup (智能概括 Prompt 生成卡片标题)
         if not title:
             title = generate_smart_title(prompt)
+            print(f"DEBUG: 创作室生成了智能标题 -> {title}")
             
         group = PromptGroup.objects.create(
             title=title,
             prompt_text=prompt,
             model_info=model_info
         )
-
+        
+        # 2. 处理用户输入的普通自定义标签 (支持中英文逗号分隔)
         if tags_str:
             for tag_name in tags_str.replace('，', ',').split(','):
                 t_name = tag_name.strip()
@@ -1774,14 +1781,13 @@ def api_publish_studio_creation(request):
                     tag_obj, _ = Tag.objects.get_or_create(name=t_name)
                     group.tags.add(tag_obj)
 
+        # 3. 强制确保模型标签的排他性处理
         if model_info:
-            # 确保 AIModel 表中有这个模型
             AIModel.objects.get_or_create(name=model_info)
-            # 添加当前模型标签
             m_tag, _ = Tag.objects.get_or_create(name=model_info)
             group.tags.add(m_tag)
-            
-            # 清理掉其他误混入的模型标签，保持普通标签不变
+
+            # 【核心】：只保留当前的这一个模型标签，清理掉可能混入的“其他模型”标签
             all_model_names = list(AIModel.objects.values_list('name', flat=True))
             for tag in group.tags.all():
                 if tag.name in all_model_names and tag.name != model_info:
