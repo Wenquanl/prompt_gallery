@@ -22,7 +22,7 @@ from django.views.decorators.http import require_GET, require_POST
 from django.core.cache import cache
 from django.template.loader import render_to_string
 from django.views.decorators.csrf import csrf_exempt
-from .models import ImageItem, PromptGroup, Tag, AIModel, ReferenceItem
+from .models import ImageItem, PromptGroup, Tag, AIModel, ReferenceItem, Character
 from .forms import PromptGroupForm
 from .ai_utils import search_similar_images, generate_title_with_local_llm
 from .ai_providers import get_ai_provider
@@ -797,11 +797,24 @@ def detail(request, pk):
     videos_list = [item for item in all_items if item.is_video]
     
     tags_list = list(group.tags.all())
+    chars_list = list(group.characters.all()) if hasattr(group, 'characters') else []
     model_name = group.model_info
     if model_name:
         tags_list.sort(key=lambda t: 0 if t.name == model_name else 1)
+    # 【检查】：构造混合联想词库 (Tag + Character)
+    base_tags = Tag.objects.annotate(usage_count=Count('promptgroup')).order_by('-usage_count', 'name')[:500]
+    all_tags = list(base_tags)
     
-    all_tags = Tag.objects.annotate(usage_count=Count('promptgroup')).order_by('-usage_count', 'name')[:500]
+    try:
+        # 再获取人物标签并混入列表
+        all_chars = Character.objects.annotate(usage_count=Count('promptgroup')).order_by('-usage_count', 'name')[:200]
+        existing_names = {t.name for t in all_tags}
+        for c in all_chars:
+            if c.name not in existing_names:
+                all_tags.append(c) # 只要模型有 .name 属性，前端 datalist 就能正常显示
+    except Exception:
+        pass
+    # all_tags = Tag.objects.annotate(usage_count=Count('promptgroup')).order_by('-usage_count', 'name')[:500]
 
     siblings_qs = PromptGroup.objects.filter(
         group_id=group.group_id
@@ -838,6 +851,7 @@ def detail(request, pk):
     return render(request, 'gallery/detail.html', {
         'group': group,
         'sorted_tags': tags_list,
+        'chars_list': chars_list,
         'all_tags': all_tags,
         'siblings': siblings,
         'related_groups': related_groups,
@@ -1348,10 +1362,24 @@ def add_tag_to_group(request, pk):
         if not tag_name:
             return JsonResponse({'status': 'error', 'message': '标签名不能为空'})
         
+        # 【智能分流逻辑】
+        # 1. 先检查全库是否已有该人物
+        if hasattr(group, 'characters'):
+            from .models import Character
+            if Character.objects.filter(name__iexact=tag_name).exists():
+                char = Character.objects.get(name__iexact=tag_name)
+                # 纠正大小写体验
+                if char.name != tag_name:
+                    char.name = tag_name
+                    char.save()
+                group.characters.add(char)
+                return JsonResponse({'status': 'success', 'tag_id': char.id, 'tag_name': char.name, 'tag_type': 'character'})
+        
+        # 2. 如果不是人物，则作为普通标签处理
         tag, created = Tag.objects.get_or_create(name=tag_name)
         group.tags.add(tag)
+        return JsonResponse({'status': 'success', 'tag_id': tag.id, 'tag_name': tag.name, 'tag_type': 'tag'})
         
-        return JsonResponse({'status': 'success', 'tag_id': tag.id, 'tag_name': tag.name})
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)})
 
@@ -1362,9 +1390,17 @@ def remove_tag_from_group(request, pk):
     try:
         data = json.loads(request.body)
         tag_id = data.get('tag_id')
-        tag = get_object_or_404(Tag, pk=tag_id)
+        tag_type = data.get('tag_type', 'tag') # 接收前端传来的类型，默认为 tag
         
-        group.tags.remove(tag)
+        # 【智能分流删除逻辑】
+        if tag_type == 'character' and hasattr(group, 'characters'):
+            from .models import Character
+            char = get_object_or_404(Character, pk=tag_id)
+            group.characters.remove(char)
+        else:
+            tag = get_object_or_404(Tag, pk=tag_id)
+            group.tags.remove(tag)
+            
         return JsonResponse({'status': 'success'})
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)})

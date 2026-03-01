@@ -780,27 +780,37 @@
             </div>
 
             <div class="mb-4 d-flex flex-wrap align-items-center gap-2" id="tagsContainer" style="min-height: 40px;">
-                {% for char in group.characters.all %}
-                    <span class="tag-interactive tag-char" id="char-pill-{{ char.id }}">
-                        <i class="bi bi-person-fill me-1"></i>
-                        <a href="/?q={{ char.name }}">{{ char.name }}</a>
+                
+                <span id="characters-wrapper" class="d-flex flex-wrap gap-2">
+                    {% for char in group.characters.all %}
+                        <span class="tag-interactive tag-char" id="char-pill-{{ char.id }}">
+                            <i class="bi bi-person-fill me-1"></i>
+                            <a href="/?q={{ char.name }}">{{ char.name }}</a>
+                            <span class="tag-remove-btn" onclick="removeTag({{ group.pk }}, {{ char.id }}, 'character')" title="移除人物">
+                                <i class="bi bi-x-circle-fill"></i>
+                            </span>
                         </span>
-                {% endfor %}
-                {% for tag in sorted_tags %}
-                    <span class="tag-interactive {% if tag.name == group.model_info %}model-tag{% endif %}" id="tag-pill-{{ tag.id }}">
-                        {% if tag.name == group.model_info %}<i class="bi bi-robot me-1"></i>{% endif %}
-                        <a href="/?q={{ tag.name }}">{{ tag.name }}</a>
-                        <span class="tag-remove-btn" onclick="removeTag({{ group.pk }}, {{ tag.id }}, '{{ tag.name|escapejs }}')" title="移除">
-                            <i class="bi bi-x-circle-fill"></i>
+                    {% endfor %}
+                </span>
+
+                <span id="normal-tags-wrapper" class="d-flex flex-wrap gap-2">
+                    {% for tag in sorted_tags %}
+                        <span class="tag-interactive {% if tag.name == group.model_info %}model-tag{% endif %}" id="tag-pill-{{ tag.id }}">
+                            {% if tag.name == group.model_info %}<i class="bi bi-robot me-1"></i>{% endif %}
+                            <a href="/?q={{ tag.name }}">{{ tag.name }}</a>
+                            <span class="tag-remove-btn" onclick="removeTag({{ group.pk }}, {{ tag.id }}, 'tag')" title="移除标签">
+                                <i class="bi bi-x-circle-fill"></i>
+                            </span>
                         </span>
-                    </span>
-                {% endfor %}
+                    {% endfor %}
+                </span>
+
                 <div class="d-flex align-items-center">
                     <button class="btn-add-tag-dashed" id="btnAddTag" onclick="showTagInput()" title="添加标签"><i class="bi bi-plus-lg"></i></button>
                     <div class="tag-input-container" id="tagInputContainer">
                         <input type="text" class="tag-input-line" id="newTagInput" placeholder="输入标签..." list="availableTags" onkeydown="handleTagKey(event, {{ group.pk }})">
                         <button class="btn-confirm-tag" type="button" onclick="addTag({{ group.pk }})" title="确认添加"><i class="bi bi-check-lg"></i></button>
-                        <datalist id="availableTags">{% for t in all_tags %}<option value="{{ t.name }}">{% endfor %}</datalist>
+                        <datalist id="availableTags">{% for t in all_tags %}<option value="{{ t.name }}"></option>{% endfor %}</datalist>
                     </div>
                 </div>
             </div>

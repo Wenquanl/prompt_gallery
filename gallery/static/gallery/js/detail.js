@@ -639,37 +639,82 @@ function addTag(groupPk) {
     .then(res => res.json())
     .then(data => {
         if (data.status === 'success') {
-            const newTagHtml = `
-                <span class="tag-interactive" id="tag-pill-${data.tag_id}">
-                    <a href="/?q=${data.tag_name}">${data.tag_name}</a>
-                    <span class="tag-remove-btn" onclick="removeTag(${groupPk}, ${data.tag_id}, '${data.tag_name}')" title="移除"><i class="bi bi-x-circle-fill"></i></span>
-                </span>`;
-            document.getElementById('btnAddTag').parentNode.insertAdjacentHTML('beforebegin', newTagHtml);
-            input.value = ''; input.focus();
+            // 智能分流：根据后端返回的 tag_type 决定插入哪个容器，并附带正确的删除参数
+            if (data.tag_type === 'character') {
+                const wrapper = document.getElementById('characters-wrapper');
+                if (wrapper) {
+                    const html = `
+                        <span class="tag-interactive tag-char" id="char-pill-${data.tag_id}">
+                            <i class="bi bi-person-fill me-1"></i>
+                            <a href="/?q=${encodeURIComponent(data.tag_name)}">${data.tag_name}</a>
+                            <span class="tag-remove-btn" onclick="removeTag(${groupPk}, ${data.tag_id}, 'character')" title="移除人物">
+                                <i class="bi bi-x-circle-fill"></i>
+                            </span>
+                        </span>`;
+                    wrapper.insertAdjacentHTML('beforeend', html);
+                }
+            } else {
+                const wrapper = document.getElementById('normal-tags-wrapper');
+                if (wrapper) {
+                    const html = `
+                        <span class="tag-interactive" id="tag-pill-${data.tag_id}">
+                            <a href="/?q=${encodeURIComponent(data.tag_name)}">${data.tag_name}</a>
+                            <span class="tag-remove-btn" onclick="removeTag(${groupPk}, ${data.tag_id}, 'tag')" title="移除标签">
+                                <i class="bi bi-x-circle-fill"></i>
+                            </span>
+                        </span>`;
+                    wrapper.insertAdjacentHTML('beforeend', html);
+                }
+            }
+            
+            // 恢复输入框状态
+            input.value = '';
+            input.focus();
         } else {
             Swal.fire({ icon: 'error', title: '添加失败', text: data.message });
         }
+    })
+    .catch(err => {
+        console.error(err);
+        Swal.fire('错误', '网络请求失败', 'error');
     });
 }
 
-function removeTag(groupPk, tagId, tagName) {
+function removeTag(groupPk, tagId, tagType = 'tag') {
     Swal.fire({
-        title: '移除标签?', text: `确定要移除 "${tagName}" 吗？`, icon: 'warning',
-        showCancelButton: true, confirmButtonColor: '#ff4757', confirmButtonText: '移除', cancelButtonText: '取消'
+        title: '确定要移除吗？',
+        icon: 'warning',
+        showCancelButton: true, 
+        confirmButtonColor: '#ff4757', 
+        confirmButtonText: '移除', 
+        cancelButtonText: '取消'
     }).then((result) => {
         if (result.isConfirmed) {
             const csrftoken = getCookie('csrftoken');
             fetch(`/remove-tag/${groupPk}/`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrftoken },
-                body: JSON.stringify({ tag_id: tagId })
+                // 必须将 tagType 传给后端，后端才知道要去查 Character 表还是 Tag 表
+                body: JSON.stringify({ tag_id: tagId, tag_type: tagType })
             })
             .then(res => res.json())
             .then(data => {
                 if (data.status === 'success') {
-                    const el = document.getElementById(`tag-pill-${tagId}`);
-                    if (el) { el.style.transform = 'scale(0.8)'; el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }
-                } else { Swal.fire({ icon: 'error', title: '移除失败', text: data.message }); }
+                    // 精准找到页面上的节点并移除
+                    const elId = tagType === 'character' ? `char-pill-${tagId}` : `tag-pill-${tagId}`;
+                    const el = document.getElementById(elId);
+                    if (el) { 
+                        el.style.transform = 'scale(0.8)'; 
+                        el.style.opacity = '0'; 
+                        setTimeout(() => el.remove(), 300); 
+                    }
+                } else { 
+                    Swal.fire({ icon: 'error', title: '移除失败', text: data.message }); 
+                }
+            })
+            .catch(err => {
+                console.error(err);
+                Swal.fire('错误', '网络请求失败', 'error');
             });
         }
     });
