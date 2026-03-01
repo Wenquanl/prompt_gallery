@@ -10,10 +10,15 @@
     }
     .tags-wrap-container {
         display: flex;
-        flex-wrap: wrap; /* 关键：允许换行 */
-        gap: 8px;       /* 标签间距 */
-        padding: 0 15px;
-        align-items: center;
+        flex-wrap: wrap; 
+        gap: 8px; 
+        max-height: 36px; /* 默认单行高度 */
+        overflow: hidden;
+        padding-right: 120px; 
+        /* 提前把底部 padding 加上，防止展开时跳动 */
+        padding-bottom: 4px; 
+        /* 稍微加快一点动画速度，0.3s 最符合人眼直觉 */
+        transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1); 
     }
     /* 添加模型按钮样式 */
     .btn-add-model {
@@ -84,6 +89,119 @@
         0% { transform: rotate(0deg) scale(1); }
         100% { transform: rotate(15deg) scale(1.2); }
     }
+/* === 全新：优雅的浮动磨砂模型栏设计 === */
+    .elegant-model-bar {
+        /* 用极淡淡的浅蓝/灰作为底色，与纯白底色拉开层次 */
+        background-color: #f8fafc; 
+        padding: 12px;
+        margin-bottom: 20px;
+        border-radius: 16px; /* 更圆润的边角，显得友好 */
+        /* 微微的投影，营造悬浮感 */
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+        border: 1px solid #f1f5f9;
+    }
+
+    .tags-wrap-container {
+        display: flex;
+        flex-wrap: wrap; /* 允许换行 */
+        gap: 8px; /* 稍微缩小间距，更精致 */
+        /* 限制高度为单行，根据你的字体大小可能需要微调 (此处设为 36px) */
+        max-height: 36px; 
+        overflow: hidden;
+        /* 留出右侧空间给悬浮按钮，防止标签贴边 */
+        padding-right: 120px; 
+        transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    /* === 标签胶囊按钮美化 === */
+    .tag-pill {
+        display: inline-flex;
+        background: #fff; /* 胶囊用纯白，在浅灰底色上浮现 */
+        border: 1px solid #e2e8f0;
+        border-radius: 50px;
+        padding: 6px 14px;
+        color: #475569;
+        font-size: 0.85rem;
+        font-weight: 500;
+        transition: all 0.2s;
+    }
+
+    /* 悬停效果：轻微浮起和变色 */
+    .tag-pill:hover {
+        background-color: #f1f5f9;
+        border-color: #cbd5e1;
+        color: #1e293b;
+        transform: translateY(-1px);
+    }
+
+    /* 选中状态 */
+    .tag-pill.active {
+        background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); /* 主题渐变 */
+        border-color: transparent;
+        color: white;
+        box-shadow: 0 2px 6px rgba(79, 70, 229, 0.2);
+    }
+    
+    .tag-pill.active i { color: rgba(255,255,255,0.8); }
+
+    /* 胶囊内的数字角标 */
+    .tag-pill .badge {
+        background-color: #f1f5f9;
+        color: #64748b;
+        font-weight: 400;
+    }
+    .tag-pill.active .badge {
+        background-color: rgba(255,255,255,0.2);
+        color: white;
+    }
+
+    /* === 优化：右侧悬浮按钮样式 (独立胶囊 + 毛玻璃效果) === */
+    .toggle-models-btn {
+        position: absolute;
+        top: 12px; /* 与父容器 padding 一致 */
+        right: 12px;
+        height: 36px;
+        padding: 0; /* 内部由 content 决定 padding */
+        border: none;
+        cursor: pointer;
+        z-index: 10;
+        background: transparent; /* 自身透明 */
+    }
+
+    .toggle-btn-content {
+        display: flex;
+        align-items: center;
+        height: 100%;
+        padding: 0 16px;
+        /* 核心：半透明白色背景 + 毛玻璃滤镜 */
+        background: rgba(255, 255, 255, 0.75); 
+        backdrop-filter: blur(8px); /* 磨砂效果 */
+        -webkit-backdrop-filter: blur(8px);
+        border: 1px solid rgba(226, 232, 240, 0.8);
+        border-radius: 50px;
+        color: #4f46e5; /* 主题色文字 */
+        font-size: 0.8rem;
+        font-weight: 600;
+        box-shadow: -4px 0 12px rgba(248, 250, 252, 0.9); /* 消除左侧标签被切断的生硬感 */
+        transition: all 0.3s;
+    }
+    
+    .toggle-models-btn:hover .toggle-btn-content {
+        background: rgba(255, 255, 255, 0.9);
+        border-color: #6366f1;
+        box-shadow: 0 2px 8px rgba(99, 102, 241, 0.15);
+    }
+
+    /* 图标旋转动画 */
+    .toggle-icon {
+        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        display: inline-block;
+    }
+
+    /* 展开状态下图标旋转 180 度 */
+    .tags-wrap-container.is-expanded + .toggle-models-btn .toggle-icon {
+        transform: rotate(180deg);
+    }
 </style>
 
 <div class="container py-5">
@@ -102,33 +220,34 @@
     {% endif %}
 
     {% if tags_bar and not current_filter %}
-    <div class="tags-bar-wrapper">
-        <div class="tags-wrap-container">
-            <a href="{% url 'home' %}" 
-                class="tag-pill special-all-tab {% if not search_query and not image_search_active %}active{% endif %}">
-                <i class="bi bi-grid-fill me-1"></i> 全部
-                <span class="tag-count-badge ms-1">{{ total_groups_count }}</span>
+    <div class="elegant-model-bar position-relative" id="model-bar-wrapper">
+        <div class="tags-wrap-container" id="model-tags-container">
+            
+            <a href="/" class="tag-pill text-decoration-none {% if not request.GET.q %}active{% endif %}" style="flex-shrink: 0;">
+                <span class="tag-pill-inner">
+                    <i class="bi bi-grid-fill me-1"></i>全部
+                </span>
             </a>
 
-            <div class="tags-divider"></div>
-            
             {% for tag in tags_bar %}
                 {% if tag.is_model == 1 %}
-                <a href="/?q={{ tag.name }}" 
-                   class="tag-pill model-tag {% if search_query == tag.name %}active{% endif %}"
-                   data-tag-name="{{ tag.name }}"
-                   oncontextmenu="handleTagContextMenu(event, this)">
-                    <i class="bi bi-robot me-1"></i>
-                    {{ tag.name }}
-                    <span class="tag-count-badge">{{ tag.use_count }}</span>
+                <a href="/?q={{ tag.name|urlencode }}" class="tag-pill text-decoration-none {% if request.GET.q == tag.name %}active{% endif %}">
+                    <span class="tag-pill-inner">
+                        <i class="bi bi-robot me-1"></i>{{ tag.name }}
+                        <span class="badge rounded-pill ms-1">{{ tag.use_count }}</span>
+                    </span>
                 </a>
                 {% endif %}
             {% endfor %}
             
-            <button class="btn-add-model" onclick="openAddModelModal()" title="添加新模型标签">
-                <i class="bi bi-plus-lg"></i>
-            </button>
         </div>
+        
+        <button class="toggle-models-btn" id="toggle-models-btn" onclick="toggleModels()">
+            <div class="toggle-btn-content">
+                <i class="bi bi-chevron-down toggle-icon me-1"></i>
+                <span class="toggle-text">全部模型</span>
+            </div>
+        </button>
     </div>
     {% endif %}
 
@@ -259,7 +378,7 @@
     <script>
         // === 添加模型相关的逻辑 ===
         const addModelModal = new bootstrap.Modal(document.getElementById('addModelModal'));
-        
+
         function openAddModelModal() {
             document.getElementById('newModelNameInput').value = '';
             addModelModal.show();
@@ -292,6 +411,24 @@
             })
             .catch(err => alert('网络错误'));
         }
+
+        function toggleModels() {
+        const container = document.getElementById('model-tags-container');
+        const isExpanded = container.classList.contains('is-expanded');
+        
+        if (!isExpanded) {
+            // 准备展开
+            container.classList.add('is-expanded');
+            // 【核心丝滑秘诀】：精准获取实际需要的完整像素高度
+            const exactHeight = container.scrollHeight;
+            container.style.maxHeight = exactHeight + 'px';
+        } else {
+            // 准备收起
+            container.classList.remove('is-expanded');
+            // 恢复回 CSS 默认的单行高度
+            container.style.maxHeight = '36px'; 
+        }
+    }
 
         // === 【新增】右键编辑模型标签逻辑 ===
         function handleTagContextMenu(event, element) {
@@ -490,6 +627,16 @@
             }
             cardObserver.observe(card);
         });
+        //如果模型本来就很少（没有换行），自动隐藏展开按钮
+        const container = document.getElementById('model-tags-container');
+        const btn = document.getElementById('toggle-models-btn');
+        if (container && btn) {
+            // 如果只有一行，隐藏按钮
+            if (container.scrollHeight <= 42) {
+                btn.style.display = 'none';
+                container.style.paddingRight = '0'; 
+            }
+        }
     });
     </script>
 {% endblock %}
