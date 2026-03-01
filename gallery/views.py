@@ -1622,11 +1622,16 @@ def create_view(request):
             
             ref_urls = [ref.image.url for ref in source_group.references.all() if ref.image]
             if not ref_urls:
-                first_img = source_group.images.filter(is_video=False).first()
+                first_img = source_group.images.first()
                 if first_img and first_img.image:
                     ref_urls.append(first_img.image.url)
                     
-            initial_data = {'prompt': selected_prompt, 'tags': tags, 'reference_urls': ref_urls}
+            initial_data = {
+                'prompt': selected_prompt, 
+                'tags': tags, 
+                'reference_urls': ref_urls,
+                'model_info': source_group.model_info  
+            }
         except PromptGroup.DoesNotExist:
             pass
 

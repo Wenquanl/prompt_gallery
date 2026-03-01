@@ -1196,7 +1196,7 @@
             <div class="modal-body">
                 <p class="text-muted small mb-3">将自动带入当前作品的<strong>参考图</strong>和<strong>标签</strong>。如果有多个提示词，请选择您想要带入的一项作为基础：</p>
                 
-                <form id="aiStudioForm" action="{% url 'create' %}" method="get" target="_blank">
+                <form id="aiStudioForm" action="{% url 'create' %}" method="get" target="_blank" onsubmit="setTimeout(() => bootstrap.Modal.getInstance(document.getElementById('aiStudioModal')).hide(), 100)">
                     <input type="hidden" name="template_id" value="{{ group.pk }}">
                     
                     <div class="list-group mb-4">

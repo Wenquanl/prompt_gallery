@@ -601,44 +601,96 @@
                 if (initialData.tags && initialData.tags.length > 0) {
                     initialTagsForPublish = initialData.tags; 
                 }
+                let modelToastMsg = null;
                 
+                // 安全检查：确保 model_info 存在且确实是字符串类型，防止 null.trim() 报错崩溃
+                if (initialData.model_info && typeof initialData.model_info === 'string') {
+                    const dbModelName = initialData.model_info.trim().toLowerCase();
+                    console.log("👉 [模型匹配测试] 从卡片读取到的模型名是:", dbModelName);
+                    
+                    let targetModelId = null;
+                    let targetCategoryId = null;
+
+                    for (const [key, model] of Object.entries(AI_CONFIG.models)) {
+                        if (model.title && model.title.trim().toLowerCase() === dbModelName) {
+                            targetModelId = key;
+                            targetCategoryId = model.category;
+                            break;
+                        }
+                    }
+
+                    if (targetModelId) {
+                        console.log("✅ [模型匹配测试] 成功匹配到云端模型，ID:", targetModelId);
+                        switchCategory(targetCategoryId);
+                        const targetCard = document.getElementById(`card-${targetModelId}`);
+                        if (targetCard) targetCard.click();
+                        
+                        modelToastMsg = {
+                            icon: 'success',
+                            title: `已为您自动匹配模型：${initialData.model_info}`
+                        };
+                    } else {
+                        console.log("❌ [模型匹配测试] 匹配失败，云端大模型列表里没有这个名字。");
+                        modelToastMsg = {
+                            icon: 'info',
+                            title: `模型【${initialData.model_info}】暂不支持云端调用，已选择默认模型。`
+                        };
+                    }
+                } else {
+                    console.log("ℹ️ [模型匹配测试] 卡片数据中没有带入模型标签，跳过匹配。");
+                }
+
+                // 定义一个专属的弹窗播放函数，彻底避开动画冲突
+                const fireModelToast = () => {
+                    if (modelToastMsg) {
+                        console.log("📢 [模型匹配测试] 准备弹出提示框...");
+                        setTimeout(() => {
+                            Swal.fire({
+                                toast: true, position: 'top', showConfirmButton: false, timer: 4500,
+                                icon: modelToastMsg.icon, title: modelToastMsg.title
+                            });
+                        }, 600); // 延迟加到 600 毫秒，确信上一个全屏弹窗已经彻底消失
+                    }
+                };
+
                 // 2. 自动抓取并填充参考图
                 if (initialData.reference_urls && initialData.reference_urls.length > 0) {
-                    // 显示加载状态（可选）
                     Swal.fire({
                         title: '正在导入参考图...',
                         allowOutsideClick: false,
                         didOpen: () => Swal.showLoading()
                     });
 
-                    // 将所有网络 URL 转换为 File 对象
                     Promise.all(initialData.reference_urls.map(url => 
                         fetch(url)
                             .then(res => res.blob())
                             .then(blob => {
-                                // 提取文件名或使用默认名称
                                 const filename = url.split('/').pop().split('?')[0] || 'reference_image.jpg';
                                 return new File([blob], filename, { type: blob.type || 'image/jpeg' });
                             })
                     )).then(files => {
-                        // 兼容你原有的 handleFiles 逻辑
                         if (maxImagesAllowed === 1) {
                             currentFiles = [files[0]]; 
                         } else if (maxImagesAllowed > 1) {
                             currentFiles = [...currentFiles, ...files].slice(0, maxImagesAllowed); 
                         }
-                        
-                        // 重新渲染缩略图
                         renderPreviews();
+                        
+                        // 关闭加载弹窗，并调用我们写好的延迟吐司函数
                         Swal.close();
+                        fireModelToast();
+                        
                     }).catch(err => {
                         console.error("加载参考图失败:", err);
                         Swal.fire('导入提示', '部分参考图导入失败，请手动上传', 'warning');
                     });
+                } else {
+                    // 没有参考图，直接弹模型提示
+                    fireModelToast();
                 }
             }
         } catch(e) {
-            console.log("无预填充数据或解析失败", e);
+            console.error("❌ 无预填充数据或解析失败，错误详情:", e);
         }
     });
 
