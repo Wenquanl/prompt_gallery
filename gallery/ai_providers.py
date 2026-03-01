@@ -217,32 +217,67 @@ class GoogleAIProvider(BaseAIProvider):
 
         config = types.GenerateContentConfig(**config_kwargs)
 
-        # ==========================================
-        # 5. 调用官方多模态生图接口
-        # ==========================================
-        response = client.models.generate_content(
-            model=model_endpoint,
-            contents=contents,
-            config=config
-        )
+        try:
+            response = client.models.generate_content(
+                model=model_endpoint,
+                contents=contents,
+                config=config
+            )
+        except Exception as e:
+            # 1. 网络层或 API 层面的硬报错 (如 400, 500, 超时, API Key 错误)
+            raise Exception(f"通信失败: {str(e)}")
 
+        # 2. 检查提示词是否在进模型前就被直接拉黑 (Prompt Feedback)
+        if getattr(response, 'prompt_feedback', None):
+            feedback = response.prompt_feedback
+            if getattr(feedback, 'block_reason', None):
+                raise Exception(f"🚫 请求被拒绝：提示词触发了严重违规拦截，原因代码 [{feedback.block_reason}]。")
+
+        # 3. 检查是否有候选结果
+        if not response.candidates:
+            # 如果什么都没返回，把原始响应抛出，方便在前端/日志里查错
+            raise Exception(f"❓ 云端未返回任何内容。原始响应数据: {response}")
+
+        candidate = response.candidates[0]
+        
+        # 4. 核心：解析模型停止生成的原因 (Finish Reason)
+        finish_reason = getattr(candidate, 'finish_reason', None)
+        
+        if finish_reason:
+            # 将 Enum 类型安全地转换为字符串，如 'IMAGE_SAFETY'
+            reason_str = finish_reason.name if hasattr(finish_reason, 'name') else str(finish_reason)
+            
+            # 对照 Google 官方文档的拦截代码进行“人话”翻译
+            if reason_str in ['IMAGE_SAFETY', 'SAFETY']:
+                raise Exception("🛡️ 触发了安全审查 (SAFETY)：提示词或参考图可能包含暴露、暴力或受版权保护的内容。请脱敏后重试！")
+            elif reason_str == 'PROHIBITED_CONTENT':
+                raise Exception("🚫 触发违禁内容拦截：您的请求包含了模型严格禁止的词汇或指令。")
+            elif reason_str == 'RECITATION':
+                raise Exception("©️ 触发版权拦截 (RECITATION)：生成内容疑似抄袭受保护的源数据，请修改描述。")
+            elif reason_str == 'MAX_TOKENS':
+                raise Exception("⏳ 生成中断：达到了最大的 Token 计算限制。")
+            elif reason_str == 'OTHER':
+                raise Exception("🛑 生成被拦截 (OTHER)：触发了未公开的系统安全策略。")
+            elif reason_str != 'STOP': 
+                # STOP 是正常出图的标志。如果不是 STOP 也不是上面的已知错误，就抛出原始内容
+                raise Exception(f"⚠️ 生成未正常完成，中断原因: {reason_str}")
+        
         # ==========================================
-        # 6. 解析结果并转换为 Data URL
+        # 提取图片数据
         # ==========================================
         urls = []
-        if response.parts:
+        if getattr(response, 'parts', None):
             for part in response.parts:
-                # 过滤掉可能的 thought (思考过程输出)
-                if getattr(part, 'thought', False):
-                    continue
-                    
-                # 提取最终图像，转换为 Base64 的 Data URL 供前端和下载器使用
                 if getattr(part, 'inline_data', None):
                     img_bytes = part.inline_data.data
                     mime = part.inline_data.mime_type or 'image/jpeg'
                     b64_str = base64.b64encode(img_bytes).decode('utf-8')
                     urls.append(f"data:{mime};base64,{b64_str}")
-                
+        
+        # 5. 终极兜底：如果状态正常，但就是没有图片数据
+        if not urls:
+            raise Exception(f"📦 云端返回了成功状态，但包裹里没有图片数据。原始响应: {response}")
+
         return urls
 # ==========================================
 # 工厂模式：根据名称返回对应的处理类
