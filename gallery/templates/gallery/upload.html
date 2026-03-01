@@ -158,6 +158,59 @@
     .tag-pill-label:active .tag-pill-inner {
         transform: scale(0.95);
     }
+
+    /* === 3. 人物专属标签胶囊 (Character Pills) === */
+    .char-pill-label {
+        cursor: pointer;
+        user-select: none;
+    }
+
+    .char-pill-input {
+        display: none;
+    }
+
+    .char-pill-inner {
+        display: inline-flex;
+        align-items: center;
+        padding: 8px 16px;
+        background: #fff0f6; /* 极淡的粉红背景 */
+        border: 1px solid #ffdeeb;
+        border-radius: 50px;
+        color: #d81b60; /* 玫瑰红文字 */
+        font-weight: 600;
+        font-size: 0.9rem;
+        transition: all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    }
+
+    .char-pill-inner i {
+        margin-right: 6px;
+        font-size: 0.9rem;
+        opacity: 0.8;
+        transition: opacity 0.2s;
+    }
+
+    /* 悬停 */
+    .char-pill-label:hover .char-pill-inner {
+        background: #ffe3ee;
+        transform: translateY(-1px);
+    }
+
+    /* 选中状态：玫瑰红/洋红渐变 */
+    .char-pill-input:checked + .char-pill-inner {
+        background: linear-gradient(135deg, #ff4081 0%, #f50057 100%);
+        border-color: transparent;
+        color: white;
+        box-shadow: 0 4px 10px rgba(245, 0, 87, 0.3);
+        transform: scale(1.05);
+    }
+
+    .char-pill-input:checked + .char-pill-inner i {
+        opacity: 1;
+    }
+    
+    .char-pill-label:active .char-pill-inner {
+        transform: scale(0.95);
+    }
 </style>
 
 <div class="container my-5">
@@ -299,6 +352,27 @@
                     <div class="mb-4">
                         <label class="form-label fw-bold">负向提示词</label>
                         {{ form.negative_prompt }}
+                    </div>
+                    <div class="mb-4">
+                        <label class="form-label fw-bold text-danger">
+                            <i class="bi bi-person-heart me-2"></i>包含人物
+                        </label>
+                        
+                        <div class="tag-selector-container">
+                            {% for checkbox in form.characters %}
+                                <label class="char-pill-label" for="{{ checkbox.id_for_label }}">
+                                    <input type="checkbox" name="{{ checkbox.data.name }}" value="{{ checkbox.data.value }}" 
+                                           class="char-pill-input" id="{{ checkbox.id_for_label }}"
+                                           {% if checkbox.data.selected %}checked{% endif %}>
+                                    
+                                    <span class="char-pill-inner">
+                                        <i class="bi bi-person-fill"></i>
+                                        {{ checkbox.choice_label }}
+                                    </span>
+                                </label>
+                            {% endfor %}
+                        </div>
+                        <div class="form-text text-muted small">特殊人物专属高亮，可多选（例如：Tifa、多人合集等）。</div>
                     </div>
 
                     <div class="mb-5">

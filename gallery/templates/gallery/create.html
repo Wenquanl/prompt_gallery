@@ -702,12 +702,14 @@
         function handleDynamicInput(e) {
             if (e.target.classList.contains('dynamic-param-input')) {
                 const modelChoice = document.getElementById('ai-model-select').value;
-                // 修正拼写为 seedream
                 if (modelChoice.toLowerCase().includes('seedream')) {
                     const paramId = e.target.getAttribute('data-param-id');
-                    // 精确匹配你配置里的 ID
+                    
                     if (paramId === 'max_images' || paramId === 'num_images') {
                         updateSeedreamPrompt(e.target.value);
+                    } else if (paramId === 'prompt_aspect_ratio') {
+                        // 监听到下拉框切换，实时更新后缀
+                        updateSeedreamAspectRatio(e.target.value);
                     }
                 }
             }
@@ -741,6 +743,34 @@
             // 切换模型时，自动清理掉这个前缀
             promptInput.value = promptInput.value.replace(prefixRegex, '');
         }
+    }
+
+    // === 针对 seedream 模型的特殊处理函数 (宽高比) ===
+    function updateSeedreamAspectRatio(ratio) {
+        const promptInput = document.getElementById('ai-prompt');
+        let text = promptInput.value;
+        // 正则匹配：任意位置的 "，画面比例：X:Y" 或 " 画面比例：X:Y"
+        const ratioRegex = /(?:，|\s)*画面比例：\d+:\d+/g;
+
+        // 无论如何，先清理掉旧的比例文本
+        text = text.replace(ratioRegex, '').trim();
+
+        if (ratio !== 'none') {
+            // 如果选择了比例，则在提示词末尾追加
+            if (text.length > 0) {
+                text += `，画面比例：${ratio}`;
+            } else {
+                text = `画面比例：${ratio}`;
+            }
+        }
+        promptInput.value = text;
+    }
+
+    function removeSeedreamAspectRatio() {
+        const promptInput = document.getElementById('ai-prompt');
+        const ratioRegex = /(?:，|\s)*画面比例：\d+:\d+/g;
+        // 切换到其他模型时，自动清理掉这个后缀
+        promptInput.value = promptInput.value.replace(ratioRegex, '').trim();
     }
 
     // === 核心渲染引擎：根据后端配置生成 UI ===
@@ -878,14 +908,20 @@
     // 【新增】模型切换时，自动处理 seedream 的前缀
     // ==========================================
     if (modelId.toLowerCase().includes('seedream')) {
-        // 注意：这里默认你的图片数量参数ID里包含 'num' 或 'count'（比如 'image_num' 或 'count'）
-        // 如果你的配置中叫别的名字，请修改这里的选择器
-        const numInput = container.querySelector('.dynamic-param-input[data-param-id="max_images"], .dynamic-param-input[data-param-id="num_images"]');
+            // 1. 处理生成数量前缀
+            const numInput = container.querySelector('.dynamic-param-input[data-param-id="max_images"], .dynamic-param-input[data-param-id="num_images"]');
             if (numInput) {
                 updateSeedreamPrompt(numInput.value);
             }
+            
+            // 2. 处理画面比例后缀
+            const ratioInput = container.querySelector('.dynamic-param-input[data-param-id="prompt_aspect_ratio"]');
+            if (ratioInput) {
+                updateSeedreamAspectRatio(ratioInput.value);
+            }
         } else {
             removeSeedreamPrompt();
+            removeSeedreamAspectRatio(); // 切换到别的模型，一并清理
         }
     }
 
@@ -1094,7 +1130,9 @@
         document.querySelectorAll('.dynamic-param-input').forEach(input => {
             const paramId = input.getAttribute('data-param-id');
             const paramType = input.getAttribute('data-param-type');
-            
+
+            // 【新增拦截】：绝对不要把这个虚拟参数发给云端 API
+            if (paramId === 'prompt_aspect_ratio') return;
             if (paramType === 'checkbox') {
                 // 复选框取 checked 属性，转成字符串 "true" 或 "false" 发给后端
                 formData.append(paramId, input.checked); 

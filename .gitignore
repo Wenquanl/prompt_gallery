@@ -38,4 +38,4 @@ local_settings.py
 .DS_Store
 Thumbs.db
 
-backup/
+backups/

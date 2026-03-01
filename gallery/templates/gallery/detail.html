@@ -619,6 +619,20 @@
     .media-scroll-area::-webkit-scrollbar-thumb:hover {
         background: #adb5bd; /* 鼠标悬停时稍微加深 */
     }
+    /* === 详情页人物标签专属样式 === */
+    .tag-interactive.tag-char {
+        background-color: #fff0f6; 
+        color: #d81b60; 
+        border-color: #ffdeeb;
+        font-weight: 600;
+    }
+    .tag-interactive.tag-char:hover {
+        background-color: #ffe3ee; 
+        color: #c2185b;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(216, 27, 96, 0.15);
+    }
+    .tag-interactive.tag-char a { color: inherit; }
 </style>
 
 <button class="fab-like-btn {% if group.is_liked %}liked{% endif %}" 
@@ -766,6 +780,12 @@
             </div>
 
             <div class="mb-4 d-flex flex-wrap align-items-center gap-2" id="tagsContainer" style="min-height: 40px;">
+                {% for char in group.characters.all %}
+                    <span class="tag-interactive tag-char" id="char-pill-{{ char.id }}">
+                        <i class="bi bi-person-fill me-1"></i>
+                        <a href="/?q={{ char.name }}">{{ char.name }}</a>
+                        </span>
+                {% endfor %}
                 {% for tag in sorted_tags %}
                     <span class="tag-interactive {% if tag.name == group.model_info %}model-tag{% endif %}" id="tag-pill-{{ tag.id }}">
                         {% if tag.name == group.model_info %}<i class="bi bi-robot me-1"></i>{% endif %}

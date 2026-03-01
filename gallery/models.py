@@ -41,6 +41,17 @@ class AIModel(models.Model):
         verbose_name_plural = "AI模型管理"
         ordering = ['-order', 'name']
 
+# === 新增: 人物标签模型 ===
+class Character(models.Model):
+    name = models.CharField("人物名称", max_length=50, unique=True, help_text="例如: Tifa, 多人合集")
+    order = models.IntegerField("排序权重", default=0, help_text="数字越大越靠前")
+
+    def __str__(self): return self.name
+    class Meta:
+        verbose_name = "人物标签"
+        verbose_name_plural = "人物标签管理"
+        ordering = ['-order', 'name']        
+
 # === 3. 提示词组 (卡片) ===
 class PromptGroup(models.Model):
     title = models.CharField("主题/标题", max_length=200, default="未命名组")
@@ -49,6 +60,7 @@ class PromptGroup(models.Model):
     
     negative_prompt = models.TextField("负向提示词 (Negative Prompt)", blank=True, null=True)
     model_info = models.CharField("模型信息", max_length=200, blank=True)
+    characters = models.ManyToManyField('Character', blank=True, verbose_name="包含人物")
     tags = models.ManyToManyField(Tag, blank=True, verbose_name="关联标签")
     
     created_at = models.DateTimeField("创建时间", auto_now_add=True, db_index=True)

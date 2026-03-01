@@ -85,6 +85,9 @@ AI_STUDIO_CONFIG = {
                 {'id': 'image_size', 'label': '生成尺寸 (Size)', 'type': 'select', 'options': [
                     {'value': '2K', 'text': '2K (默认)'},
                     {'value': '3K', 'text': '3K (超清)'},
+                ], 'default': '2K'},
+                {'id': 'prompt_aspect_ratio', 'label': '画面比例 (仅追加到提示词)', 'type': 'select', 'options': [
+                    {'value': 'none', 'text': '不指定'},
                     {'value': '1:1', 'text': '1:1 (正方形)'},
                     {'value': '3:4', 'text': '3:4 (竖版)'},
                     {'value': '4:3', 'text': '4:3 (横版)'},
@@ -93,7 +96,7 @@ AI_STUDIO_CONFIG = {
                     {'value': '3:2', 'text': '3:2 (横版)'},
                     {'value': '2:3', 'text': '2:3 (竖版)'},
                     {'value': '21:9', 'text': '21:9 (宽屏)'}
-                ], 'default': '2K'},
+                ], 'default': '9:16'},
                 {'id': 'output_format', 'label': '输出格式', 'type': 'select', 'options': [
                     {'value': 'png', 'text': 'PNG'},
                     {'value': 'jpeg', 'text': 'JPEG'}
@@ -113,6 +116,9 @@ AI_STUDIO_CONFIG = {
                 {'id': 'image_size', 'label': '生成尺寸 (Size)', 'type': 'select', 'options': [
                     {'value': '2K', 'text': '2K (默认)'},
                     {'value': '4K', 'text': '4K (超清)'},
+                ], 'default': '2K'},
+                {'id': 'prompt_aspect_ratio', 'label': '画面比例 (仅追加到提示词)', 'type': 'select', 'options': [
+                    {'value': 'none', 'text': '不指定'},
                     {'value': '1:1', 'text': '1:1 (正方形)'},
                     {'value': '3:4', 'text': '3:4 (竖版)'},
                     {'value': '4:3', 'text': '4:3 (横版)'},
@@ -121,7 +127,7 @@ AI_STUDIO_CONFIG = {
                     {'value': '3:2', 'text': '3:2 (横版)'},
                     {'value': '2:3', 'text': '2:3 (竖版)'},
                     {'value': '21:9', 'text': '21:9 (宽屏)'}
-                ], 'default': '2K'},
+                ], 'default': '9:16'},
                 {'id': 'watermark', 'label': '添加官方水印', 'type': 'checkbox', 'default': False}
                 # 文档指出 4.5 默认 jpeg 不支持自定义格式，且不支持联网搜索，故在此省略
             ]
@@ -138,6 +144,9 @@ AI_STUDIO_CONFIG = {
                     {'value': '1K', 'text': '1K (较快)'},
                     {'value': '2K', 'text': '2K (默认)'},
                     {'value': '4K', 'text': '4K (超清)'},
+                ], 'default': '2K'},
+                {'id': 'prompt_aspect_ratio', 'label': '画面比例 (仅追加到提示词)', 'type': 'select', 'options': [
+                    {'value': 'none', 'text': '不指定'},
                     {'value': '1:1', 'text': '1:1 (正方形)'},
                     {'value': '3:4', 'text': '3:4 (竖版)'},
                     {'value': '4:3', 'text': '4:3 (横版)'},
@@ -146,7 +155,7 @@ AI_STUDIO_CONFIG = {
                     {'value': '3:2', 'text': '3:2 (横版)'},
                     {'value': '2:3', 'text': '2:3 (竖版)'},
                     {'value': '21:9', 'text': '21:9 (宽屏)'}
-                ], 'default': '2K'},
+                ], 'default': '9:16'},
                 {'id': 'optimize_prompt_mode', 'label': '生成模式', 'type': 'select', 'options': [
                     {'value': 'standard', 'text': '标准模式 (重画质)'},
                     {'value': 'fast', 'text': '极速模式 (重速度)'}
@@ -221,12 +230,12 @@ AI_STUDIO_CONFIG = {
                     {'value': '5:4', 'text': '5:4 (横版)'},
                     {'value': '4:5', 'text': '4:5 (竖版)'},
                     {'value': '21:9', 'text': '21:9 (宽屏)'}
-                ], 'default': '1:1'},
+                ], 'default': '9:16'},
                 {'id': 'resolution', 'label': '生成分辨率 (Image Size)', 'type': 'select', 'options': [
                     {'value': '1K', 'text': '1K (1024px)'},
                     {'value': '2K', 'text': '2K (高清)'},
                     {'value': '4K', 'text': '4K (极致原画)'}
-                ], 'default': '2K'},
+                ], 'default': '4K'},
                 {'id': 'enable_web_search', 'label': '启用 Google 联网搜索', 'type': 'checkbox', 'default': False, 'help_text': '开启后，可让模型根据最新资讯、天气或搜到的图片来作为生成依据。'}
             ]
         },
@@ -249,7 +258,7 @@ AI_STUDIO_CONFIG = {
                     {'value': '5:4', 'text': '5:4 (横版)'},
                     {'value': '4:5', 'text': '4:5 (竖版)'},
                     {'value': '21:9', 'text': '21:9 (宽屏)'}
-                ], 'default': '1:1'}
+                ], 'default': '9:16'}
                 # 注意：2.5 Flash 仅支持 1024px，因此不暴露 resolution 选择下拉框
                 # 注意：2.5 Flash 不支持 thinking_level 控制
             ]
@@ -273,7 +282,7 @@ AI_STUDIO_CONFIG = {
                     {'value': '1K', 'text': '1K (极速)'},
                     {'value': '2K', 'text': '2K (高清)'},
                     {'value': '4K', 'text': '4K (原画)'}
-                ], 'default': '1K'},
+                ], 'default': '4K'},
                 {'id': 'thinking_level', 'label': '模型思考深度', 'type': 'select', 'options': [
                     {'value': 'minimal', 'text': 'Minimal (常规速度)'},
                     {'value': 'High', 'text': 'High (深度构图与逻辑分析)'}
@@ -382,16 +391,55 @@ AI_STUDIO_CONFIG = {
 # 辅助函数
 # ==========================================
 def get_tags_bar_data():
-    """获取侧边栏标签数据（复用逻辑）"""
-    ai_model_names = list(AIModel.objects.values_list('name', flat=True))
-    return Tag.objects.filter(promptgroup__isnull=False).distinct().annotate(
-        use_count=Count('promptgroup'),
-        is_model=Case(
-            When(name__in=ai_model_names, then=1),
-            default=2,
-            output_field=IntegerField(),
-        )
-    ).order_by('is_model', '-use_count')
+    """
+    【自愈版】获取标签栏数据：
+    自动扫描实际作品中用到的 model_info，如果发现没有注册在 AIModel 表里的模型，自动补齐。
+    绝对不会再发生模型标签丢失的问题。
+    """
+    from django.db.models import Count
+    
+    # 1. 统计作品表中各模型的使用次数 (以实际作品为准)
+    model_stats = PromptGroup.objects.values('model_info').annotate(
+        use_count=Count('id')
+    ).filter(use_count__gt=0)
+    
+    final_bar = []
+    # 获取目前 AIModel 表里已经注册的名字
+    registered_models = list(AIModel.objects.values_list('name', flat=True))
+    
+    # 2. 构造模型 Tab 数据
+    for stat in model_stats:
+        m_name = stat['model_info']
+        if not m_name: 
+            continue
+            
+        # 【核心修复】：如果发现作品里用到了某个模型，但 AIModel 表里没有，立刻自动注册！
+        if m_name not in registered_models:
+            AIModel.objects.get_or_create(name=m_name)
+            registered_models.append(m_name) # 加入列表，确保下一步能把普通标签里的同名排除掉
+            
+        final_bar.append({
+            'name': m_name,
+            'use_count': stat['use_count'],
+            'is_model': 1  # 标记为模型，排在首页顶部
+        })
+
+    # 3. 获取剩余的普通标签 (排除掉所有的模型名)
+    tags = Tag.objects.exclude(name__in=registered_models).annotate(
+        use_count=Count('promptgroup')
+    ).filter(use_count__gt=0).order_by('-use_count')
+
+    for t in tags:
+        final_bar.append({
+            'name': t.name,
+            'use_count': t.use_count,
+            'is_model': 2  # 标记为普通标签，排在侧边栏
+        })
+
+    # 4. 排序返回：先按分类(模型在前)，再按使用次数降序
+    final_bar.sort(key=lambda x: (x['is_model'], -x['use_count']))
+    
+    return final_bar
 
 def generate_diff_html(base_text, compare_text):
     """
@@ -568,6 +616,8 @@ def home(request):
             Q(title__icontains=query) |
             Q(prompt_text__icontains=query) |
             Q(prompt_text_zh__icontains=query) |
+            Q(model_info__icontains=query) |       # 【新增】支持搜模型
+            Q(characters__name__icontains=query) | # 【新增】支持搜人物
             Q(tags__name__icontains=query)
         ).distinct()
     
@@ -663,6 +713,8 @@ def liked_images_gallery(request):
         queryset = queryset.filter(
             Q(group__title__icontains=query_text) |
             Q(group__prompt_text__icontains=query_text) |
+            Q(group__model_info__icontains=query_text) |       # 【新增】支持搜模型
+            Q(group__characters__name__icontains=query_text) | # 【新增】支持搜人物
             Q(group__tags__name__icontains=query_text)
         ).distinct()
     
@@ -704,6 +756,8 @@ def detail(request, pk):
             Q(title__icontains=query) |
             Q(prompt_text__icontains=query) |
             Q(prompt_text_zh__icontains=query) |
+            Q(model_info__icontains=query) |       # 【新增】支持搜模型
+            Q(characters__name__icontains=query) | # 【新增】支持搜人物
             Q(tags__name__icontains=query)
         ).distinct()
         
@@ -839,14 +893,14 @@ def upload(request):
                 group.tags.add(tag)
         
         # 【新增】：常规上传的模型标签排他性处理
-        if model_name_str:
-            m_tag, _ = Tag.objects.get_or_create(name=model_name_str)
-            group.tags.add(m_tag)
+        # if model_name_str:
+        #     m_tag, _ = Tag.objects.get_or_create(name=model_name_str)
+        #     group.tags.add(m_tag)
             
-            all_model_names = list(AIModel.objects.values_list('name', flat=True))
-            for tag in group.tags.all():
-                if tag.name in all_model_names and tag.name != model_name_str:
-                    group.tags.remove(tag)
+        #     all_model_names = list(AIModel.objects.values_list('name', flat=True))
+        #     for tag in group.tags.all():
+        #         if tag.name in all_model_names and tag.name != model_name_str:
+        #             group.tags.remove(tag)
 
         source_group_id = request.POST.get('source_group_id')
         print(f"DEBUG: 尝试克隆参考图，Source ID: {source_group_id}") # 调试打印 1
@@ -1327,6 +1381,9 @@ def group_list_api(request):
         matching_group_ids = qs.filter(
             Q(title__icontains=query) |
             Q(prompt_text__icontains=query) |
+            Q(prompt_text_zh__icontains=query) |
+            Q(model_info__icontains=query) |       # 加上模型搜索
+            Q(characters__name__icontains=query) | # 加上人物搜索
             Q(tags__name__icontains=query)
         ).values_list('group_id', flat=True).distinct()
         
@@ -1804,16 +1861,16 @@ def api_publish_studio_creation(request):
                     group.tags.add(tag_obj)
 
         # 3. 强制确保模型标签的排他性处理
-        if model_info:
-            AIModel.objects.get_or_create(name=model_info)
-            m_tag, _ = Tag.objects.get_or_create(name=model_info)
-            group.tags.add(m_tag)
+        # if model_info:
+        #     AIModel.objects.get_or_create(name=model_info)
+        #     m_tag, _ = Tag.objects.get_or_create(name=model_info)
+        #     group.tags.add(m_tag)
 
-            # 【核心】：只保留当前的这一个模型标签，清理掉可能混入的“其他模型”标签
-            all_model_names = list(AIModel.objects.values_list('name', flat=True))
-            for tag in group.tags.all():
-                if tag.name in all_model_names and tag.name != model_info:
-                    group.tags.remove(tag)
+        #     # 【核心】：只保留当前的这一个模型标签，清理掉可能混入的“其他模型”标签
+        #     all_model_names = list(AIModel.objects.values_list('name', flat=True))
+        #     for tag in group.tags.all():
+        #         if tag.name in all_model_names and tag.name != model_info:
+        #             group.tags.remove(tag)
             
         
         # 4. 将本地成图文件读取并存入 Django 的 ImageItem (绑定到组)

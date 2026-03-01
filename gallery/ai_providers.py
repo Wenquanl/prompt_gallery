@@ -202,6 +202,11 @@ class GoogleAIProvider(BaseAIProvider):
                 if img.mode != 'RGB':
                     img = img.convert('RGB')
                 
+                max_size = 1024
+                if img.width > max_size or img.height > max_size:
+                    # 使用 LANCZOS 算法保持缩放后的清晰度
+                    img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+                
                 output = io.BytesIO()
                 # 强行压缩到 80% 质量，减小 MTU 压力
                 img.save(output, format='JPEG', quality=80, optimize=True)

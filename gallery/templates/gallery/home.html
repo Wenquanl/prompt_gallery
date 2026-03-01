@@ -101,7 +101,7 @@
     </div>
     {% endif %}
 
-    {% if tags_bar %}
+    {% if tags_bar and not current_filter %}
     <div class="tags-bar-wrapper">
         <div class="tags-wrap-container">
             <a href="{% url 'home' %}" 
