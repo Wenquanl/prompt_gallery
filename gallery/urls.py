@@ -18,7 +18,7 @@ urlpatterns = [
     # 添加相关
     path('add-images/<int:pk>/', views.add_images_to_group, name='add_images'),
     path('add-references/<int:pk>/', views.add_references_to_group, name='add_references'),
-    
+    path('api/generate-title/', views.api_generate_title, name='api_generate_title'),
     # 标签管理 
     path('add-tag/<int:pk>/', views.add_tag_to_group, name='add_tag'),
     path('remove-tag/<int:pk>/', views.remove_tag_from_group, name='remove_tag'),

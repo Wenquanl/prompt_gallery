@@ -449,11 +449,19 @@ def generate_smart_title(prompt_text):
         from .ai_utils import generate_title_with_local_llm
         ai_title = generate_title_with_local_llm(prompt_text)
         if ai_title:
+            # 【日志提示】：大模型成功
+            print(f"✨ [标题生成] 成功使用本地大模型概括: {ai_title}")
             return ai_title
-    except Exception:
+        else:
+            print("⚠️ [标题生成] 大模型返回为空，准备降级...")
+    except Exception as e:
+        # 【日志提示】：大模型异常
+        print(f"❌ [标题生成] 大模型调用失败或未加载，原因: {e}")
         pass
 
     # 2. 降级兜底方案 (正则表达式本地清洗与截取)
+    # 【日志提示】：触发兜底
+    print(f"🔀 [标题生成] 触发正则兜底机制...")
     clean_text = re.sub(r'--[a-zA-Z0-9\-]+\s+[\d\.]+', '', prompt_text)
     clean_text = re.sub(r'<[^>]+>', '', clean_text)
     
@@ -462,8 +470,15 @@ def generate_smart_title(prompt_text):
 
     title = ""
     for part in parts:
-        part = re.sub(r'^(a|an|the|masterpiece|best quality|highres|ultra-detailed|8k|4k|photorealistic)\s+', '', part, flags=re.IGNORECASE).strip()
-        if not part: continue
+        # ====================
+        # 修改后：扩充黑名单，过滤掉常见的数量词、镜头词和渲染词
+        # ====================
+        ignore_pattern = r'^(a|an|the|1girl|1boy|solo|masterpiece|best quality|high quality|highres|ultra-detailed|8k|4k|photorealistic|realistic|3d|cg|render|octane|unreal engine|film grain|lomo|ccd)\s+'
+        part = re.sub(ignore_pattern, '', part, flags=re.IGNORECASE).strip()
+        
+        # 过滤掉纯英文数字的短标签（比如单纯的镜头型号）
+        if not part or re.match(r'^[a-zA-Z0-9\-\s]+$', part) and len(part) < 5: 
+            continue
 
         if not title:
             title = part
@@ -473,13 +488,15 @@ def generate_smart_title(prompt_text):
             else:
                 break
 
-    if len(title) > 30:
-        title = title[:28] + "..."
-    
     if title:
         title = title[0].upper() + title[1:]
+        # 【日志提示】：正则截取成功
+        print(f"✅ [标题生成] 正则截取结果: {title}")
+        return title
 
-    return title or "AI 独立创作"
+    # 【日志提示】：连正则都没截出来
+    print(f"ℹ️ [标题生成] 兜底提取失败，使用默认标题")
+    return "AI 独立创作"
 # ==========================================
 # 视图函数
 # ==========================================
@@ -1994,4 +2011,22 @@ def edit_model_api(request):
     except Exception as e:
         import traceback
         traceback.print_exc()
+        return JsonResponse({'status': 'error', 'message': str(e)})
+
+@csrf_exempt
+@require_POST
+def api_generate_title(request):
+    """前端异步请求智能标题接口"""
+    try:
+        data = json.loads(request.body)
+        prompt = data.get('prompt', '').strip()
+        
+        if not prompt:
+            return JsonResponse({'status': 'success', 'title': 'AI 独立创作'})
+            
+        # 调用现成的本地 LLM 标题概括函数
+        title = generate_smart_title(prompt)
+        return JsonResponse({'status': 'success', 'title': title})
+        
+    except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)})

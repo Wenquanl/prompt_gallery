@@ -55,7 +55,12 @@ def generate_title_with_local_llm(prompt_text):
     try:
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
         
-        system_prompt = "你是一个AI绘画提示词分析专家。请将以下绘画提示词概括为一个简短的中文标题。要求：1.准确提取核心主体和意境；2.纯中文，严格控制在30个字以内；3.直接输出最终的标题，绝对不要带引号、书名号或任何解释。"
+        system_prompt = """你是一个专业的AI绘画策展人。请为下面的绘画提示词创作一个简短、有美感的中文作品标题。
+                            要求：
+                            1. 敏锐捕捉核心主体（如具体的人物角色、服装打扮）和环境意境；
+                            2. 坚决忽略所有关于画质、镜头、光影和渲染的参数（如3D CG、超写实摄影、胶片、8k、LOMO等）；
+                            3. 必须是纯中文，高度凝练，严格控制在15个字以内；
+                            4. 直接输出最终的标题，绝对不要带任何标点符号、引号或多余的解释。"""
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": f"提示词：{prompt_text}"}

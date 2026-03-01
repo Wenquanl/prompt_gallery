@@ -1066,24 +1066,65 @@
     // === 1. 点击悬浮按钮，弹出信息填写框并预填充数据 ===
     function publishCreation() {
         const selectedPaths = getSelectedSavedPaths();
-        if (selectedPaths.length === 0) {
-            Swal.fire('提示', '请至少在画板中勾选一张要保存的图片！', 'warning');
-            return;
+    if (selectedPaths.length === 0) {
+        Swal.fire('提示', '请至少在画板中勾选一张要保存的图片！', 'warning');
+        return;
+    }
+
+    const activeModelCard = document.querySelector('.model-card.active');
+    const modelName = activeModelCard ? activeModelCard.querySelector('.model-card-title').innerText.trim() : document.getElementById('ai-model-select').value;
+    
+    // 填充模型名称
+    document.getElementById('pub-model').value = modelName;
+    
+    // 【修复1】：将模型名称手动加入到“当前选中”的标签集合中
+    if (modelName) {
+        currentSelectedTags.add(modelName);
+        if (!allAvailableTags.includes(modelName)) {
+            allAvailableTags.push(modelName);
         }
+    }
+    
+    // 调用渲染函数，传入初始化标签，此时模型标签会自动高亮打勾
+    renderPublishTags(initialTagsForPublish);
 
-        const activeModelCard = document.querySelector('.model-card.active');
-        const modelName = activeModelCard ? activeModelCard.querySelector('.model-card-title').innerText.trim() : document.getElementById('ai-model-select').value;
+    // 【修复2】：异步调用后端大模型生成标题并回显到输入框
+    const promptText = document.getElementById('ai-prompt').value.trim();
+    const titleInput = document.getElementById('pub-title');
+    
+    if (promptText) {
+        titleInput.value = "正在由 AI 智能概括标题...";
+        titleInput.disabled = true; // 暂时禁用，防止用户在生成期间乱敲
         
-        // 【核心修改】：不再让前端进行低智截断，故意留空交给后端 AI 处理
-        document.getElementById('pub-title').value = ""; 
-        document.getElementById('pub-title').placeholder = "留空将由系统自动概括提示词...";
-        
-        document.getElementById('pub-model').value = modelName;
-        
-        // 调用刚才写的渲染函数，并将带入的标签喂给它，它会自动高亮
-        renderPublishTags(initialTagsForPublish);
+        // 发起异步请求获取标题
+        fetch('/api/generate-title/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt: promptText })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success' && data.title) {
+                titleInput.value = data.title;
+            } else {
+                titleInput.value = ""; 
+                titleInput.placeholder = "自动概括失败，请手动输入";
+            }
+        })
+        .catch(err => {
+            titleInput.value = "";
+            titleInput.placeholder = "请手动输入标题";
+        })
+        .finally(() => {
+            titleInput.disabled = false; // 恢复可编辑状态
+        });
+    } else {
+        titleInput.value = "";
+        titleInput.placeholder = "请输入标题...";
+    }
 
-        new bootstrap.Modal(document.getElementById('publishModal')).show();
+    // 弹出弹窗
+    new bootstrap.Modal(document.getElementById('publishModal')).show();
     }
 
     // === 2. 在弹窗内点击“确认发布”，真正向后端发送请求 ===
