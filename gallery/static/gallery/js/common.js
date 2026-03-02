@@ -278,3 +278,39 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 });
+
+// ==========================================
+// 【新增】后台任务完成提醒 (标签页闪烁 + 桌面弹窗)
+// ==========================================
+function notifyWhenBackground(statusTitle, bodyText) {
+    // 核心检测：只有当页面不可见（被切走或最小化）时才打扰用户
+    if (document.hidden) {
+        
+        // 策略 A：修改浏览器标签页标题
+        const originalTitle = document.title;
+        document.title = `【${statusTitle}】 - 任务已结束`;
+
+        // 当用户切回当前页面时，自动恢复原本的标题
+        const restoreTitle = () => {
+            if (!document.hidden) {
+                document.title = originalTitle;
+                document.removeEventListener('visibilitychange', restoreTitle);
+            }
+        };
+        document.addEventListener('visibilitychange', restoreTitle);
+
+        // 策略 B：触发系统级桌面右下角弹窗
+        if (window.Notification && Notification.permission === "granted") {
+            const notification = new Notification(statusTitle, {
+                body: bodyText,
+                icon: "/static/gallery/favicon.svg" // 使用你现有的项目 Logo
+            });
+            
+            // 用户点击弹窗时，自动帮他们把浏览器切到前台
+            notification.onclick = function() {
+                window.focus();
+                this.close();
+            };
+        }
+    }
+}

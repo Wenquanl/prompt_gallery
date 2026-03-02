@@ -1128,6 +1128,9 @@
 
     // === 开始生成通信 ===
     function startGeneration() {
+        if (window.Notification && Notification.permission !== "granted" && Notification.permission !== "denied") {
+            Notification.requestPermission();
+        }
         const modelChoice = document.getElementById('ai-model-select').value;
         const promptText = document.getElementById('ai-prompt').value;
 
@@ -1275,15 +1278,24 @@
                     showConfirmButton: false, 
                     timer: 5000 
                 });
+                if (typeof notifyWhenBackground === 'function') {
+                    notifyWhenBackground("🎨 AI 生图完成！", "您的图片已经生成完毕，快来看看效果吧！");
+                }
             } else {
                 document.getElementById('canvas-idle').style.display = 'block';
                 Swal.fire('生成失败', data.message, 'error');
+                if (typeof notifyWhenBackground === 'function') {
+                    notifyWhenBackground("❌ 生成失败", data.message || "生图遇到了一些问题，请返回查看。");
+                }
             }
         })
         .catch(error => {
             clearInterval(loadingInterval);
             document.getElementById('canvas-idle').style.display = 'block';
             Swal.fire('请求异常', '网络或服务端报错，请查看控制台', 'error');
+            if (typeof notifyWhenBackground === 'function') {
+                notifyWhenBackground("⚠️ 网络超时/断开", "连接已断开，请返回页面查看报错详情。");
+            }
         })
         .finally(() => {
             clearInterval(loadingInterval);

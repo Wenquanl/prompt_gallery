@@ -218,7 +218,6 @@ AI_STUDIO_CONFIG = {
             'title': 'Nano Banana Pro (官方)',
             'desc': '专为专业资产生产设计，默认开启深度思考(Thinking)，支持最高4K画质与复杂语义渲染',
             'params': [
-                {'id': 'num_images', 'label': '生成数量', 'type': 'range', 'min': 1, 'max': 4, 'step': 1, 'default': 1},
                 {'id': 'aspect_ratio', 'label': '画幅比例', 'type': 'select', 'options': [
                     {'value': '1:1', 'text': '1:1 (正方形)'},
                     {'value': '3:4', 'text': '3:4 (竖版)'},
@@ -246,7 +245,6 @@ AI_STUDIO_CONFIG = {
             'title': 'Nano Banana Flash (官方)',
             'desc': '主打极速生成，固定 1K 分辨率，专为高吞吐、低延迟任务优化',
             'params': [
-                {'id': 'num_images', 'label': '生成数量', 'type': 'range', 'min': 1, 'max': 4, 'step': 1, 'default': 1},
                 {'id': 'aspect_ratio', 'label': '画幅比例', 'type': 'select', 'options': [
                     {'value': '1:1', 'text': '1:1 (正方形)'},
                     {'value': '3:4', 'text': '3:4 (竖版)'},
