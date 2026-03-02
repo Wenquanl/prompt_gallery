@@ -4,6 +4,7 @@ import io
 import base64
 import fal_client
 import httpx 
+import time
 import json
 import copy
 from openai import OpenAI
@@ -290,7 +291,7 @@ class GoogleAIProvider(BaseAIProvider):
         print("📦 最终发往云端的请求结构 (Parsed Payload):")
         print(json.dumps(debug_payload, indent=4, ensure_ascii=False))
         print("="*60 + "\n")
-
+        start_time = time.time()
         try:
             response = client.models.generate_content(
                 model=model_endpoint,
@@ -298,8 +299,70 @@ class GoogleAIProvider(BaseAIProvider):
                 config=config
             )
         except Exception as e:
-            # 1. 网络层或 API 层面的硬报错 (如 400, 500, 超时, API Key 错误)
-            raise Exception(f"通信失败: {str(e)}")
+            # 请求失败时也计算一下花了多久才报错（比如排查是否是超时断开）
+            elapsed_time = time.time() - start_time
+            raise Exception(f"通信失败 (耗时 {elapsed_time:.2f} 秒): {str(e)}")
+        
+        # 记录请求结束时间，并计算耗时
+        elapsed_time = time.time() - start_time
+        
+        # ==================================
+        # 控制台优美打印完整响应报文 (Google SDK 版)
+        # ==================================
+        print("\n" + "="*60)
+        print(f"✅ [Google AI API] 成功接收到 Google Gemini 节点的响应！(总耗时: ⏱️ {elapsed_time:.2f} 秒)")
+        print("📥 响应详情剖析 (已自动过滤超长图片流，防止刷屏)：")
+        # 安全地提取响应体中的关键信息进行组装
+        debug_response = {
+            "prompt_feedback": str(getattr(response, 'prompt_feedback', '无拦截反馈')),
+            "candidates_count": len(response.candidates) if getattr(response, 'candidates', None) else 0,
+            "candidates": []
+        }
+        if getattr(response, 'candidates', None):
+            for i, cand in enumerate(response.candidates):
+                # 解析停止原因
+                finish_reason_str = cand.finish_reason.name if hasattr(cand.finish_reason, 'name') else str(getattr(cand, 'finish_reason', '未知'))
+                
+                cand_info = {
+                    "index": i,
+                    "finish_reason": finish_reason_str,
+                    "safety_ratings": [],
+                    "parts": []
+                }
+                
+                # 提取安全审查评分 (非常有助于排查为什么图出不来)
+                if getattr(cand, 'safety_ratings', None):
+                    for sr in cand.safety_ratings:
+                        category = sr.category.name if hasattr(sr.category, 'name') else str(sr.category)
+                        probability = sr.probability.name if hasattr(sr.probability, 'name') else str(sr.probability)
+                        cand_info["safety_ratings"].append(f"{category}: {probability}")
+
+                # 提取返回的内容块
+                if getattr(cand, 'content', None) and getattr(cand.content, 'parts', None):
+                    for part in cand.content.parts:
+                        if getattr(part, 'text', None):
+                            # 如果模型附带返回了文本（例如思考过程或警告）
+                            cand_info["parts"].append({"text": part.text})
+                        elif getattr(part, 'inline_data', None):
+                            # 【核心】：不要直接打印二进制数据，用提示语替代
+                            mime = part.inline_data.mime_type or '未知类型'
+                            size = len(part.inline_data.data) if part.inline_data.data else 0
+                            cand_info["parts"].append(f"<🖼️ 成功接收图片二进制流, MIME: {mime}, 大小: {size} bytes>")
+                        else:
+                            cand_info["parts"].append("<未知数据块>")
+                
+                debug_response["candidates"].append(cand_info)
+
+        # 提取 Token 消耗等元数据 (如果 SDK 有返回)
+        if getattr(response, 'usage_metadata', None):
+            debug_response["usage_metadata"] = {
+                "prompt_token_count": getattr(response.usage_metadata, 'prompt_token_count', 0),
+                "candidates_token_count": getattr(response.usage_metadata, 'candidates_token_count', 0),
+                "total_token_count": getattr(response.usage_metadata, 'total_token_count', 0),
+            }
+
+        print(json.dumps(debug_response, indent=4, ensure_ascii=False))
+        print("="*60 + "\n")
 
         # 2. 检查提示词是否在进模型前就被直接拉黑 (Prompt Feedback)
         if getattr(response, 'prompt_feedback', None):
@@ -335,6 +398,8 @@ class GoogleAIProvider(BaseAIProvider):
             elif reason_str != 'STOP': 
                 # STOP 是正常出图的标志。如果不是 STOP 也不是上面的已知错误，就抛出原始内容
                 raise Exception(f"⚠️ 生成未正常完成，中断原因: {reason_str}")
+            elif reason_str in ['OTHER', 'IMAGE_OTHER']: # <--- 【在这里加上 IMAGE_OTHER】
+                raise Exception("🛑 生成失败：引擎内部渲染错误或触发了隐藏的风控策略，请尝试稍微修改提示词后重试。")
         
         # ==========================================
         # 提取图片数据
