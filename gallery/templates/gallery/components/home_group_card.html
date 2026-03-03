@@ -58,9 +58,18 @@
             <div class="card-body p-3">
                 <h5 class="card-title text-truncate mb-2">{{ group.title }}</h5>
                 <div class="mb-2" style="height: 28px; overflow: hidden;">
+                    {% for char in group.characters.all|slice:":3" %}
+                    <object>
+                        <a href="/?q={{ char.name }}" class="tag-badge tag-badge-char">
+                            <i class="bi bi-person-fill"></i> {{ char.name }}
+                        </a>
+                    </object>
+                    {% endfor %}
+
                     {% for tag in group.tags.all|slice:":3" %}
                     <object><a href="/?q={{ tag.name }}" class="tag-badge">{{ tag.name }}</a></object>
                     {% endfor %}
+                    
                     {% if group.tags.count > 3 %}
                     <span class="text-muted small align-middle">+{{ group.tags.count|add:"-3" }}</span>
                     {% endif %}

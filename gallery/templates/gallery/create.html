@@ -401,10 +401,25 @@
         0% { transform: scale(0.8); box-shadow: 0 0 10px #8a2be2; } 
         100% { transform: scale(1.2); box-shadow: 0 0 25px #8a2be2, 0 0 40px #20c997; } 
     }
+    /* 统一的人物标签专属样式 */
+    .pub-tag-char-active {
+        background-color: #fff0f6 !important; 
+        color: #d81b60 !important; 
+        border-color: #ffdeeb !important;
+        font-weight: 600;
+        box-shadow: 0 4px 10px rgba(216, 27, 96, 0.15) !important;
+    }
+
+    .pub-tag-char-active:hover {
+        background-color: #ffe3ee !important; 
+        color: #c2185b !important;
+    }
 </style>
 {% endblock %}
 
 {% block content %}
+<audio id="audio-success" src="/static/gallery/audio/success.mp3" preload="auto"></audio>
+<audio id="audio-error" src="/static/gallery/audio/error.mp3" preload="auto"></audio>
 <div class="container-fluid py-4 px-4">
     <div class="row g-4">
         
@@ -435,6 +450,17 @@
                 </div>
 
                 <div class="mb-4" id="dynamic-params-container"></div>
+
+                <div class="mb-4 p-3 bg-light rounded-3 border">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <label class="form-label fw-bold text-secondary small mb-0"><i class="bi bi-arrow-repeat me-1"></i>连续生成轮次</label>
+                        <span class="badge bg-white text-primary border border-primary fw-bold" id="loop-val" style="min-width: 30px; text-align: center;">1</span>
+                    </div>
+                    <input type="range" class="custom-range-slider" id="ai-loop-count" 
+                           min="1" max="10" step="1" value="1"
+                           oninput="document.getElementById('loop-val').innerText = this.value; this.style.backgroundSize = ((this.value - this.min) / (this.max - this.min)) * 100 + '% 100%';">
+                    <div class="form-text small text-muted mt-1" style="font-size: 0.75rem;">开启多轮生成时，新出的图会源源不断追加到右侧画板，不会覆盖。</div>
+                </div>
 
                 <div class="mb-4">
                     <label class="form-label fw-bold text-secondary small">3. 画面描述 (Prompt)</label>
@@ -556,14 +582,19 @@
     let allAvailableChars = [];
     let currentSelectedTags = new Set(); // 【新增】保存当前被选中的标签
     let currentSelectedChars = new Set();
+    //专门用于存储从详情页带过来的“当前卡片 ID”
+    let currentSourceGroupId = null;
 
     document.addEventListener('DOMContentLoaded', () => {
         initDynamicUI();
         setupDragAndDrop();
+        // 【新增 1】：尝试从 URL 参数中读取源作品 ID
+        const urlParams = new URLSearchParams(window.location.search);
+        currentSourceGroupId = urlParams.get('template_id') || urlParams.get('group_id') || null;
         // 解析全库标签
         try {
             allAvailableTags = JSON.parse('{{ all_tags_json|escapejs }}');
-            allAvailableChars = JSON.parse('{{ all_chars_json|escapejs }}'); // 【新增】
+            allAvailableChars = JSON.parse('{{ all_chars_json|escapejs }}');
         } catch(e) { console.log("解析系统标签失败", e); }
 
         // 【新增】绑定人物自定义输入框的回车事件
@@ -626,7 +657,10 @@
             const initialDataStr = '{{ initial_data_json|escapejs }}';
             if (initialDataStr && initialDataStr !== "{}") {
                 const initialData = JSON.parse(initialDataStr);
-                
+                // 如果 URL 里没拿到，就从后端传来的卡片数据里拿
+                if (!currentSourceGroupId && initialData.group_id) currentSourceGroupId = String(initialData.group_id);
+                if (!currentSourceGroupId && initialData.id) currentSourceGroupId = String(initialData.id);
+
                 // 1. 填充纯净的提示词
                 if (initialData.prompt) {
                     document.getElementById('ai-prompt').value = initialData.prompt;
@@ -1033,10 +1067,10 @@
             badge.className = 'pub-tag-badge'; // 复用你的原有样式
             
             if (currentSelectedChars.has(char)) {
-                // 人物选中时给个不同颜色的区分（比如 Bootstrap 的 info 蓝）
-                badge.className = 'badge bg-info text-dark rounded-pill px-3 py-2 cursor-pointer shadow-sm';
+                badge.className = 'pub-tag-badge active pub-tag-char-active'; // 应用粉色类
                 badge.innerHTML = `<i class="bi bi-person-check-fill me-1"></i>${char}`;
             } else {
+                badge.className = 'pub-tag-badge'; // 未选中保持默认灰色
                 badge.innerHTML = `<i class="bi bi-person me-1"></i>${char}`;
             }
             
@@ -1126,13 +1160,17 @@
         return paths;
     }
 
-    // === 开始生成通信 ===
-    function startGeneration() {
+    // === 开始生成通信 (升级版：支持异步循环与渐进式出图) ===
+    async function startGeneration() {
+        // 请求系统桌面弹窗权限
         if (window.Notification && Notification.permission !== "granted" && Notification.permission !== "denied") {
             Notification.requestPermission();
         }
+
         const modelChoice = document.getElementById('ai-model-select').value;
         const promptText = document.getElementById('ai-prompt').value;
+        // 【新增】：获取循环次数
+        const loopCount = parseInt(document.getElementById('ai-loop-count').value) || 1;
 
         if (maxImagesAllowed > 0 && currentFiles.length === 0) {
             Swal.fire('提示', '当前模型必须上传参考图片！', 'warning');
@@ -1149,24 +1187,23 @@
         
         document.getElementById('canvas-idle').style.display = 'none';
         document.getElementById('publish-bar').style.display = 'none';
+        
         const gallery = document.getElementById('result-gallery');
         if(gallery) {
             gallery.style.display = 'none';
+            // 【极其重要】：只有在用户刚点击按钮时清空一次画板，循环期间不再清空
             gallery.innerHTML = ''; 
+            lastSavedPaths = []; 
         }
         document.getElementById('canvas-scanning').style.display = 'block';
         document.getElementById('canvas-loading').style.display = 'block';
 
-        // ==========================================
-        // 启动计时器与小贴士轮播
-        // ==========================================
+        // 设置小贴士轮播
         const promptTips = [
-            "💡 小贴士：想要大片感？尝试在提示词加入「丁达尔效应」、「逆光」或「电影级体积光」。",
-            "💡 小贴士：遇到报错？可能是不小心触发了安全词，尝试换个更委婉的说法吧。",
-            "💡 小贴士：不知道怎么选尺寸？人物肖像推荐 3:4，风景和宽屏壁纸推荐 16:9。",
+            "💡 小贴士：想要大片感？尝试在提示词加入「丁达尔效应」或「电影级体积光」。",
+            "💡 小贴士：开启多轮生成时，您可以切到后台干别的，出图后系统会通知您。",
             "💡 小贴士：多图融合时，上传两张风格差异大的图片，可能会有巨大的惊喜！",
-            "💡 小贴士：在提示词开头明确「主体」和「环境」，能大幅提高 AI 的理解准确度。",
-            "💡 小贴士：加入「胶片质感」、「宝丽来风格」或「噪点」，能让画面充满复古氛围。"
+            "💡 小贴士：加入「胶片质感」或「噪点」，能让画面充满复古氛围。"
         ];
         
         let elapsedSeconds = 0;
@@ -1174,138 +1211,218 @@
         const timerElement = document.getElementById('loading-timer-sec');
         const tipsElement = document.getElementById('loading-tips');
         
-        // 重置初始状态
         timerElement.innerText = "00:00";
         tipsElement.innerText = promptTips[0];
         tipsElement.style.opacity = 1;
 
-        // 核心计时与轮播器 (每秒执行一次)
         const loadingInterval = setInterval(() => {
             elapsedSeconds++;
-            
-            // 1. 更新真实等待时间 (00:05 格式)
             const m = Math.floor(elapsedSeconds / 60).toString().padStart(2, '0');
             const s = (elapsedSeconds % 60).toString().padStart(2, '0');
             timerElement.innerText = `${m}:${s}`;
 
-            // 2. 每隔 4 秒切换一条小贴士
             if (elapsedSeconds % 4 === 0) {
-                tipsElement.style.opacity = 0; // 先淡出
+                tipsElement.style.opacity = 0; 
                 setTimeout(() => {
                     tipIndex++;
                     tipsElement.innerText = promptTips[tipIndex % promptTips.length];
-                    tipsElement.style.opacity = 1; // 再淡入
+                    tipsElement.style.opacity = 1; 
                 }, 500); 
             }
         }, 1000);
 
+        // 统一组装请求参数 (避免每次循环重复组装)
         const formData = new FormData();
         formData.append('model_choice', modelChoice);
         formData.append('prompt', promptText);
-        
         if (maxImagesAllowed > 0) {
             currentFiles.forEach(file => formData.append('base_images', file));
         }
-
-        // 收集所有动态参数
         document.querySelectorAll('.dynamic-param-input').forEach(input => {
             const paramId = input.getAttribute('data-param-id');
             const paramType = input.getAttribute('data-param-type');
-
-            // 【新增拦截】：绝对不要把这个虚拟参数发给云端 API
             if (paramId === 'prompt_aspect_ratio') return;
             if (paramType === 'checkbox') {
-                // 复选框取 checked 属性，转成字符串 "true" 或 "false" 发给后端
                 formData.append(paramId, input.checked); 
             } else {
                 formData.append(paramId, input.value);
             }
         });
 
-        fetch('/api/generate-direct/', {
-            method: 'POST',
-            body: formData 
-        })
-        .then(response => response.json())
-        .then(data => {
-            clearInterval(loadingInterval); // 成功后清除轮播动画
-            if (data.status === 'success') {
-                lastSavedPaths = data.saved_paths;
-                document.getElementById('publish-bar').style.display = 'block';
+        let successCount = 0;
+        let failCount = 0;
+        let errorMessages = [];
+        // ==========================================
+        // 【核心改造】：启动异步串行队列
+        // ==========================================
+        for (let i = 1; i <= loopCount; i++) {
+            // 1. 动态更新左侧按钮的文字，告诉用户现在的进度
+            if (loopCount > 1) {
+                btn.innerHTML = `<span class="spinner-border spinner-border-sm me-2"></span>正在生成 第 ${i}/${loopCount} 轮...`;
+            }
 
-                const gallery = document.getElementById('result-gallery');
-                gallery.innerHTML = '';
-                
-                const imgCount = data.image_urls.length;
+            // 2. 更新画板中央的轮次提示（仅在第一轮未出图时可见）
+            const loadingTitle = document.querySelector('.loading-title');
+            if (loadingTitle) {
+                loadingTitle.innerHTML = `✨ 正在云端渲染您的专属画作 <br><span class="text-primary fs-6 fw-normal">(第 ${i} / ${loopCount} 轮)</span>`;
+            }
 
-                // ==========================================
-                // 【终极排版修复】使用 CSS Grid 绝对控制网格
-                // 浏览器会严格根据 1fr 的比例切割空间，绝对不会溢出
-                // ==========================================
-                gallery.style.display = 'grid';
-                
-                if (imgCount === 1) {
-                    // 1张图：1行1列，填满
-                    gallery.style.gridTemplateColumns = '1fr';
-                    gallery.style.gridTemplateRows = '1fr';
-                } else if (imgCount === 2) {
-                    // 2张图：1行2列，左右平分
-                    gallery.style.gridTemplateColumns = '1fr 1fr';
-                    gallery.style.gridTemplateRows = '1fr';
+            try {
+                // 等待当前这一轮的 API 返回
+                const response = await fetch('/api/generate-direct/', {
+                    method: 'POST',
+                    body: formData 
+                });
+                const data = await response.json();
+
+                if (data.status === 'success') {
+                    playNotificationSound('success');
+                    successCount++;
+                    // 【新增】：只要有一轮图出来了，立刻隐藏中间的加载遮罩，释放鼠标点击和滚动权！
+                    document.getElementById('canvas-scanning').style.display = 'none';
+                    document.getElementById('canvas-loading').style.display = 'none';
+                    lastSavedPaths.push(...data.saved_paths);
+                    document.getElementById('publish-bar').style.display = 'block';
+
+                    // 激活画板并开启内部滚动
+                    gallery.style.display = 'grid';
+                    gallery.style.overflowY = 'auto'; // 允许垂直滚动
+                    gallery.style.alignContent = 'start'; 
+                    gallery.style.paddingBottom = '100px'; // 稍微加大底部留白，防止最后一张图被“发布”按钮挡住
+
+                    // 将新生成的图片追加到画板末尾
+                    data.image_urls.forEach((url, index) => {
+                        const localPath = data.saved_paths[index];
+                        // 注意：这里用 += 拼接，不会覆盖上一轮的图
+                        gallery.innerHTML += `
+                            <div class="gen-result-card selected" data-path="${localPath}" onclick="toggleGenResultSelect(this)" style="min-height: 250px;">
+                                <img src="${url}" style="width: 100%; height: 100%; object-fit: contain; border-radius: 8px;">
+                                <div class="select-badge"><i class="bi bi-check-lg"></i></div>
+                            </div>
+                        `;
+                    });
+
+                    // 【网格重算】：根据当前累积的总图片数，重新安排排版
+                    const totalImages = gallery.querySelectorAll('.gen-result-card').length;
+                    if (totalImages === 1) {
+                        gallery.style.gridTemplateColumns = '1fr';
+                        gallery.style.gridTemplateRows = '1fr';
+                        gallery.style.gridAutoRows = 'auto';
+                    } else if (totalImages === 2) {
+                        gallery.style.gridTemplateColumns = '1fr 1fr';
+                        gallery.style.gridTemplateRows = '1fr';
+                        gallery.style.gridAutoRows = 'auto';
+                    } else {
+                        gallery.style.gridTemplateColumns = '1fr 1fr'; // 固定两列
+                        gallery.style.gridTemplateRows = 'none'; // 解除绝对行高限制
+                        gallery.style.gridAutoRows = 'minmax(250px, auto)'; // 多余的行自动往下撑开
+                    }
+
+                    // 每一轮出图都静默提醒一次
+                    if (typeof notifyWhenBackground === 'function') {
+                        notifyWhenBackground(`🎨 第 ${i} 轮生图完成！`, "已有新图片追加到画板，您可以回来看一眼。");
+                    }
+
                 } else {
-                    // 3或4张图：2行2列 (标准的四宫格)
-                    gallery.style.gridTemplateColumns = '1fr 1fr';
-                    gallery.style.gridTemplateRows = '1fr 1fr';
-                }
+                    playNotificationSound('error');
+                    failCount++;
+                    errorMessages.push(`<strong>第 ${i} 轮:</strong> ${data.message || '未知错误'}`);
 
-                // 遍历 URL 拼装 HTML (带有选择功能，默认全选)
-                data.image_urls.forEach((url, index) => {
-                    const localPath = data.saved_paths[index]; // 获取对应的本地存储路径
-                    gallery.innerHTML += `
-                        <div class="gen-result-card selected" data-path="${localPath}" onclick="toggleGenResultSelect(this)">
-                            <img src="${url}" style="width: 100%; height: 100%; object-fit: contain; border-radius: 8px;">
-                            <div class="select-badge"><i class="bi bi-check-lg"></i></div>
-                        </div>
-                    `;
-                });
-                
-                Swal.fire({ 
-                    title: '🎉 生成成功！', 
-                    text: data.message, 
-                    icon: 'success', 
-                    toast: true, 
-                    position: 'top-end', 
-                    showConfirmButton: false, 
-                    timer: 5000 
+                    // 注意：这里不要把 canvas-idle 显示出来，因为可能还有图在上面
+                    Swal.fire({
+                        title: `第 ${i} 轮生成失败`,
+                        text: data.message,
+                        icon: 'error',
+                        toast: true,
+                        position: 'top',
+                        timer: 3000,
+                        showConfirmButton: false
+                    });
+                    if (typeof notifyWhenBackground === 'function') {
+                        notifyWhenBackground("❌ 任务异常", `第 ${i} 轮触发了报错或拦截，已自动跳过。`);
+                    }
+                    continue;
+                }
+            } catch (error) {
+                playNotificationSound('error');
+                failCount++;
+                errorMessages.push(`<strong>第 ${i} 轮:</strong> 网络超时或服务端断开连接`);
+
+                Swal.fire({
+                    title: `第 ${i} 轮请求异常`,
+                    text: '网络或服务端断开',
+                    icon: 'warning',
+                    toast: true,
+                    position: 'top',
+                    timer: 3000,
+                    showConfirmButton: false
                 });
                 if (typeof notifyWhenBackground === 'function') {
-                    notifyWhenBackground("🎨 AI 生图完成！", "您的图片已经生成完毕，快来看看效果吧！");
+                    notifyWhenBackground("⚠️ 网络异常", `第 ${i} 轮请求超时，正在尝试下一轮。`);
                 }
-            } else {
-                document.getElementById('canvas-idle').style.display = 'block';
-                Swal.fire('生成失败', data.message, 'error');
-                if (typeof notifyWhenBackground === 'function') {
-                    notifyWhenBackground("❌ 生成失败", data.message || "生图遇到了一些问题，请返回查看。");
-                }
+                // 【关键修改】：删掉原来的 break; 让队列继续往下走
+                continue;
             }
-        })
-        .catch(error => {
-            clearInterval(loadingInterval);
+        }
+
+        // ==========================================
+        // 循环队列全部执行完毕的收尾工作
+        // ==========================================
+        clearInterval(loadingInterval);
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-stars me-2"></i>开始生成';
+        document.getElementById('canvas-scanning').style.display = 'none';
+        document.getElementById('canvas-loading').style.display = 'none';
+
+        // 如果全部失败，把空画板的占位符显示回来
+        if (successCount === 0) {
             document.getElementById('canvas-idle').style.display = 'block';
-            Swal.fire('请求异常', '网络或服务端报错，请查看控制台', 'error');
-            if (typeof notifyWhenBackground === 'function') {
-                notifyWhenBackground("⚠️ 网络超时/断开", "连接已断开，请返回页面查看报错详情。");
-            }
-        })
-        .finally(() => {
-            clearInterval(loadingInterval);
-            btn.disabled = false;
-            btn.innerHTML = '<i class="bi bi-stars me-2"></i>开始生成';
-            document.getElementById('canvas-scanning').style.display = 'none';
-            document.getElementById('canvas-loading').style.display = 'none';
-        });
+        }
+        // 【新增】：组装可滚动的错误列表 HTML
+        let errorHtmlList = '';
+        if (errorMessages.length > 0) {
+            errorHtmlList = `<div class="text-start mt-3 p-2 bg-light border rounded custom-scrollbar" style="max-height: 120px; overflow-y: auto; font-size: 0.85rem; color: #dc3545;">
+                                <ul class="mb-0 ps-3">`;
+            errorMessages.forEach(msg => {
+                errorHtmlList += `<li class="mb-1">${msg}</li>`;
+            });
+            errorHtmlList += `  </ul>
+                              </div>`;
+        }
+
+        // 最终结算播报
+        if (successCount > 0 && failCount === 0) {
+            // 全员成功：依然用不打扰的 Toast 在右上角飘过
+            Swal.fire({ 
+                title: '🎉 队列执行完毕！', 
+                text: `共为您完美生成了 ${successCount} 轮图片。`, 
+                icon: 'success', 
+                toast: true, position: 'top-end', showConfirmButton: false, timer: 5000 
+            });
+        } else if (successCount > 0 && failCount > 0) {
+            // 部分失败：居中弹窗，强制用户查看错误原因，但告知已有成功结果
+            Swal.fire({ 
+                title: '⚠️ 队列执行完毕', 
+                html: `成功 <b>${successCount}</b> 轮，失败 <b class="text-danger">${failCount}</b> 轮。<br>已将成功结果展示在画板。${errorHtmlList}`, 
+                icon: 'warning', 
+                confirmButtonText: '知道了',
+                confirmButtonColor: '#8a2be2'
+            });
+        } else if (successCount === 0 && failCount > 0) {
+            // 全部失败：红色居中报错弹窗
+            Swal.fire({
+                title: '全部生成失败', 
+                html: `很遗憾，队列中的 <b>${loopCount}</b> 轮任务全部遭遇异常。${errorHtmlList}`, 
+                icon: 'error',
+                confirmButtonText: '关闭',
+                confirmButtonColor: '#dc3545'
+            });
+        }
+
     }
-    // === 1. 点击悬浮按钮，弹出信息填写框并预填充数据 ===
+    
+    
+    // === 点击悬浮按钮，弹出信息填写框并预填充数据 ===
     function publishCreation() {
         const selectedPaths = getSelectedSavedPaths();
     if (selectedPaths.length === 0) {
@@ -1474,40 +1591,54 @@
             return;
         }
 
+        // ==========================================
+        // 【核心新增】：将“当前卡片”单独抽出来，插入到数组的最前面
+        // ==========================================
+        if (currentSourceGroupId) {
+            const sourceIndex = groups.findIndex(g => String(g.id) === currentSourceGroupId);
+            if (sourceIndex > -1) {
+                // 如果在相似列表中找到了当前卡片，直接剪切并放到第一位
+                const sourceGroup = groups.splice(sourceIndex, 1)[0];
+                groups.unshift(sourceGroup);
+            }
+        }
+
         let html = '';
-        groups.forEach(group => {
+        groups.forEach((group, index) => {
+            // 判断当前遍历的这个组，是不是用户进入页面的“源卡片”
+            const isCurrentSource = (currentSourceGroupId && String(group.id) === currentSourceGroupId);
+
             // 1. 渲染封面图
             const coverHtml = group.cover_url 
                 ? `<img src="${group.cover_url}" class="rounded shadow-sm" style="width: 70px; height: 70px; object-fit: cover;">`
                 : `<div class="rounded bg-light shadow-sm d-flex align-items-center justify-content-center text-muted" style="width: 70px; height: 70px;"><i class="bi bi-image fs-4"></i></div>`;
 
-            // 2. 相似度标签颜色判定
-            let badgeClass = 'bg-secondary';
-            let simValue = parseInt(group.similarity);
-            if(simValue > 80) badgeClass = 'bg-danger';
-            else if(simValue > 50) badgeClass = 'bg-warning text-dark';
-            else if(simValue > 20) badgeClass = 'bg-primary';
-
-            // 3. 【修改】处理模型标签 UI，并加入“同款模型”的高亮逻辑
-            let isModelMatch = false;
-            if (currentModelName && group.model_info && currentModelName.toLowerCase() === group.model_info.toLowerCase()) {
-                isModelMatch = true;
+            // 2. 右上角徽章 UI 判定 (源卡片特殊高亮，其他卡片显示相似度)
+            let topBadgeHtml = '';
+            if (isCurrentSource) {
+                topBadgeHtml = `<span class="badge bg-success shadow-sm rounded-pill px-2 py-1"><i class="bi bi-pin-angle-fill me-1"></i>当前所属作品</span>`;
+            } else {
+                let badgeClass = 'bg-secondary';
+                let simValue = parseInt(group.similarity);
+                if(simValue > 80) badgeClass = 'bg-danger';
+                else if(simValue > 50) badgeClass = 'bg-warning text-dark';
+                else if(simValue > 20) badgeClass = 'bg-primary';
+                topBadgeHtml = `<span class="badge ${badgeClass} rounded-pill">相似度 ${group.similarity}</span>`;
             }
 
+            // 3. 模型标签与人物标签逻辑
+            let isModelMatch = (currentModelName && group.model_info && currentModelName.toLowerCase() === group.model_info.toLowerCase());
             let modelBadge = '';
             if (group.model_info && group.model_info !== '无模型') {
                 if (isModelMatch) {
-                    // 特殊UI：当前同款模型（紫色渐变发光样式，跟按钮风格统一）
-                    modelBadge = `<span class="badge text-white fw-bold me-2 shadow" style="background: linear-gradient(135deg, #8a2be2 0%, #4a00e0 100%); font-size: 0.75rem;"><i class="bi bi-cpu-fill me-1"></i>${group.model_info} (同款)</span>`;
+                    modelBadge = `<span class="badge text-white fw-bold me-2 shadow-sm" style="background: linear-gradient(135deg, #8a2be2 0%, #4a00e0 100%); font-size: 0.75rem;"><i class="bi bi-cpu-fill me-1"></i>${group.model_info} (同款)</span>`;
                 } else {
-                    // 普通模型样式
                     modelBadge = `<span class="badge bg-secondary fw-normal me-2" style="font-size: 0.75rem;"><i class="bi bi-cpu me-1"></i>${group.model_info}</span>`;
                 }
             } else {
                 modelBadge = `<span class="badge bg-light text-secondary border fw-normal me-2" style="font-size: 0.75rem;">无模型</span>`;
             }
 
-            // 4. 【重点新增】：遍历生成人物小蓝标
             let charBadges = '';
             if (group.characters && group.characters.length > 0) {
                 group.characters.forEach(char => {
@@ -1515,21 +1646,24 @@
                 });
             }
 
-            // 4. 组装最终的卡片 HTML
+            // 4. 卡片整体边框与背景判定 (如果是当前源卡片，给个醒目的绿色高亮框)
+            const activeCardClass = isCurrentSource ? "border-success border-2 bg-success bg-opacity-10" : "";
+
+            // 5. 组装最终的卡片 HTML
             html += `
-            <a href="javascript:void(0)" class="list-group-item list-group-item-action d-flex gap-3 align-items-center py-3" onclick="confirmAppendToGroup(${group.id}, '${group.title}')">
+            <a href="javascript:void(0)" class="list-group-item list-group-item-action d-flex gap-3 align-items-center py-3 ${activeCardClass}" onclick="confirmAppendToGroup(${group.id}, '${group.title}')">
                 ${coverHtml}
                 <div class="flex-grow-1 overflow-hidden">
                     <div class="d-flex w-100 justify-content-between align-items-center mb-1">
                         <h6 class="mb-0 fw-bold text-truncate" style="max-width: 70%;">${group.title}</h6>
-                        <span class="badge ${badgeClass} rounded-pill">相似度 ${group.similarity}</span>
+                        ${topBadgeHtml}
                     </div>
                     <div class="mb-0 text-truncate mt-1 d-flex align-items-center">
                         ${modelBadge}
                         ${charBadges} <span class="small text-muted text-truncate">${group.prompt_text}</span>
                     </div>
                 </div>
-            </a>`;;
+            </a>`;
         });
         container.innerHTML = html;
     }

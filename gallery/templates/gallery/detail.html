@@ -1010,24 +1010,31 @@
                                     </div>
                                     
                                     <div class="ms-2 flex-grow-1 overflow-hidden">
-                                        {% if sib.model_info %}
-                                            {% if sib.model_info != group.model_info %}
-                                                <div class="mb-1">
+                                        <div class="mb-1 d-flex flex-wrap gap-1 align-items-center">
+                                            
+                                            {% if sib.model_info %}
+                                                {% if sib.model_info != group.model_info %}
                                                     <span class="badge rounded-pill border" 
-                                                        title="模型变更: 当前是 {{ group.model_info }}"
+                                                        title="模型变更: 当前是 {{ group.model_info|default:'无模型' }}"
                                                         style="background-color: #fff3cd; color: #856404; border-color: #ffeeba !important; font-weight: normal; font-size: 0.7rem;">
                                                         <i class="bi bi-exclamation-triangle-fill me-1"></i>{{ sib.model_info }}
                                                     </span>
-                                                </div>
-                                            {% else %}
-                                                <div class="mb-1">
+                                                {% else %}
                                                     <span class="badge bg-light text-secondary border rounded-pill" 
                                                         style="font-weight: normal; font-size: 0.7rem;">
                                                         <i class="bi bi-robot me-1"></i>{{ sib.model_info }}
                                                     </span>
-                                                </div>
+                                                {% endif %}
                                             {% endif %}
-                                        {% endif %}
+                                            
+                                            {% for char in sib.characters.all %}
+                                                <span class="badge rounded-pill border sibling-char-badge" data-char="{{ char.name }}" 
+                                                    style="font-weight: normal; font-size: 0.7rem; background-color: #f8f9fa; color: #6c757d; border-color: #e9ecef; transition: all 0.2s;">
+                                                    <i class="bi bi-person-fill me-1"></i>{{ char.name }}
+                                                </span>
+                                            {% endfor %}
+                                            
+                                        </div>
                                         <div class="sibling-diff-wrapper custom-scrollbar">
                                             {{ sib.diff_html|safe }}
                                         </div>
@@ -1696,5 +1703,34 @@
                 Swal.fire('错误', '网络请求失败', 'error');
             });
         }
+        
+        // ==========================================
+        // 【新增】：智能对比并高亮“其他版本”列表中的人物标签
+        // ==========================================
+        document.addEventListener('DOMContentLoaded', () => {
+            // 1. 获取当前主卡片拥有的所有人物名称 (提取自上方的人物展示区)
+            const currentCharNodes = document.querySelectorAll('#characters-wrapper .tag-char a');
+            const currentCharNames = Array.from(currentCharNodes).map(a => a.textContent.trim());
+            
+            // 2. 遍历所有关联卡片（其他版本）的人物标签
+            document.querySelectorAll('.sibling-char-badge').forEach(badge => {
+                const charName = badge.getAttribute('data-char');
+                
+                if (currentCharNames.includes(charName)) {
+                    // 与当前主卡片一致：显示专属粉色 (保持视觉统一)
+                    badge.style.backgroundColor = '#fff0f6';
+                    badge.style.color = '#d81b60';
+                    badge.style.borderColor = '#ffdeeb';
+                    badge.title = "人物一致";
+                } else {
+                    // 与当前主卡片不一致（新角色或变更）：显示黄色警告色，并更换警示图标
+                    badge.style.backgroundColor = '#fff3cd';
+                    badge.style.color = '#856404';
+                    badge.style.borderColor = '#ffeeba';
+                    badge.innerHTML = '<i class="bi bi-person-exclamation me-1"></i>' + charName;
+                    badge.title = "人物变更: 当前主卡片无此角色";
+                }
+            });
+        });
     </script>
 {% endblock %}

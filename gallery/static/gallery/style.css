@@ -2097,3 +2097,16 @@ a { text-decoration: none; }
         opacity: 1;
         transform: translateY(0);
     }
+    /* === 首页人物专属标签样式 (与详情页保持一致) === */
+.tag-badge-char {
+    background-color: #fff0f6 !important;
+    color: #d81b60 !important;
+    border: 1px solid #ffdeeb !important;
+    font-weight: 600;
+}
+
+.tag-badge-char:hover {
+    background-color: #ffe3ee !important;
+    color: #c2185b !important;
+    transform: translateY(-1px);
+}

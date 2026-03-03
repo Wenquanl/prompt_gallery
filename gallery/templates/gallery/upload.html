@@ -353,7 +353,27 @@
                         <label class="form-label fw-bold">负向提示词</label>
                         {{ form.negative_prompt }}
                     </div>
-                    
+                    <div class="mb-4">
+                        <label class="form-label fw-bold text-danger">
+                            <i class="bi bi-person-hearts me-2"></i>出场人物
+                        </label>
+                        
+                        <div class="tag-selector-container">
+                            {% for checkbox in form.characters %}
+                                <label class="char-pill-label" for="{{ checkbox.id_for_label }}">
+                                    <input type="checkbox" name="{{ checkbox.data.name }}" value="{{ checkbox.data.value }}" 
+                                           class="char-pill-input" id="{{ checkbox.id_for_label }}"
+                                           {% if checkbox.data.selected %}checked{% endif %}>
+                                    
+                                    <span class="char-pill-inner">
+                                        <i class="bi bi-person-fill"></i>
+                                        {{ checkbox.choice_label }}
+                                    </span>
+                                </label>
+                            {% endfor %}
+                        </div>
+                        <div class="form-text text-muted small">点击可多选，选中的人物会以特殊样式高亮。</div>
+                    </div>
 
                     <div class="mb-5">
                         <label class="form-label fw-bold"><i class="bi bi-tags me-2"></i>关联标签</label>
