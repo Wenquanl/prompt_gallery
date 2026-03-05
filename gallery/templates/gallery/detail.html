@@ -906,7 +906,27 @@
                             <button onclick="copyTextHandler('modelInfo', this)" class="btn btn-sm btn-outline-primary rounded-pill px-3" {% if not group.model_info %}disabled{% endif %}><i class="bi bi-clipboard me-1"></i>复制</button>
                         </div>
                     </div>
-                    <div class="prompt-box mb-3" id="modelInfo">{% if group.model_info %}{{ group.model_info }}{% else %}<span class="empty-text">未填写</span>{% endif %}</div>
+                    <div class="mb-3 d-flex align-items-center flex-wrap gap-2">
+                        <div class="prompt-box m-0" id="modelInfo" style="margin-bottom: 0 !important;">
+                            {% if group.model_info %}
+                                {{ group.model_info }}
+                            {% else %}
+                                <span class="empty-text">未填写</span>
+                            {% endif %}
+                        </div>
+                        
+                        {% if group.provider == 'fal_ai' %}
+                            <span class="badge bg-dark"><i class="bi bi-rocket-takeoff me-1"></i>{{ group.get_provider_display }}</span>
+                        {% elif group.provider == 'volcengine' %}
+                            <span class="badge bg-primary"><i class="bi bi-cloud-check me-1"></i>{{ group.get_provider_display }}</span>
+                        {% elif group.provider == 'google_ai' %}
+                            <span class="badge bg-warning text-dark"><i class="bi bi-google me-1"></i>{{ group.get_provider_display }}</span>
+                        {% elif group.provider == 'gemini_web' %}
+                            <span class="badge bg-info text-dark"><i class="bi bi-browser-chrome me-1"></i>{{ group.get_provider_display }}</span>
+                        {% elif group.provider and group.provider != 'other' %}
+                            <span class="badge bg-secondary"><i class="bi bi-cpu me-1"></i>{{ group.get_provider_display }}</span>
+                        {% endif %}
+                    </div>            
                     <div class="border-top pt-3">
                         <ul class="list-unstyled mb-0 text-secondary small">
                             <li class="d-flex align-items-center">
@@ -998,15 +1018,17 @@
                             <div class="position-relative sibling-group">
                                 <a href="{% url 'detail' sib.pk %}" class="d-flex align-items-center p-2 bg-white rounded-3 border text-decoration-none shadow-sm sibling-card">
                                     <div class="sibling-thumb-wrapper">
-                                        {% if sib.images.first %}
-                                            {% if sib.images.first.is_video %}
-                                            <div class="sibling-empty-thumb bg-dark text-white"><i class="bi bi-play-fill"></i></div>
+                                        {% with cover=sib.cover_image|default:sib.images.first %}
+                                            {% if cover %}
+                                                {% if cover.is_video %}
+                                                <div class="sibling-empty-thumb bg-dark text-white"><i class="bi bi-play-fill"></i></div>
+                                                {% else %}
+                                                <img src="{{ cover.thumbnail.url|default:cover.image.url }}" class="sibling-thumb">
+                                                {% endif %}
                                             {% else %}
-                                            <img src="{{ sib.images.first.thumbnail.url }}" class="sibling-thumb">
+                                            <div class="sibling-empty-thumb"><i class="bi bi-image"></i></div>
                                             {% endif %}
-                                        {% else %}
-                                        <div class="sibling-empty-thumb"><i class="bi bi-image"></i></div>
-                                        {% endif %}
+                                        {% endwith %}
                                     </div>
                                     
                                     <div class="ms-2 flex-grow-1 overflow-hidden">
@@ -1026,7 +1048,12 @@
                                                     </span>
                                                 {% endif %}
                                             {% endif %}
-                                            
+
+                                            {% if sib.provider and sib.provider != 'other' %}
+                                                <span class="badge bg-dark text-white rounded-pill" style="font-weight: normal; font-size: 0.7rem;">
+                                                    {{ sib.get_provider_display }}
+                                                </span>
+                                            {% endif %}
                                             {% for char in sib.characters.all %}
                                                 <span class="badge rounded-pill border sibling-char-badge" data-char="{{ char.name }}" 
                                                     style="font-weight: normal; font-size: 0.7rem; background-color: #f8f9fa; color: #6c757d; border-color: #e9ecef; transition: all 0.2s;">
@@ -1692,8 +1719,11 @@
                         toast: true,
                         position: 'top',
                         showConfirmButton: false,
-                        timer: 1500
+                        timer: 1000
                     });
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1000);
                 } else {
                     Swal.fire('设置失败', data.message, 'error');
                 }

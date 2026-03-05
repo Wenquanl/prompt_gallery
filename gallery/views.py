@@ -869,6 +869,7 @@ def upload(request):
         negative_prompt = request.POST.get('negative_prompt', '')
         title = request.POST.get('title', '') or '未命名组'
         model_id = request.POST.get('model_info')
+        provider = request.POST.get('provider', 'other')
 
         # 【新增】：智能概括上传页的标题
         if title == '未命名组' and prompt_text:
@@ -889,6 +890,7 @@ def upload(request):
             prompt_text_zh=prompt_text_zh,
             negative_prompt=negative_prompt,
             model_info=model_name_str,
+            provider=provider,
         )
         
         selected_tags = request.POST.getlist('tags')
@@ -903,16 +905,6 @@ def upload(request):
             else:
                 tag, _ = Tag.objects.get_or_create(name=tag_val)
                 group.tags.add(tag)
-        
-        # 【新增】：常规上传的模型标签排他性处理
-        # if model_name_str:
-        #     m_tag, _ = Tag.objects.get_or_create(name=model_name_str)
-        #     group.tags.add(m_tag)
-            
-        #     all_model_names = list(AIModel.objects.values_list('name', flat=True))
-        #     for tag in group.tags.all():
-        #         if tag.name in all_model_names and tag.name != model_name_str:
-        #             group.tags.remove(tag)
 
         source_group_id = request.POST.get('source_group_id')
         print(f"DEBUG: 尝试克隆参考图，Source ID: {source_group_id}") # 调试打印 1
@@ -1720,13 +1712,34 @@ def create_view(request):
                 first_img = source_group.images.first()
                 if first_img and first_img.image:
                     ref_urls.append(first_img.image.url)
+            source_model_info = source_group.model_info or ""
+            matched_full_title = source_model_info
+                
+            import re
+            candidates = []
+            for m_key, m_cfg in AI_STUDIO_CONFIG['models'].items():
+                cfg_title = m_cfg.get('title', '')
+                # 将配置表里的带括号名字洗净
+                clean_cfg_title = re.sub(r'\s*[\(（].*?[\)）]$', '', cfg_title).strip()
+                if clean_cfg_title.lower() == source_model_info.lower():
+                    candidates.append(m_cfg)
+                
+            if candidates:
+                # 尝试精确匹配 provider (区分同一个模型的 Fal 版和官方版)
+                group_provider = getattr(source_group, 'provider', 'other')
+                exact_match = next((cfg for cfg in candidates if cfg.get('provider') == group_provider), None)
+                if exact_match:
+                    matched_full_title = exact_match['title']
+                else:
+                    # 兜底：如果没精准匹配上，给列表里的第一个同名模型保证前端不报错
+                    matched_full_title = candidates[0]['title']
                     
             initial_data = {
                 'prompt': selected_prompt, 
                 'tags': tags, 
                 'characters': chars,
                 'reference_urls': ref_urls,
-                'model_info': source_group.model_info  
+                'model_info': matched_full_title 
             }
         except PromptGroup.DoesNotExist:
             pass
@@ -1881,8 +1894,9 @@ def api_publish_studio_creation(request):
         prompt = request.POST.get('prompt', '').strip()
         model_info = request.POST.get('model_info', '').strip()
         title = request.POST.get('title', '').strip()
-        
-        # 【关键修正】：确保在这里一起获取 tags_str 和 chars_str
+        provider = request.POST.get('provider', 'other').strip()
+        import re
+        clean_model_info = re.sub(r'\s*[\(（].*?[\)）]$', '', raw_model_info).strip()
         tags_str = request.POST.get('tags', '').strip()
         chars_str = request.POST.get('characters', '').strip() 
         
@@ -1899,7 +1913,8 @@ def api_publish_studio_creation(request):
         group = PromptGroup.objects.create(
             title=title,
             prompt_text=prompt,
-            model_info=model_info
+            model_info=clean_model_info,
+            provider=provider
         )
         
         # 2. 保存普通标签 (单纯保存，不再有智能分流)

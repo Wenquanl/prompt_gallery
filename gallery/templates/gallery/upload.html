@@ -340,7 +340,11 @@
                         </div>
                         {% if form.model_info.errors %}<div class="text-danger small mt-1">{{ form.model_info.errors.0 }}</div>{% endif %}
                     </div>
-
+                    <div class="mb-4">
+                        <label class="form-label fw-bold"><i class="bi bi-diagram-3 me-2"></i>生成渠道 <span class="text-muted small fw-normal">(可选)</span></label>
+                        {{ form.provider }}
+                        {% if form.provider.errors %}<div class="text-danger small mt-1">{{ form.provider.errors.0 }}</div>{% endif %}
+                    </div>
                     <div class="mb-4">
                         <label class="form-label fw-bold">正向提示词</label>
                         {{ form.prompt_text }}

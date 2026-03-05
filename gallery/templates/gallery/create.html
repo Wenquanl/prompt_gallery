@@ -520,6 +520,7 @@
                                     <label class="form-label fw-bold text-secondary small">所属模型</label>
                                     <input type="text" class="form-control" id="pub-model" placeholder="使用的 AI 模型 (可修改)">
                                 </div>
+                                <input type="hidden" id="pub-provider" value="other">
                                 <div class="mb-3">
                                     <label class="form-label fw-bold text-secondary small">出场人物 (点击多选)</label>
                                     <div class="d-flex flex-wrap gap-2 mb-2 custom-scrollbar" id="pub-chars-container" style="max-height: 100px; overflow-y: auto; padding-bottom: 5px;">
@@ -1435,7 +1436,9 @@
     
     // 填充模型名称
     document.getElementById('pub-model').value = modelName;
-    
+    const activeModelId = document.getElementById('ai-model-select').value;
+    const currentModelConfig = AI_CONFIG.models[activeModelId];
+    document.getElementById('pub-provider').value = currentModelConfig ? (currentModelConfig.provider || 'other') : 'other';
     // 调用渲染函数，传入初始化标签，此时模型标签会自动高亮打勾
     renderPublishTags(initialTagsForPublish);
     renderPublishChars(initialCharsForPublish);
@@ -1496,7 +1499,7 @@
         formData.append('prompt', document.getElementById('ai-prompt').value);
         formData.append('title', titleInput);
         formData.append('model_info', document.getElementById('pub-model').value.trim());
-        
+        formData.append('provider', document.getElementById('pub-provider').value);
         // 从 currentSelectedTags 集合中提取选中的标签，转为字符串发给后端
         const finalTags = Array.from(currentSelectedTags).join(',');
         formData.append('tags', finalTags);
@@ -1627,8 +1630,8 @@
             }
 
             // 3. 模型标签与人物标签逻辑
-            let isModelMatch = (currentModelName && group.model_info && currentModelName.toLowerCase() === group.model_info.toLowerCase());
-            let modelBadge = '';
+            const cleanCurrentModelName = currentModelName ? currentModelName.replace(/\s*[\(（].*?[\)）]$/, '').trim() : '';
+            let isModelMatch = (cleanCurrentModelName && group.model_info && cleanCurrentModelName.toLowerCase() === group.model_info.toLowerCase());let modelBadge = '';
             if (group.model_info && group.model_info !== '无模型') {
                 if (isModelMatch) {
                     modelBadge = `<span class="badge text-white fw-bold me-2 shadow-sm" style="background: linear-gradient(135deg, #8a2be2 0%, #4a00e0 100%); font-size: 0.75rem;"><i class="bi bi-cpu-fill me-1"></i>${group.model_info} (同款)</span>`;

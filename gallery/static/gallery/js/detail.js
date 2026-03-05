@@ -559,8 +559,7 @@ function savePrompt(elementId, pk, type) {
     .then(res => {
         if (res.status === 'success') {
             box.contentEditable = "false";
-            const copyBtn = box.parentElement.querySelector('.btn-outline-primary, .btn-outline-danger, .btn-outline-success');
-            if (copyBtn) copyBtn.disabled = !newText.trim();
+            const copyBtn = box.closest('.prompt-card').querySelector('.btn-outline-primary, .btn-outline-danger, .btn-outline-success');            if (copyBtn) copyBtn.disabled = !newText.trim();
             if (!newText.trim()) { box.innerHTML = '<span class="empty-text">未填写</span>'; }
             toggleEditButtons(box, false);
             Swal.fire({icon: 'success', title: '保存成功', toast: true, position: 'top-end', showConfirmButton: false, timer: 1500});
@@ -572,7 +571,7 @@ function savePrompt(elementId, pk, type) {
 }
 
 function toggleEditButtons(boxElement, isEditing) {
-    const header = boxElement.parentElement.querySelector('.section-header');
+    const header = boxElement.closest('.prompt-card').querySelector('.section-header');
     const editBtn = header.querySelector('.btn-edit-prompt');
     const actionsDiv = header.querySelector('.edit-actions');
     if (isEditing) {

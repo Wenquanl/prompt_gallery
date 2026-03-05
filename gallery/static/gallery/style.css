@@ -2110,3 +2110,57 @@ a { text-decoration: none; }
     color: #c2185b !important;
     transform: translateY(-1px);
 }
+
+/* =========================================
+   首页瀑布流卡片 - 优雅标签专属动效 
+   ========================================= */
+
+/* 人物标签：专属淡粉色胶囊 */
+.badge-elegant-char {
+    background-color: #fff0f6;
+    color: #d81b60;
+    border: 1px solid #ffdeeb;
+    font-weight: 500;
+    font-size: 0.7rem;
+    padding: 4px 8px;
+    transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1); /* 极其丝滑的果冻回弹曲线 */
+    display: inline-flex;
+    align-items: center;
+}
+
+/* 悬停：微浮起 + 增加阴影 + 颜色加深 */
+.badge-elegant-char:hover {
+    background-color: #ffe3ee;
+    color: #c2185b;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 10px rgba(216, 27, 96, 0.15) !important;
+}
+
+/* 点击按压：微缩回弹 */
+.badge-elegant-char:active {
+    transform: translateY(0) scale(0.95);
+}
+
+/* 普通标签：极简浅灰胶囊 */
+.badge-elegant-normal {
+    background-color: #f8f9fa;
+    color: #6c757d;
+    border: 1px solid #e9ecef;
+    font-weight: 400;
+    font-size: 0.7rem;
+    padding: 4px 8px;
+    transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+    display: inline-flex;
+    align-items: center;
+}
+
+.badge-elegant-normal:hover {
+    background-color: #e9ecef;
+    color: #495057;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 10px rgba(0,0,0,0.08) !important;
+}
+
+.badge-elegant-normal:active {
+    transform: translateY(0) scale(0.95);
+}

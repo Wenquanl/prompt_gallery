@@ -55,31 +55,58 @@
                 </div>
             </div>
 
-            <div class="card-body p-3">
-                <h5 class="card-title text-truncate mb-2">{{ group.title }}</h5>
-                <div class="mb-2" style="height: 28px; overflow: hidden;">
+            <div class="card-body p-3 d-flex flex-column" style="min-height: 140px;">
+                <h5 class="card-title text-truncate fw-bold mb-2" style="font-size: 1.05rem; color: #2c3e50; letter-spacing: -0.2px;">
+                    {{ group.title }}
+                </h5>
+
+                <div class="d-flex flex-wrap gap-1 mb-2" style="max-height: 52px; overflow: hidden;">
+                    
                     {% for char in group.characters.all|slice:":3" %}
                     <object>
-                        <a href="/?q={{ char.name }}" class="tag-badge tag-badge-char">
-                            <i class="bi bi-person-fill"></i> {{ char.name }}
+                        <a href="/?q={{ char.name }}" class="badge rounded-pill text-decoration-none badge-elegant-char">
+                            <i class="bi bi-person-fill me-1"></i>{{ char.name }}
                         </a>
                     </object>
                     {% endfor %}
 
-                    {% for tag in group.tags.all|slice:":3" %}
-                    <object><a href="/?q={{ tag.name }}" class="tag-badge">{{ tag.name }}</a></object>
+                    {% for tag in group.tags.all|slice:":4" %}
+                    <object>
+                        <a href="/?q={{ tag.name }}" class="badge rounded-pill text-decoration-none badge-elegant-normal">
+                            {{ tag.name }}
+                        </a>
+                    </object>
                     {% endfor %}
                     
-                    {% if group.tags.count > 3 %}
-                    <span class="text-muted small align-middle">+{{ group.tags.count|add:"-3" }}</span>
+                    {% if group.tags.count > 4 %}
+                    <span class="badge rounded-pill bg-light text-muted border align-self-center" style="font-size: 0.65rem; padding: 4px 6px;">
+                        +{{ group.tags.count|add:"-4" }}
+                    </span>
                     {% endif %}
                 </div>
-                <p class="card-text text-clamp" title="{{ group.prompt_text }}">
-                   {{ group.prompt_text }}
+
+                <p class="card-text text-clamp text-muted mb-3" title="{{ group.prompt_text }}" style="font-size: 0.8rem; line-height: 1.5; opacity: 0.85;">
+                   {{ group.prompt_text|default:"无提示词" }}
                 </p>
-                <div class="d-flex justify-content-between align-items-center mt-3 border-top border-light pt-2 text-muted small">
-                    <span><i class="bi bi-clock me-1"></i>{{ group.created_at|date:"m-d" }}</span>
-                    <span>查看详情 &rarr;</span>
+
+                <div class="d-flex justify-content-between align-items-center mt-auto border-top pt-2">
+                    <div class="d-flex align-items-center gap-1 text-truncate pe-2">
+                        {% if group.provider and group.provider != 'other' %}
+                            <span class="badge bg-dark rounded-1" style="font-size: 0.6rem; padding: 3px 5px;" title="{{ group.get_provider_display }}">
+                                {{ group.get_provider_display }}
+                            </span>
+                        {% endif %}
+                        
+                        {% if group.model_info %}
+                            <span class="text-secondary text-truncate fw-medium" style="font-size: 0.7rem; max-width: 110px;" title="{{ group.model_info }}">
+                                <i class="bi bi-cpu opacity-75"></i> {{ group.model_info }}
+                            </span>
+                        {% endif %}
+                    </div>
+                    
+                    <span class="text-muted flex-shrink-0" style="font-size: 0.65rem; font-family: 'Courier New', monospace; font-weight: 600;">
+                        {{ group.created_at|date:"m/d" }}
+                    </span>
                 </div>
             </div>
         </a>

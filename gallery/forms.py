@@ -1,7 +1,7 @@
 from django import forms
 from django.db.models import Count, Case, When, IntegerField
 from django.db.models.functions import Lower
-from .models import PromptGroup, Tag, AIModel, Character
+from .models import PromptGroup, Tag, AIModel, Character, PROVIDER_CHOICES
 
 class MultipleFileInput(forms.ClearableFileInput):
     allow_multiple_selected = True
@@ -27,6 +27,13 @@ class PromptGroupForm(forms.ModelForm):
     )
     model_info = forms.ModelChoiceField(
         queryset=AIModel.objects.all(), widget=forms.RadioSelect, label="生成模型", empty_label=None, required=True
+    )
+    provider = forms.ChoiceField(
+        choices=PROVIDER_CHOICES,
+        widget=forms.Select(attrs={'class': 'form-select'}),
+        label="生成渠道",
+        required=False,
+        initial='other'
     )
 
     def __init__(self, *args, **kwargs):
@@ -87,7 +94,7 @@ class PromptGroupForm(forms.ModelForm):
 
     class Meta:
         model = PromptGroup
-        fields = ['title', 'prompt_text', 'prompt_text_zh', 'negative_prompt', 'model_info', 'characters','tags']
+        fields = ['title', 'prompt_text', 'prompt_text_zh', 'negative_prompt', 'model_info', 'provider', 'characters','tags']
         widgets = {
             'title': forms.TextInput(attrs={
                 'class': 'form-control', 

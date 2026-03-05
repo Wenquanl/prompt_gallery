@@ -7,6 +7,17 @@ from django.utils import timezone
 from imagekit.models import ImageSpecField
 from imagekit.processors import ResizeToFit
 
+PROVIDER_CHOICES = [
+    ('fal_ai', 'Fal.ai'),
+    ('volcengine', '火山引擎'),
+    ('google_ai', 'Google AI (API)'),
+    ('gemini_web', 'Gemini 网页/APP'),  
+    ('midjourney', 'Midjourney'),
+    ('webui', 'Stable Diffusion WebUI'),
+    ('comfyui', 'ComfyUI'),
+    ('other', '其他渠道')
+]
+
 # === 工具函数 ===
 def unique_file_path(instance, filename):
     """生成唯一的图片/视频存储路径"""
@@ -65,6 +76,14 @@ class PromptGroup(models.Model):
     
     created_at = models.DateTimeField("创建时间", auto_now_add=True, db_index=True)
     is_liked = models.BooleanField("是否喜欢", default=False)
+    # 【新增】生成渠道字段
+    provider = models.CharField(
+        "生成渠道", 
+        max_length=50, 
+        choices=PROVIDER_CHOICES, 
+        default='other',
+        blank=True
+    )
     # 【新增】封面图字段，关联到 ImageItem
     cover_image = models.ForeignKey(
         'ImageItem', 
