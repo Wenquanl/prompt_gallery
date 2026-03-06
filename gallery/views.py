@@ -1896,7 +1896,7 @@ def api_publish_studio_creation(request):
         title = request.POST.get('title', '').strip()
         provider = request.POST.get('provider', 'other').strip()
         import re
-        clean_model_info = re.sub(r'\s*[\(（].*?[\)）]$', '', raw_model_info).strip()
+        clean_model_info = re.sub(r'\s*[\(（].*?[\)）]$', '', model_info).strip()
         tags_str = request.POST.get('tags', '').strip()
         chars_str = request.POST.get('characters', '').strip() 
         
