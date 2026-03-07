@@ -31,7 +31,7 @@ def load_model_on_startup():
     if _text_model is None:
         print(">>> [AI核心] 正在预加载本地文本大模型 (用于标题智能概括)...")
         try:
-            model_id = "Qwen/Qwen2.5-3B-Instruct"
+            model_id = "Qwen/Qwen2.5-1.5B-Instruct"
             _text_tokenizer = AutoTokenizer.from_pretrained(model_id)
             dtype = torch.float16 if device == 'cuda' else torch.float32
             _text_model = AutoModelForCausalLM.from_pretrained(

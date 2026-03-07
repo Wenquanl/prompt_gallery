@@ -850,13 +850,34 @@ def detail(request, pk):
 
     char_refs_data = []
     all_chars_for_ref = Character.objects.all().order_by('-order', 'name')
+    
     for char in all_chars_for_ref:
-        # 查找带有该人物标签的卡片所使用的所有参考图，取最新的 12 张
-        refs = ReferenceItem.objects.filter(group__characters=char).order_by('-id').distinct()[:12]
-        if refs.exists():
+        # 1. 查出带有该人物标签的所有参考图记录（按时间倒序，最新的在前）
+        raw_refs = ReferenceItem.objects.filter(group__characters=char).order_by('-id')
+        
+        unique_refs = []
+        seen_identifiers = set() # 用于记忆已经挑出来的图片指纹
+        
+        for ref in raw_refs:
+            if not ref.image:
+                continue
+                
+            # 2. 提取指纹：优先使用刚加上的 MD5 哈希，如果没有则使用文件路径
+            fingerprint = ref.image_hash if ref.image_hash else ref.image.name
+            
+            # 3. 如果这个指纹还没见过，说明是“新面孔”，加入展示列表
+            if fingerprint not in seen_identifiers:
+                seen_identifiers.add(fingerprint)
+                unique_refs.append(ref)
+                
+            # 4. 凑够 12 张【不重复】的独立图片就收手
+            if len(unique_refs) >= 12:
+                break
+                
+        if unique_refs:
             char_refs_data.append({
                 'character': char,
-                'refs': refs
+                'refs': unique_refs
             })
     
     return render(request, 'gallery/detail.html', {
@@ -920,7 +941,13 @@ def upload(request):
             else:
                 tag, _ = Tag.objects.get_or_create(name=tag_val)
                 group.tags.add(tag)
-
+        selected_chars = request.POST.getlist('characters')
+        for char_id in selected_chars:
+            if char_id.isdigit():
+                try:
+                    group.characters.add(char_id)
+                except Exception as e:
+                    print(f"添加人物标签失败: {e}")
         source_group_id = request.POST.get('source_group_id')
         print(f"DEBUG: 尝试克隆参考图，Source ID: {source_group_id}") # 调试打印 1
         

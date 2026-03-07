@@ -239,9 +239,5 @@ class ReferenceItem(models.Model):
         if hasattr(self.image, 'seek'):
             self.image.seek(0)
         
-        # === 修复 WinError 32 的核心 ===
-        if hasattr(self.image, 'close'):
-            self.image.close()
-
     def __str__(self): return f"参考图 ID: {self.id}"
     class Meta: verbose_name = "参考图"; verbose_name_plural = "参考图集"

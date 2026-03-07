@@ -1457,13 +1457,13 @@ window.enableParamEdit = function(field, currentValue, pk) {
         currentFocus = -1;
     };
 
-    inputEl.focus();
-
-    // 4. 事件监听器：输入、聚焦、失焦与丝滑启停动画
-    inputEl.addEventListener('focus', () => {
-        renderDropdown(inputEl.value);
-        dropdownEl.classList.add('show');
-    });
+    // 4. 强行延迟 50 毫秒（等待浏览器渲染完毕），然后直接展开下拉框并全选文字
+    setTimeout(() => {
+        renderDropdown('');               // 渲染所有选项
+        dropdownEl.classList.add('show'); // 强制显示下拉框
+        inputEl.focus();                  // 强制聚焦
+        inputEl.select();                 // 全选已有文字
+    }, 50);
 
     inputEl.addEventListener('input', () => {
         renderDropdown(inputEl.value);
