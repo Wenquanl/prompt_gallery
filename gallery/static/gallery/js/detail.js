@@ -420,7 +420,18 @@ function confirmDelete(event) {
                 if (data.status === 'success') {
                     // 处理整组删除
                     if (data.type === 'group') {
-                        window.location.href = '/'; 
+                        // 1. 读取当前详情页 URL 上附带的所有查询参数 (例如: ?page=3&q=猫咪&from=liked)
+                        const currentParams = window.location.search;
+                        const urlParams = new URLSearchParams(currentParams);
+                        
+                        // 2. 智能判断要退回的基础路径（是从首页进来的，还是从“喜欢”列表进来的）
+                        let redirectPath = '/';
+                        if (urlParams.get('from') === 'liked') {
+                            redirectPath = '/liked-images/';
+                        }
+                        
+                        // 3. 将原有的分页、搜索条件拼接到重定向 URL 中
+                        window.location.href = redirectPath + currentParams; 
                         return;
                     }
                     
