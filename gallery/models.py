@@ -215,15 +215,33 @@ class ReferenceItem(models.Model):
 
     # 【新增】哈希计算逻辑
     def calculate_hash(self):
+        if not self.image:
+            return
+
         md5 = hashlib.md5()
-        if self.image:
-            if hasattr(self.image, 'seek'):
-                self.image.seek(0)
+        if hasattr(self.image, 'seek'):
+            self.image.seek(0)
+            
+        try:
             for chunk in self.image.chunks():
                 md5.update(chunk)
-            self.image_hash = md5.hexdigest()
-            if hasattr(self.image, 'seek'):
-                self.image.seek(0)
+        except Exception:
+            try:
+                content = self.image.read()
+                md5.update(content)
+            except Exception as e:
+                print(f"计算哈希失败: {e}")
+                return 
+
+        self.image_hash = md5.hexdigest()
+        
+        # 将指针归零，并【显式关闭文件】释放 Windows 文件锁
+        if hasattr(self.image, 'seek'):
+            self.image.seek(0)
+        
+        # === 修复 WinError 32 的核心 ===
+        if hasattr(self.image, 'close'):
+            self.image.close()
 
     def __str__(self): return f"参考图 ID: {self.id}"
     class Meta: verbose_name = "参考图"; verbose_name_plural = "参考图集"

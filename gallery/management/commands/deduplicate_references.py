@@ -45,6 +45,10 @@ class Command(BaseCommand):
             current_path = ref.image.name
             
             if current_path != master_path:
+                # 【新增】：在尝试删除之前，强制关闭当前对象持有的文件句柄
+                if ref.image and not ref.image.closed:
+                    ref.image.close()
+                    
                 # 1. 尝试删除多余的物理文件
                 try:
                     if ref.image.storage.exists(current_path):
