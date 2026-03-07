@@ -414,6 +414,9 @@
         background-color: #ffe3ee !important; 
         color: #c2185b !important;
     }
+
+    .char-ref-card:hover { transform: scale(1.05); z-index: 10; box-shadow: 0 .5rem 1rem rgba(0,0,0,.15)!important; }
+    .char-ref-card:hover .char-ref-img { object-fit: contain !important; background-color: #f8f9fa; }
 </style>
 {% endblock %}
 
@@ -437,16 +440,63 @@
                 </div>
 
                 <div class="mb-4" id="ai-image-upload-block" style="display: none;">
-                    <label class="form-label fw-bold text-secondary small d-flex justify-content-between">
-                        <span>2. 上传参考图</span>
-                        <span id="ai-img-help" class="text-primary" style="font-size: 0.8rem;"></span>
-                    </label>
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <label class="form-label fw-bold text-secondary small mb-0">2. 上传参考图</label>
+                        <button type="button" class="btn btn-sm btn-outline-primary rounded-pill py-1 px-2" data-bs-toggle="modal" data-bs-target="#charRefModal" style="font-size:0.75rem; white-space: nowrap; line-height: 1;">
+                            <i class="bi bi-person-badge"></i> 人物图库
+                        </button>
+                    </div>
+                    <div id="ai-img-help" class="text-primary mb-2" style="font-size: 0.75rem; line-height: 1.4;"></div>
+                    
                     <div class="drag-drop-zone" id="drop-zone" onclick="document.getElementById('file-input-hidden').click()">
                         <i class="bi bi-cloud-arrow-up mb-2 d-block"></i>
                         <span class="text-muted fw-bold">点击选择，或将图片拖拽至此</span>
                     </div>
                     <input type="file" id="file-input-hidden" accept="image/*" onchange="handleFiles(this.files)">
                     <div id="preview-container"></div>
+                </div>
+
+                <div class="modal fade" id="charRefModal" tabindex="-1" aria-hidden="true">
+                    <div class="modal-dialog modal-dialog-centered modal-lg">
+                        <div class="modal-content border-0 shadow-lg rounded-4" style="background: rgba(255,255,255,0.95); backdrop-filter: blur(10px);">
+                            <div class="modal-header border-0 pb-0">
+                                <h5 class="modal-title fw-bold text-dark"><i class="bi bi-person-hearts me-2 text-danger"></i>快捷提取人物图鉴</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body pt-4">
+                                {% if char_refs_data %}
+                                    <div class="d-flex gap-2 overflow-auto py-2 custom-scrollbar" id="char-pills">
+                                        {% for item in char_refs_data %}
+                                            <button type="button" class="btn btn-outline-primary btn-sm rounded-pill char-filter-btn {% if forloop.first %}active{% endif %}" onclick="showCreateCharRefs('{{ item.character.id }}', this)">
+                                                {{ item.character.name }}
+                                            </button>
+                                        {% endfor %}
+                                    </div>
+                                    
+                                    <div id="char-ref-galleries" class="mt-3 p-2 bg-light rounded-3 shadow-sm border" style="min-height: 200px; max-height: 400px; overflow-y: auto;">
+                                        {% for item in char_refs_data %}
+                                            <div class="char-ref-gallery row g-2 {% if not forloop.first %}d-none{% endif %}" id="create-char-gallery-{{ item.character.id }}">
+                                                {% for ref in item.refs %}
+                                                    <div class="col-3 col-md-4 col-lg-3">
+                                                        <div class="char-ref-card-container position-relative">
+                                                            <div class="char-ref-card position-relative shadow-sm" onclick="extractExistingRefToCanvas('{{ ref.image.url }}')" style="cursor: pointer; border: 3px solid transparent; border-radius: 8px; overflow: hidden; transition: all 0.2s;">
+                                                                <img src="{{ ref.thumbnail.url|default:ref.image.url }}" alt="ref" class="char-ref-img" style="width: 100%; height: 120px; object-fit: cover; transition: all 0.3s ease;">
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                {% endfor %}
+                                            </div>
+                                        {% endfor %}
+                                    </div>
+                                {% else %}
+                                    <div class="text-center text-muted py-5">
+                                        <i class="bi bi-inbox fs-1"></i>
+                                        <p class="mt-2">暂无人物参考图记录。请先在其它作品中添加参考图并打上人物标签。</p>
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="mb-4" id="dynamic-params-container"></div>
@@ -1738,6 +1788,64 @@
             console.error(err);
             Swal.fire('请求异常', '网络或服务端报错', 'error');
         });
+    }
+
+    function showCreateCharRefs(charId, btnElement) {
+        document.querySelectorAll('#charRefModal .char-filter-btn').forEach(btn => btn.classList.remove('active'));
+        btnElement.classList.add('active');
+        
+        document.querySelectorAll('#charRefModal .char-ref-gallery').forEach(el => el.classList.add('d-none'));
+        const targetGallery = document.getElementById('create-char-gallery-' + charId);
+        if (targetGallery) targetGallery.classList.remove('d-none');
+    }
+    
+    // 核心黑科技：点击图片后，直接静默 fetch 成内存 File 对象并塞进当前上传队列
+    function extractExistingRefToCanvas(url) {
+        if (maxImagesAllowed === 0) {
+            Swal.fire('提示', '当前选中的生成模型不支持上传参考图！', 'info');
+            return;
+        }
+        if (currentFiles.length >= maxImagesAllowed && maxImagesAllowed > 1) {
+            Swal.fire('提示', `当前模型最多只能上传 ${maxImagesAllowed} 张参考图`, 'warning');
+            return;
+        }
+
+        Swal.fire({
+            title: '正在提取图鉴...',
+            allowOutsideClick: false,
+            didOpen: () => Swal.showLoading()
+        });
+
+        fetch(url)
+            .then(res => res.blob())
+            .then(blob => {
+                const filename = url.split('/').pop().split('?')[0] || 'reference_image.jpg';
+                const file = new File([blob], filename, { type: blob.type || 'image/jpeg' });
+                
+                // 将文件丢入系统已有的处理列表 (如果只支持单图就覆盖，否则追加)
+                if (maxImagesAllowed === 1) {
+                    currentFiles = [file];
+                } else {
+                    currentFiles.push(file);
+                }
+                renderPreviews(); // 渲染到侧边栏带红叉的缩略图区
+                
+                Swal.close();
+                
+                // 提取成功后，关闭图库模态框
+                const modalEl = document.getElementById('charRefModal');
+                const modalInstance = bootstrap.Modal.getInstance(modalEl);
+                if (modalInstance) modalInstance.hide();
+                
+                Swal.fire({
+                    toast: true, position: 'top', showConfirmButton: false, timer: 2000,
+                    icon: 'success', title: '已成功提取至工作区'
+                });
+            })
+            .catch(err => {
+                console.error("提取参考图失败:", err);
+                Swal.fire('提取失败', '无法读取服务器图片', 'error');
+            });
     }
 </script>
 {% endblock %}

@@ -45,7 +45,7 @@ urlpatterns = [
     path('api/generate-direct/', views.api_generate_and_download, name='api_generate_direct'),
     # 【新增】工作室一键发布作品卡片接口
     path('api/publish-studio/', views.api_publish_studio_creation, name='api_publish_studio'),
-    
+    path('api/launch-comfyui/', views.launch_comfyui, name='launch_comfyui'),
     path('api/get-similar-groups-by-prompt/', views.api_get_similar_groups_by_prompt, name='api_get_similar_groups_by_prompt'),
     path('api/append-to-existing-group/', views.api_append_to_existing_group, name='api_append_to_existing_group'),
 

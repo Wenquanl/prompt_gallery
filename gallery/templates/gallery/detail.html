@@ -713,6 +713,27 @@
         box-shadow: 0 4px 8px rgba(216, 27, 96, 0.15);
     }
     .tag-interactive.tag-char a { color: inherit; }
+
+    /* === 详情页：模型参数专属高级标签 === */
+    .model-param-badge {
+        background: linear-gradient(135deg, #f4f0ff 0%, #f9f5ff 100%);
+        color: #6d28d9; /* 深紫色文字 */
+        border: 1px solid #ddd6fe !important;
+        font-weight: 600;
+        letter-spacing: 0.3px;
+        transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    .model-param-badge i {
+        color: #8b5cf6; /* 图标稍微亮一点的紫色 */
+        font-size: 1.05rem;
+    }
+    .model-param-badge:hover {
+        background: linear-gradient(135deg, #ede9fe 0%, #f3e8ff 100%);
+        border-color: #c4b5fd !important;
+        color: #5b21b6;
+        transform: translateY(-2px);
+        box-shadow: 0 6px 15px rgba(109, 40, 217, 0.12);
+    }
 </style>
 
 <button class="fab-like-btn {% if group.is_liked %}liked{% endif %}" 
@@ -999,10 +1020,10 @@
                         <div class="d-flex align-items-center">
                             <strong class="text-muted me-2" style="width: 70px;">使用模型:</strong>
                             <span id="display-model_info" 
-                                  class="badge bg-light text-dark border cursor-pointer px-3 py-2 d-flex align-items-center" 
-                                  ondblclick="enableParamEdit('model_info', '{{ group.model_info|default:''|escapejs }}', {{ group.pk }})" 
-                                  title="双击修改模型">
-                                <i class="bi bi-robot me-1"></i><span>{{ group.model_info|default:"未填写" }}</span>
+                                class="badge cursor-pointer px-3 py-2 d-flex align-items-center model-param-badge" 
+                                ondblclick="enableParamEdit('model_info', '{{ group.model_info|default:''|escapejs }}', {{ group.pk }})" 
+                                title="双击修改模型">
+                                <i class="bi bi-cpu me-2"></i><span>{{ group.model_info|default:"未填写" }}</span>
                             </span>
                         </div>
                         

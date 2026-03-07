@@ -10,6 +10,7 @@ import requests
 import base64
 from rapidfuzz import fuzz
 import warnings 
+import subprocess
 from urllib3.exceptions import InsecureRequestWarning 
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
@@ -35,7 +36,8 @@ from .services import (
     trigger_background_processing,
     confirm_upload_images
 )
-
+# 填写本地 ComfyUI 的启动批处理文件（.bat）绝对路径
+COMFYUI_BAT_PATH = r"E:\comfyUI\启动.bat"
 # ==========================================
 # 终极配置中心 (Single Source of Truth)
 # ==========================================
@@ -1016,6 +1018,23 @@ def upload(request):
             else:
                 ReferenceItem.objects.create(group=group, image=rf, image_hash=file_hash)
 
+        existing_ref_ids = request.POST.getlist('existing_ref_ids')
+        if existing_ref_ids:
+            for ref_id in existing_ref_ids:
+                try:
+                    old_ref = ReferenceItem.objects.get(id=ref_id)
+                    if old_ref.image and old_ref.image.storage.exists(old_ref.image.name):
+                        if not old_ref.image_hash:
+                            old_ref.calculate_hash()
+                            old_ref.save(update_fields=['image_hash'])
+                            
+                        # 完全软引用
+                        new_ref = ReferenceItem(group=group, image_hash=old_ref.image_hash)
+                        new_ref.image.name = old_ref.image.name 
+                        new_ref.save()
+                except Exception as e:
+                    print(f"复用参考图失败 ID {ref_id}: {e}")
+
         if not created_image_ids:
             pass
         else:
@@ -1077,6 +1096,25 @@ def upload(request):
                 }
             except PromptGroup.DoesNotExist:
                 pass
+        
+        char_refs_data = []
+        all_chars_for_ref = Character.objects.all().order_by('-order', 'name')
+        
+        for char in all_chars_for_ref:
+            raw_refs = ReferenceItem.objects.filter(group__characters=char).order_by('-id')
+            unique_refs = []
+            seen_identifiers = set() 
+            
+            for ref in raw_refs:
+                if not ref.image: continue
+                fingerprint = ref.image_hash if ref.image_hash else ref.image.name
+                if fingerprint not in seen_identifiers:
+                    seen_identifiers.add(fingerprint)
+                    unique_refs.append(ref)
+                if len(unique_refs) >= 12: break
+                    
+            if unique_refs:
+                char_refs_data.append({'character': char, 'refs': unique_refs}) 
 
         form = PromptGroupForm(initial=initial_data)
         existing_titles = PromptGroup.objects.values_list('title', flat=True).distinct().order_by('title')
@@ -1091,6 +1129,7 @@ def upload(request):
             'batch_id': batch_id,
             'temp_files': temp_files_json,
             'source_group': source_group,
+            'char_refs_data': char_refs_data,
         })
 
 
@@ -1862,11 +1901,28 @@ def create_view(request):
     except Exception:
         pass
 
+    char_refs_data = []
+    all_chars_for_ref = Character.objects.all().order_by('-order', 'name')
+    for char in all_chars_for_ref:
+        raw_refs = ReferenceItem.objects.filter(group__characters=char).order_by('-id')
+        unique_refs = []
+        seen_identifiers = set() 
+        for ref in raw_refs:
+            if not ref.image: continue
+            fingerprint = ref.image_hash if ref.image_hash else ref.image.name
+            if fingerprint not in seen_identifiers:
+                seen_identifiers.add(fingerprint)
+                unique_refs.append(ref)
+            if len(unique_refs) >= 12: break
+        if unique_refs:
+            char_refs_data.append({'character': char, 'refs': unique_refs})
+
     return render(request, 'gallery/create.html', {
         'ai_config_json': json.dumps(AI_STUDIO_CONFIG),
         'initial_data_json': json.dumps(initial_data),
         'all_tags_json': json.dumps(all_tags),
         'all_chars_json': json.dumps(all_chars),
+        'char_refs_data': char_refs_data,
     })
 
 @csrf_exempt
@@ -2337,3 +2393,31 @@ def merge_variants_api(request):
         
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)})
+    
+@csrf_exempt
+def launch_comfyui(request):
+    """一键启动本地 ComfyUI 服务"""
+    if request.method == 'POST':
+        try:
+            if not os.path.exists(COMFYUI_BAT_PATH):
+                return JsonResponse({'status': 'error', 'message': f'找不到启动脚本，请检查路径: {COMFYUI_BAT_PATH}'})
+
+            # 获取 ComfyUI 所在的目录
+            comfyui_dir = os.path.dirname(COMFYUI_BAT_PATH)
+            
+            # 【新增核心逻辑】：拷贝当前环境变量，并剔除 Django 虚拟环境的干扰
+            clean_env = os.environ.copy()
+            clean_env.pop('VIRTUAL_ENV', None)   # 剥离虚拟环境路径
+            clean_env.pop('PYTHONPATH', None)    # 剥离 Python 搜索路径
+            
+            subprocess.Popen(
+                ['cmd.exe', '/k', COMFYUI_BAT_PATH],
+                cwd=comfyui_dir,
+                env=clean_env,  # 【新增】：将干净的环境变量传给 ComfyUI
+                creationflags=subprocess.CREATE_NEW_CONSOLE 
+            )
+            return JsonResponse({'status': 'success', 'message': '启动指令已发送'})
+        except Exception as e:
+            return JsonResponse({'status': 'error', 'message': str(e)})
+            
+    return JsonResponse({'status': 'error', 'message': '仅支持 POST 请求'})

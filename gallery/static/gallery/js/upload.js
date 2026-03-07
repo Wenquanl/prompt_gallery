@@ -399,3 +399,32 @@ function createThumbnail(file) {
         reader.readAsDataURL(file);
     });
 }
+
+function showCharRefs(charId, btnElement) {
+        document.querySelectorAll('.char-filter-btn').forEach(btn => btn.classList.remove('active'));
+        btnElement.classList.add('active');
+        document.querySelectorAll('.char-ref-gallery').forEach(el => el.classList.add('d-none'));
+        const targetGallery = document.getElementById('char-gallery-' + charId);
+        if (targetGallery) targetGallery.classList.remove('d-none');
+    }
+    
+    function toggleCharRefSelect(card, refId) {
+        card.classList.toggle('selected');
+        const badge = card.querySelector('.select-badge');
+        const hiddenContainer = document.getElementById('hidden-existing-refs');
+        if (card.classList.contains('selected')) {
+            card.style.borderColor = '#0d6efd';
+            badge.classList.remove('d-none');
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = 'existing_ref_ids';
+            input.value = refId;
+            input.id = 'hidden-ref-' + refId;
+            hiddenContainer.appendChild(input);
+        } else {
+            card.style.borderColor = 'transparent';
+            badge.classList.add('d-none');
+            const input = document.getElementById('hidden-ref-' + refId);
+            if (input) input.remove();
+        }
+    }

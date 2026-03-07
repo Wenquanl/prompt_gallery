@@ -1,5 +1,51 @@
 {% load static %}
-
+<style>
+    /* === 本地 ComfyUI 启动按钮专属动效 === */
+    .btn-comfyui-launch {
+        background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+        color: #166534 !important;
+        border-radius: 8px;
+        margin: 0 8px;
+        transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); /* 苹果风弹性动画 */
+        border: 1px solid transparent;
+    }
+    
+    /* 鼠标悬停：整体上浮、背景变深、增加绿色光晕阴影 */
+    .btn-comfyui-launch:hover {
+        background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%);
+        transform: translateY(-2px);
+        box-shadow: 0 6px 15px rgba(34, 197, 94, 0.25);
+        border-color: #bbf7d0;
+    }
+    
+    /* 鼠标点击：真实按压下沉感 */
+    .btn-comfyui-launch:active {
+        transform: translateY(1px) scale(0.98);
+        box-shadow: 0 2px 5px rgba(34, 197, 94, 0.15);
+    }
+    
+    /* 左侧绿灯图标框的过度动画 */
+    .btn-comfyui-launch .icon-circle {
+        transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    
+    /* 悬停时：左侧绿灯放大并微微发光 */
+    .btn-comfyui-launch:hover .icon-circle {
+        transform: scale(1.15);
+        box-shadow: 0 4px 10px rgba(34, 197, 94, 0.6) !important;
+    }
+    
+    /* 右侧小火箭的过度动画 */
+    .btn-comfyui-launch .bi-rocket-takeoff {
+        transition: all 0.3s ease;
+    }
+    
+    /* 悬停时：右侧小火箭向右上角“起飞”并变清晰 */
+    .btn-comfyui-launch:hover .bi-rocket-takeoff {
+        transform: translateY(-3px) translateX(3px);
+        opacity: 1 !important;
+    }
+</style>
 <form id="homeImageSearchForm" action="{% url 'home' %}" method="post" enctype="multipart/form-data" style="display:none;">
     {% csrf_token %}
     <input type="file" name="search_image" id="hiddenHomeImageInput" accept="image/*" onchange="document.getElementById('homeImageSearchForm').submit();">
@@ -61,6 +107,21 @@
                 </button>
                 <ul class="dropdown-menu toolbox-dropdown-menu shadow border-0 mt-2" 
                     style="border-radius: 12px; left: 50% !important; right: auto !important; transform: translateX(-50%) !important;">
+                    <li>
+                        <a class="dropdown-item d-flex align-items-center fw-bold py-2 px-3 mb-2 mt-1 btn-comfyui-launch" 
+                           href="javascript:void(0)" onclick="triggerComfyUI()">
+                           
+                            <div class="d-flex align-items-center justify-content-center me-2 icon-circle" 
+                                 style="width: 28px; height: 28px; background: #22c55e; border-radius: 50%; box-shadow: 0 2px 6px rgba(34, 197, 94, 0.4);">
+                                <i class="bi bi-power text-white" style="font-size: 14px;"></i>
+                            </div>
+                            
+                            本地 ComfyUI 服务
+                            
+                            <i class="bi bi-rocket-takeoff ms-auto text-success opacity-75"></i>
+                        </a>
+                    </li>
+                    <li><hr class="toolbox-divider"></li>
                     <li><h6 class="toolbox-header">图像生成</h6></li>
                     <li>
                         <a class="dropdown-item toolbox-item" href="https://jimeng.jianying.com/" target="_blank">
@@ -150,3 +211,53 @@
         </div>
     </div>
 </nav>
+<script>
+    function triggerComfyUI() {
+        // 关闭下拉菜单 (Bootstrap 5 API)
+        const dropdownEl = document.querySelector('.nav-toolbox-btn');
+        if (dropdownEl) {
+            const dropdownInstance = bootstrap.Dropdown.getInstance(dropdownEl);
+            if (dropdownInstance) dropdownInstance.hide();
+        }
+
+        Swal.fire({
+            title: '正在唤醒 ComfyUI...',
+            text: '请留意电脑是否弹出了新的终端运行窗口',
+            allowOutsideClick: false,
+            didOpen: () => Swal.showLoading()
+        });
+
+        fetch('/api/launch-comfyui/', {
+            method: 'POST',
+            // 取导航栏顶部表单里的 csrf token 
+            headers: {
+                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+            }
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success') {
+                Swal.fire({
+                    icon: 'success',
+                    title: '唤醒成功！',
+                    text: '本地终端已启动。请等待其加载完模型后，点击下方按钮进入工作流面板。',
+                    showCancelButton: true,
+                    confirmButtonText: '<i class="bi bi-browser-chrome"></i> 打开 ComfyUI 面板',
+                    cancelButtonText: '稍后手动打开',
+                    confirmButtonColor: '#166534'
+                }).then((result) => {
+                    if (result.isConfirmed) {
+                        // 默认的 ComfyUI 端口是 8188
+                        window.open('http://127.0.0.1:8188', '_blank');
+                    }
+                });
+            } else {
+                Swal.fire('启动失败', data.message, 'error');
+            }
+        })
+        .catch(err => {
+            console.error(err);
+            Swal.fire('请求异常', '无法连接到 Django 服务器', 'error');
+        });
+    }
+</script>
