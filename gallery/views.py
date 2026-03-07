@@ -8,8 +8,9 @@ import shutil
 import fal_client
 import requests
 import base64
-import warnings # 新增引入 warnings 模块
-from urllib3.exceptions import InsecureRequestWarning # 引入具体的警告类型
+from rapidfuzz import fuzz
+import warnings 
+from urllib3.exceptions import InsecureRequestWarning 
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
 from django.conf import settings
@@ -845,8 +846,10 @@ def detail(request, pk):
         ).distinct()[:4]
     
     tags_bar = get_tags_bar_data()
-
+    all_models_list = AIModel.objects.values_list('name', flat=True).order_by('name')
+    
     return render(request, 'gallery/detail.html', {
+        'all_models_list': all_models_list,        
         'group': group,
         'sorted_tags': tags_list,
         'chars_list': chars_list,
@@ -1336,6 +1339,8 @@ def update_group_prompts(request, pk):
             group.negative_prompt = data['negative_prompt']
         if 'model_info' in data:
             group.model_info = data['model_info']
+        if 'provider' in data:                    
+            group.provider = data['provider']
             
         group.save()
         return JsonResponse({'status': 'success'})
@@ -1574,7 +1579,7 @@ def set_group_cover(request, group_id, image_id):
 
 @require_GET
 def get_similar_candidates(request, pk):
-    """获取相似提示词的推荐候选 (用于关联版本)"""
+    """获取相似提示词的推荐候选 (用于关联版本) - ORM 极限优化版"""
     try:
         current_group = PromptGroup.objects.get(pk=pk)
     except PromptGroup.DoesNotExist:
@@ -1584,50 +1589,64 @@ def get_similar_candidates(request, pk):
     if len(my_content) < 5:
          return JsonResponse({'status': 'success', 'results': []})
 
-    # 1. 获取所有组的最新版本 ID (避免推荐同组的历史版本)
+    my_words = set(w for w in re.split(r'[\s,，.。;；|()（）]+', my_content) if len(w) > 2)
+
     group_stats = PromptGroup.objects.values('group_id').annotate(max_id=Max('id'))
     latest_ids = [item['max_id'] for item in group_stats]
     
-    # 2. 查询候选集 (排除当前组，限制数量以保证性能)
-    # 取最新的 1000 个组作为候选池
-    candidates = PromptGroup.objects.filter(id__in=latest_ids).exclude(group_id=current_group.group_id).order_by('-id')[:1000]
+    # 【核心优化1】：用 values_list 只取 id 和 文本，不取完整对象
+    candidates_data = PromptGroup.objects.filter(id__in=latest_ids).exclude(
+        group_id=current_group.group_id
+    ).values_list('id', 'prompt_text').order_by('-id')[:1000]
     
     recommendations = []
     
-    for other in candidates:
-        other_content = (other.prompt_text or "").strip().lower()
+    for other_id, other_content in candidates_data:
+        other_content = (other_content or "").strip().lower()
         if not other_content: continue
         
-        # 简单预筛: 长度差异过大直接跳过
         max_len = max(len(my_content), len(other_content))
         if max_len == 0: continue
         if abs(len(my_content) - len(other_content)) > max_len * 0.7: 
             continue
 
-        # 计算相似度
-        ratio = difflib.SequenceMatcher(None, my_content, other_content).ratio()
+        other_words = set(w for w in re.split(r'[\s,，.。;；|()（）]+', other_content) if len(w) > 2)
+        if my_words and other_words:
+            overlap = len(my_words.intersection(other_words))
+            max_possible = min(len(my_words), len(other_words))
+            if max_possible > 0 and (overlap / max_possible) < 0.15:
+                continue
+
+        ratio = fuzz.ratio(my_content, other_content) / 100.0
         
-        # 相似度 > 30% 即可推荐 (关联推荐可以放宽一点)
         if ratio > 0.3: 
-            recommendations.append((ratio, other))
+            recommendations.append((ratio, other_id))
             
-    # 按相似度降序排列，取前 20 个
     recommendations.sort(key=lambda x: x[0], reverse=True)
     top_recs = recommendations[:20]
     
+    top_ids = [item[1] for item in top_recs]
+    
+    # 【核心优化2】：一次性提取前 20 的完整对象并预加载图片
+    groups_dict = PromptGroup.objects.prefetch_related('images').in_bulk(top_ids)
+    
     results = []
-    for ratio, group in top_recs:
-        # 复用封面获取逻辑
+    for ratio, group_id in top_recs:
+        if group_id not in groups_dict:
+            continue
+            
+        group = groups_dict[group_id]
         cover_url = ""
-        cover_img = group.cover_image # 优先用封面
+        cover_img = group.cover_image 
+        
         if not cover_img:
             images = group.images.all()
             for img in images:
                 if not img.is_video:
                     cover_img = img
                     break
-            if not cover_img and images.exists():
-                cover_img = images.first()
+            if not cover_img and images:
+                cover_img = images[0]
         
         if cover_img:
              try:
@@ -1643,7 +1662,7 @@ def get_similar_candidates(request, pk):
             'title': group.title,
             'prompt_text': group.prompt_text[:200] if group.prompt_text else '',
             'cover_url': cover_url,
-            'similarity': f"{int(ratio*100)}%" # 返回相似度百分比
+            'similarity': f"{int(ratio*100)}%" 
         })
         
     return JsonResponse({'status': 'success', 'results': results})
@@ -1969,39 +1988,72 @@ def api_publish_studio_creation(request):
 @csrf_exempt
 @require_POST
 def api_get_similar_groups_by_prompt(request):
-    """根据前端传来的 Prompt 文本，计算全库相似度并返回排序后的作品列表 (包含所有系列的历史版本)"""
+    """根据前端传来的 Prompt 文本，计算全库相似度并返回排序后的作品列表 - ORM 极限优化修复版"""
     try:
         data = json.loads(request.body)
         prompt_text = data.get('prompt', '').strip().lower()
         
-        candidates = PromptGroup.objects.all().order_by('-id')[:2000]
+        prompt_words = set(w for w in re.split(r'[\s,，.。;；|()（）]+', prompt_text) if len(w) > 2)
+        
+        # 不实例化对象，只提取 id 和 文本
+        candidates_data = PromptGroup.objects.values_list('id', 'prompt_text').order_by('-id')[:2000]
+        
         recommendations = []
         
-        for other in candidates:
-            other_content = (other.prompt_text or "").strip().lower()
+        for other_id, other_content in candidates_data:
+            other_content = (other_content or "").strip().lower()
+            ratio = 0.0
+            
             if len(prompt_text) > 0 and len(other_content) > 0:
-                ratio = difflib.SequenceMatcher(None, prompt_text, other_content).ratio()
+                max_len = max(len(prompt_text), len(other_content))
+                # 只有符合预过滤条件的，才去执行耗时的相似度计算
+                if abs(len(prompt_text) - len(other_content)) <= max_len * 0.7:
+                    other_words = set(w for w in re.split(r'[\s,，.。;；|()（）]+', other_content) if len(w) > 2)
+                    if prompt_words and other_words:
+                        overlap = len(prompt_words.intersection(other_words))
+                        max_possible = min(len(prompt_words), len(other_words))
+                        if max_possible > 0 and (overlap / max_possible) >= 0.15:
+                            # 已经装了 rapidfuzz 就用 fuzz.ratio，没装就换回 difflib
+                            ratio = fuzz.ratio(prompt_text, other_content) / 100.0
+                
+                # 【关键修复 1】：无论相似度多低，甚至被上面的粗筛拦截（ratio 依然是 0.0），
+                # 都要无条件加进候选列表！这样才能实现原版的“按最新时间兜底”功能。
+                recommendations.append((ratio, other_id))
+                
             elif len(prompt_text) == 0:
                 ratio = 0.0 
+                recommendations.append((ratio, other_id))
             else:
+                # 搜索词不为空，但对方没有提示词，跳过
                 continue
-            recommendations.append((ratio, other.id, other))
             
+        # 【关键修复 2】：必须加入 x[1] 作为第二排序条件，当 ratio 都是 0.0 时，按 ID 倒序（最新）展示
         recommendations.sort(key=lambda x: (x[0], x[1]), reverse=True)
         top_recs = recommendations[:15]
         
+        # 提取排名前 15 的 ID
+        top_ids = [item[1] for item in top_recs]
+        
+        # 一次性去数据库拉取完整对象，并预加载图片和人物 (解决 N+1 查询阻塞)
+        groups_dict = PromptGroup.objects.prefetch_related('images', 'characters').in_bulk(top_ids)
+        
         results = []
-        for ratio, group_id, group in top_recs:
+        for ratio, group_id in top_recs:
+            if group_id not in groups_dict:
+                continue
+                
+            group = groups_dict[group_id]
             cover_url = ""
             cover_img = group.cover_image
+            
             if not cover_img:
-                images = group.images.all()
+                images = group.images.all() 
                 for img in images:
                     if not img.is_video:
                         cover_img = img
                         break
-                if not cover_img and images.exists():
-                    cover_img = images.first()
+                if not cover_img and images:
+                    cover_img = images[0]
             
             if cover_img:
                  try:
@@ -2012,7 +2064,6 @@ def api_get_similar_groups_by_prompt(request):
                  except:
                      pass
             
-            # 【重点新增】：提取人物标签列表
             chars_list = []
             if hasattr(group, 'characters'):
                 chars_list = [char.name for char in group.characters.all()]
@@ -2024,11 +2075,13 @@ def api_get_similar_groups_by_prompt(request):
                 'cover_url': cover_url,
                 'similarity': f"{int(ratio*100)}%" if len(prompt_text) > 0 else "-",
                 'model_info': group.model_info or "无模型",
-                'characters': chars_list # 【重点新增】：传给前端
+                'characters': chars_list
             })
             
         return JsonResponse({'status': 'success', 'results': results})
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return JsonResponse({'status': 'error', 'message': str(e)})
 
 @csrf_exempt

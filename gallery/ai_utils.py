@@ -31,7 +31,7 @@ def load_model_on_startup():
     if _text_model is None:
         print(">>> [AI核心] 正在预加载本地文本大模型 (用于标题智能概括)...")
         try:
-            model_id = "Qwen/Qwen2.5-0.5B-Instruct"
+            model_id = "Qwen/Qwen2.5-3B-Instruct"
             _text_tokenizer = AutoTokenizer.from_pretrained(model_id)
             dtype = torch.float16 if device == 'cuda' else torch.float32
             _text_model = AutoModelForCausalLM.from_pretrained(
@@ -56,11 +56,24 @@ def generate_title_with_local_llm(prompt_text):
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
         
         system_prompt = """你是一个专业的AI绘画策展人。请为下面的绘画提示词创作一个简短、有美感的中文作品标题。
-                            要求：
-                            1. 敏锐捕捉核心主体（如具体的人物角色、服装打扮）和环境意境；
-                            2. 坚决忽略所有关于画质、镜头、光影和渲染的参数（如3D CG、超写实摄影、胶片、8k、LOMO等）；
-                            3. 必须是纯中文，高度凝练，严格控制在15个字以内；
-                            4. 直接输出最终的标题，绝对不要带任何标点符号、引号或多余的解释。"""
+要求：
+1. 敏锐捕捉核心主体（如人物角色、核心场景）和环境意境。
+2. 坚决忽略画质、镜头、光影和渲染参数（如masterpiece, 8k, unreal engine, photorealistic等）。
+3. 必须是纯中文，高度凝练，严格控制在 2 到 8 个字之间。
+4. 直接输出最终标题，绝对不要带标点符号、引号或多余的解释。
+
+示例1：
+提示词：1girl, solo, outdoors, night, looking at viewer, masterpiece, best quality, ultra-detailed, 8k, photorealistic
+输出：月下少女
+
+示例2：
+提示词：A futuristic city with flying cars, cyberpunk style, neon lights, unreal engine 5 render, cinematic lighting, octane render
+输出：赛博霓虹之城
+
+示例3：
+提示词：A cute cat sleeping on a sofa, warm sunlight, lazy afternoon, 35mm lens, kodak film
+输出：午后萌猫
+"""
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": f"提示词：{prompt_text}"}
@@ -71,8 +84,8 @@ def generate_title_with_local_llm(prompt_text):
 
         generated_ids = _text_model.generate(
             model_inputs.input_ids,
-            max_new_tokens=40,      
-            temperature=0.3,        
+            max_new_tokens=20,      
+            temperature=0.1,        
             repetition_penalty=1.1, 
             do_sample=True
         )

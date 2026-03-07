@@ -1397,3 +1397,161 @@ function setMainVariantSibling(e, pk) {
     e.preventDefault(); e.stopPropagation();
     setMainVariant(pk); // 复用上面的逻辑
 }
+
+window.enableParamEdit = function(field, currentValue, pk) {
+    const displaySpan = document.getElementById(`display-${field}`);
+    if (!displaySpan || displaySpan.querySelector('input')) return; 
+
+    // 1. 获取原有的 datalist 数据，并转化为 JS 数组
+    const listId = field === 'model_info' ? 'model-list' : 'provider-list';
+    const datalist = document.getElementById(listId);
+    const options = Array.from(datalist.options).map(opt => ({
+        value: opt.value,
+        text: opt.text || opt.value // 获取显示的文本（如：fal_ai (Fal AI)）
+    }));
+
+    displaySpan.dataset.originalHtml = displaySpan.innerHTML;
+
+    // 2. 注入带有高级 CSS 类的全新结构，去掉原生 list 属性
+    displaySpan.innerHTML = `
+        <div class="custom-param-container">
+            <input type="text" 
+                   id="input-${field}" 
+                   class="custom-param-input" 
+                   value="${currentValue}" 
+                   autocomplete="off"
+                   placeholder="输入或选择...">
+            <div id="dropdown-${field}" class="custom-param-dropdown"></div>
+        </div>
+    `;
+    
+    const inputEl = document.getElementById(`input-${field}`);
+    const dropdownEl = document.getElementById(`dropdown-${field}`);
+    let currentFocus = -1; // 键盘上下键的索引
+
+    // 3. 渲染优雅的下拉菜单内容
+    const renderDropdown = (filterText = '') => {
+        const lowerFilter = filterText.toLowerCase();
+        // 模糊搜索
+        const filtered = options.filter(o => o.value.toLowerCase().includes(lowerFilter) || o.text.toLowerCase().includes(lowerFilter));
+
+        if (filtered.length === 0) {
+            dropdownEl.innerHTML = '<div class="p-2 text-muted small text-center"><i class="bi bi-magic me-1"></i>按回车创建新标签</div>';
+        } else {
+            dropdownEl.innerHTML = filtered.map(o => `
+                <div class="custom-param-item" data-value="${o.value}">
+                    <i class="bi bi-chevron-right text-indigo-300 opacity-50 me-2" style="font-size:0.7rem;"></i>${o.text}
+                </div>
+            `).join('');
+        }
+
+        // 为每一个选项绑定点击事件 (使用 mousedown 是为了在 input 的 blur 触发前执行)
+        dropdownEl.querySelectorAll('.custom-param-item').forEach((item, index) => {
+            item.addEventListener('mousedown', (e) => {
+                e.preventDefault(); 
+                inputEl.value = item.dataset.value;
+                dropdownEl.classList.remove('show');
+                inputEl.blur(); // 赋值后手动触发失去焦点，执行保存
+            });
+        });
+        currentFocus = -1;
+    };
+
+    inputEl.focus();
+
+    // 4. 事件监听器：输入、聚焦、失焦与丝滑启停动画
+    inputEl.addEventListener('focus', () => {
+        renderDropdown(inputEl.value);
+        dropdownEl.classList.add('show');
+    });
+
+    inputEl.addEventListener('input', () => {
+        renderDropdown(inputEl.value);
+        dropdownEl.classList.add('show');
+    });
+
+    inputEl.addEventListener('blur', () => {
+        // 延迟移除，让动画有时间播放完成，并执行保存逻辑
+        dropdownEl.classList.remove('show');
+        saveParamEdit(field, pk, inputEl.value.trim(), currentValue, displaySpan);
+    });
+
+    // 5. 键盘导航逻辑 (完美支持上下箭头与回车)
+    inputEl.addEventListener('keydown', function(e) {
+        let items = dropdownEl.querySelectorAll('.custom-param-item');
+        
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            currentFocus++;
+            addActive(items);
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            currentFocus--;
+            addActive(items);
+        } else if (e.key === 'Enter') {
+            e.preventDefault();
+            if (currentFocus > -1 && items.length > 0) {
+                // 如果用键盘选定了某一项，直接模拟点击
+                items[currentFocus].dispatchEvent(new Event('mousedown'));
+            } else {
+                // 如果没选，直接保存框里的内容
+                dropdownEl.classList.remove('show');
+                inputEl.blur();
+            }
+        } else if (e.key === 'Escape') {
+            dropdownEl.classList.remove('show');
+            displaySpan.innerHTML = displaySpan.dataset.originalHtml;
+        }
+    });
+
+    // 辅助函数：处理键盘上下高亮状态
+    function addActive(items) {
+        if (!items || items.length === 0) return;
+        removeActive(items);
+        if (currentFocus >= items.length) currentFocus = 0;
+        if (currentFocus < 0) currentFocus = items.length - 1;
+        
+        items[currentFocus].classList.add('active');
+        // 自动滚动到可视区域
+        items[currentFocus].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+
+    function removeActive(items) {
+        items.forEach(item => item.classList.remove('active'));
+    }
+};
+
+function saveParamEdit(field, pk, newValue, oldValue, displaySpan) {
+    // 如果没有实质性修改，恢复原状并退出
+    if (newValue === oldValue) {
+        displaySpan.innerHTML = displaySpan.dataset.originalHtml;
+        return;
+    }
+    
+    const payload = {};
+    payload[field] = newValue;
+    
+    fetch(`/update-prompts/${pk}/`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCookie('csrftoken') 
+        },
+        body: JSON.stringify(payload)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            // 保存成功后刷新页面 (确保根据新的 provider 渲染出对应的颜色和图标)
+            window.location.reload();
+        } else {
+            alert('修改失败: ' + data.message);
+            displaySpan.innerHTML = displaySpan.dataset.originalHtml;
+        }
+    })
+    .catch(error => {
+        console.error('保存参数时发生错误:', error);
+        alert('网络错误，修改失败');
+        displaySpan.innerHTML = displaySpan.dataset.originalHtml;
+    });
+}

@@ -5,6 +5,86 @@
 
 {% block content %}
 <style>
+    /* === 参数编辑自定义下拉框动效 === */
+    .custom-param-container {
+        position: relative;
+        display: inline-block;
+    }
+    
+    .custom-param-input {
+        width: 220px;
+        border-radius: 8px;
+        border: 2px solid #a5b4fc; /* 浅紫罗兰色边框 */
+        padding: 4px 12px;
+        font-size: 0.9rem;
+        outline: none;
+        box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.1);
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        color: #1e293b;
+    }
+    .custom-param-input:focus {
+        border-color: #6366f1; /* 聚焦时变深 */
+        box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.2);
+    }
+
+    .custom-param-dropdown {
+        position: absolute;
+        top: calc(100% + 8px);
+        left: 0;
+        min-width: 100%;
+        max-height: 240px;
+        overflow-y: auto;
+        
+        /* 核心：毛玻璃拟态背景 */
+        background: rgba(255, 255, 255, 0.85);
+        backdrop-filter: blur(16px) saturate(180%);
+        -webkit-backdrop-filter: blur(16px) saturate(180%);
+        border: 1px solid rgba(255, 255, 255, 0.5);
+        border-radius: 12px;
+        box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.15), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+        z-index: 1060;
+        
+        /* 核心：优雅的弹性入场动画初始状态 */
+        opacity: 0;
+        visibility: hidden;
+        transform: translateY(-10px) scale(0.98);
+        transform-origin: top center;
+        transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); /* 苹果风格弹性曲线 */
+        
+        padding: 6px;
+    }
+
+    /* 激活状态：丝滑展开 */
+    .custom-param-dropdown.show {
+        opacity: 1;
+        visibility: visible;
+        transform: translateY(0) scale(1);
+    }
+
+    .custom-param-item {
+        padding: 8px 12px;
+        cursor: pointer;
+        font-size: 0.85rem;
+        color: #475569;
+        border-radius: 8px;
+        transition: all 0.2s ease;
+        display: flex;
+        align-items: center;
+    }
+
+    .custom-param-item:hover, .custom-param-item.active {
+        background: #e0e7ff; /* 浅靛蓝高亮 */
+        color: #4f46e5;
+        font-weight: 500;
+        transform: translateX(4px); /* 悬停时微微向右缩进交互 */
+    }
+
+    /* 滚动条美化 */
+    .custom-param-dropdown::-webkit-scrollbar { width: 6px; }
+    .custom-param-dropdown::-webkit-scrollbar-track { background: transparent; }
+    .custom-param-dropdown::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+    .custom-param-dropdown::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
     /* === 1. 悬浮喜欢按钮 (New) === */
     .fab-like-btn {
         position: fixed;
@@ -737,10 +817,11 @@
     <div class="row gx-lg-5 detail-split-view">
         <div class="col-lg-8 mb-5 mb-lg-0 detail-scroll-left">
             
-            <div class="d-flex justify-content-between align-items-start mb-3">
+            <div class="d-flex justify-content-between align-items-center mb-3">
 
-                <div class="d-flex align-items-center flex-grow-1">
-                    <button class="btn btn-sm me-2 rounded-circle p-0 d-flex align-items-center justify-content-center" 
+                <div class="d-flex align-items-center flex-grow-1" style="min-width: 0;">
+                    
+                    <button class="btn btn-sm me-2 rounded-circle p-0 d-flex align-items-center justify-content-center flex-shrink-0" 
                             style="width: 32px; height: 32px; transition: all 0.2s; {% if group.is_main_variant %}background:#ffc107; color:#fff;{% else %}background:#f1f3f5; color:#adb5bd;{% endif %}"
                             onclick="setMainVariant({{ group.pk }})"
                             title="{% if group.is_main_variant %}当前是首页展示的主版本{% else %}点击设为首页展示的主版本{% endif %}"
@@ -748,7 +829,7 @@
                         <i class="bi bi-star-fill" style="font-size: 1rem;"></i>
                     </button>
 
-                    <button class="btn btn-sm rounded-pill px-3 me-2 text-white shadow-sm d-flex align-items-center" 
+                    <button class="btn btn-sm rounded-pill px-3 me-2 text-white shadow-sm d-flex align-items-center flex-shrink-0" 
                             onclick="openAiStudioModal()"
                             title="一键带入参数至 AI 工作室"
                             data-bs-toggle="tooltip"
@@ -756,15 +837,15 @@
                         <i class="bi bi-magic me-1"></i>工作室
                     </button>
 
-                    <h2 class="fw-bold text-dark mb-0 p-2 rounded" 
+                    <h2 class="fw-bold text-dark mb-0 p-2 rounded text-truncate" 
                         ondblclick="enableTitleEdit(this, {{ group.pk }})" 
-                        title="双击修改标题" 
+                        title="{{ group.title }} (双击修改标题)" 
                         style="cursor: text; margin-left: -0.5rem; transition: background-color 0.2s;">
                         {{ group.title }}
                     </h2>
                 </div>
                 
-                <button id="btn-enter-batch" class="btn btn-outline-secondary btn-sm ms-2 rounded-pill px-3" style="margin-top: 8px;">
+                <button id="btn-enter-batch" class="btn btn-outline-secondary btn-sm ms-2 rounded-pill px-3 flex-shrink-0">
                     <i class="bi bi-check2-square me-1"></i>批量管理
                 </button>
             </div>
@@ -890,42 +971,62 @@
         <div class="col-lg-4 ps-lg-4 detail-scroll-right">
             <div class="sticky-sidebar">
                 
-                <div class="prompt-card p-4 mb-4">
+                <datalist id="model-list">
+                    {% for m in all_models_list %}
+                        <option value="{{ m }}"></option>
+                    {% endfor %}
+                </datalist>
+                <datalist id="provider-list">
+                    <option value="fal_ai">fal_ai (Fal AI)</option>
+                    <option value="volcengine">volcengine (火山引擎)</option>
+                    <option value="google_ai">google_ai (Google AI)</option>
+                    <option value="gemini_web">gemini_web (Gemini Web)</option>
+                    <option value="other">other (其他)</option>
+                </datalist>
+
+                <div class="prompt-card p-4 mb-4" style="position: relative; z-index: 10; overflow: visible;">
                     <div class="section-header">
                         <span class="section-label text-primary">参数</span>
                         <div class="d-flex align-items-center gap-2">
                             <a href="{% url 'upload' %}?template_id={{ group.pk }}" class="btn btn-sm btn-outline-primary rounded-pill px-3" title="使用当前提示词和参考图，更换模型重新生成">
                                 <i class="bi bi-git me-1"></i>新模型版本
                             </a>
-                            <button onclick="enableEdit('modelInfo', this)" class="btn btn-sm btn-outline-secondary rounded-pill px-3 btn-edit-prompt"><i class="bi bi-pencil me-1"></i>编辑</button>
-                            <div class="edit-actions" style="display:none;">
-                                <button onclick="savePrompt('modelInfo', {{ group.pk }}, 'model')" class="btn btn-sm btn-success rounded-pill px-3 me-1" title="保存"><i class="bi bi-check-lg"></i></button>
-                                <button onclick="cancelEdit('modelInfo')" class="btn btn-sm btn-outline-secondary rounded-pill px-3" title="取消"><i class="bi bi-x-lg"></i></button>
-                            </div>
-                            <button onclick="copyTextHandler('modelInfo', this)" class="btn btn-sm btn-outline-primary rounded-pill px-3" {% if not group.model_info %}disabled{% endif %}><i class="bi bi-clipboard me-1"></i>复制</button>
+                            <span class="text-muted small ms-2"><i class="bi bi-info-circle me-1"></i>双击下方标签即可编辑</span>
                         </div>
                     </div>
-                    <div class="mb-3 d-flex align-items-center flex-wrap gap-2">
-                        <div class="prompt-box m-0" id="modelInfo" style="margin-bottom: 0 !important;">
-                            {% if group.model_info %}
-                                {{ group.model_info }}
-                            {% else %}
-                                <span class="empty-text">未填写</span>
-                            {% endif %}
+                    
+                    <div class="mb-3 d-flex flex-column gap-2">
+                        <div class="d-flex align-items-center">
+                            <strong class="text-muted me-2" style="width: 70px;">使用模型:</strong>
+                            <span id="display-model_info" 
+                                  class="badge bg-light text-dark border cursor-pointer px-3 py-2 d-flex align-items-center" 
+                                  ondblclick="enableParamEdit('model_info', '{{ group.model_info|default:''|escapejs }}', {{ group.pk }})" 
+                                  title="双击修改模型">
+                                <i class="bi bi-robot me-1"></i><span>{{ group.model_info|default:"未填写" }}</span>
+                            </span>
                         </div>
                         
-                        {% if group.provider == 'fal_ai' %}
-                            <span class="badge bg-dark"><i class="bi bi-rocket-takeoff me-1"></i>{{ group.get_provider_display }}</span>
-                        {% elif group.provider == 'volcengine' %}
-                            <span class="badge bg-primary"><i class="bi bi-cloud-check me-1"></i>{{ group.get_provider_display }}</span>
-                        {% elif group.provider == 'google_ai' %}
-                            <span class="badge bg-warning text-dark"><i class="bi bi-google me-1"></i>{{ group.get_provider_display }}</span>
-                        {% elif group.provider == 'gemini_web' %}
-                            <span class="badge bg-info text-dark"><i class="bi bi-browser-chrome me-1"></i>{{ group.get_provider_display }}</span>
-                        {% elif group.provider and group.provider != 'other' %}
-                            <span class="badge bg-secondary"><i class="bi bi-cpu me-1"></i>{{ group.get_provider_display }}</span>
-                        {% endif %}
+                        <div class="d-flex align-items-center">
+                            <strong class="text-muted me-2" style="width: 70px;">生成渠道:</strong>
+                            <span id="display-provider" 
+                                  class="badge cursor-pointer px-3 py-2 d-flex align-items-center 
+                                  {% if group.provider == 'fal_ai' %}bg-dark text-white
+                                  {% elif group.provider == 'volcengine' %}bg-primary text-white
+                                  {% elif group.provider == 'google_ai' %}bg-warning text-dark
+                                  {% elif group.provider == 'gemini_web' %}bg-info text-dark
+                                  {% else %}bg-secondary text-white{% endif %}" 
+                                  ondblclick="enableParamEdit('provider', '{{ group.provider|default:''|escapejs }}', {{ group.pk }})" 
+                                  title="双击修改渠道">
+                                {% if group.provider == 'fal_ai' %}<i class="bi bi-rocket-takeoff me-1"></i>
+                                {% elif group.provider == 'volcengine' %}<i class="bi bi-cloud-check me-1"></i>
+                                {% elif group.provider == 'google_ai' %}<i class="bi bi-google me-1"></i>
+                                {% elif group.provider == 'gemini_web' %}<i class="bi bi-browser-chrome me-1"></i>
+                                {% else %}<i class="bi bi-cpu me-1"></i>{% endif %}
+                                <span>{{ group.provider|default:"other" }}</span>
+                            </span>
+                        </div>
                     </div>            
+                    
                     <div class="border-top pt-3">
                         <ul class="list-unstyled mb-0 text-secondary small">
                             <li class="d-flex align-items-center">
