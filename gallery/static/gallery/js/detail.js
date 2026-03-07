@@ -1055,6 +1055,101 @@ document.addEventListener('DOMContentLoaded', function() {
     document.querySelector('.detail-scroll-right')?.addEventListener('scroll', update);
 });
 
+// ================= 版本合并管理 (手动选择合并 - 增强兼容版) =================
+
+// 1. 使用全局事件委托监听复选框，彻底解决监听不到的问题
+document.addEventListener('change', function(e) {
+    // 只要触发变化的元素是带有 variant-merge-checkbox 类的复选框
+    if (e.target && e.target.classList.contains('variant-merge-checkbox')) {
+        
+        const checkedCount = document.querySelectorAll('.variant-merge-checkbox:checked').length;
+        const mergeBtn = document.getElementById('btn-merge-selected');
+        const mergeCountSpan = document.getElementById('merge-count');
+
+        if (!mergeBtn) {
+            console.error('⚠️ 找不到合并按钮，请检查 detail.html 中是否正确添加了 id="btn-merge-selected" 的代码！');
+            return;
+        }
+
+        if (checkedCount > 0) {
+            // 使用 important 强行覆盖隐藏样式
+            mergeBtn.style.setProperty('display', 'inline-block', 'important'); 
+            if (mergeCountSpan) mergeCountSpan.innerText = checkedCount;
+        } else {
+            mergeBtn.style.setProperty('display', 'none', 'important');
+        }
+    }
+});
+
+// 2. 使用全局事件委托监听合并按钮点击
+document.addEventListener('click', function(e) {
+    // 判断点击的是不是合并按钮 (或者按钮里的图标/文字)
+    const mergeBtn = e.target.closest('#btn-merge-selected');
+    if (!mergeBtn) return;
+
+    e.preventDefault();
+    
+    const selectedIds = Array.from(document.querySelectorAll('.variant-merge-checkbox:checked')).map(cb => cb.value);
+    const mainGroupId = getCurrentGroupId(); 
+
+    if (!mainGroupId) {
+        Swal.fire('错误', '无法获取当前作品ID', 'error');
+        return;
+    }
+
+    Swal.fire({
+        title: `确认合并这 ${selectedIds.length} 个版本？`,
+        text: "被合并版本内的所有图片将转移至当前组，并且原来的空壳版本将被永久删除！此操作不可恢复。",
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#ffc107',
+        cancelButtonColor: '#6c757d',
+        confirmButtonText: '确认合并',
+        cancelButtonText: '取消'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            
+            Swal.fire({
+                title: '正在合并...',
+                allowOutsideClick: false,
+                didOpen: () => { Swal.showLoading(); }
+            });
+
+            fetch('/api/merge-variants/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCookie('csrftoken') 
+                },
+                body: JSON.stringify({
+                    main_group_id: mainGroupId,
+                    merge_ids: selectedIds
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    Swal.fire({
+                        icon: 'success', 
+                        title: '合并完成', 
+                        text: data.message,
+                        timer: 1500,
+                        showConfirmButton: false
+                    }).then(() => {
+                        window.location.reload(); 
+                    });
+                } else {
+                    Swal.fire('合并失败', data.message, 'error');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                Swal.fire('网络错误', '请求未能成功，请检查网络或控制台', 'error');
+            });
+        }
+    });
+});
+
 // ================= 版本关联管理 (支持多选) =================
 
 // ================= 版本关联管理 (支持多选 & 自动推荐) =================

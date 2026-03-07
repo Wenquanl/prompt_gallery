@@ -851,8 +851,7 @@
                     {% for related in related_groups %}
                     <div class="rec-item-container">
                         <div class="rec-card-ultra">
-                            <a href="{% url 'detail' related.pk %}?back_to_detail_id={{ group.pk }}" class="text-decoration-none d-block">
-                                <div class="rec-img-full">
+                            <a href="{% url 'detail' related.pk %}?from={{ request.GET.from|default:'home' }}&page={{ request.GET.page|default:'1' }}{% if request.GET.q %}&q={{ request.GET.q|urlencode }}{% endif %}{% if request.GET.filter %}&filter={{ request.GET.filter }}{% endif %}&back_to_detail_id={{ group.pk }}" class="text-decoration-none d-block">                                <div class="rec-img-full">
                                     {% with cover=related.cover_image|default:related.images.first %}
                                         {% if cover %}
                                             {% if cover.is_video and not cover.thumbnail %}
@@ -1008,16 +1007,23 @@
                             <h6 class="card-title text-primary fw-bold mb-0" style="font-size: 0.9rem;">
                                 <i class="bi bi-layers-fill me-2"></i>其他版本 ({{ siblings|length }})
                             </h6>
-                            <button class="btn btn-sm rounded-pill px-3 shadow-sm btn-link-interactive" style="font-size: 0.75rem;" onclick="openLinkModal()" title="关联现有图片到此系列">
-                                <i class="bi bi-link-45deg me-1"></i>关联
-                            </button>
+                            <div class="d-flex gap-2"> 
+                                <button id="btn-merge-selected" class="btn btn-sm btn-warning text-dark rounded-pill px-3 shadow-sm" style="font-size: 0.75rem; display: none;" title="将选中的版本合并到当前">
+                                    <i class="bi bi-sign-merge-left-fill me-1"></i>合并 (<span id="merge-count">0</span>)
+                                </button>
+                                <button class="btn btn-sm rounded-pill px-3 shadow-sm btn-link-interactive" style="font-size: 0.75rem;" onclick="openLinkModal()" title="关联现有图片到此系列">
+                                    <i class="bi bi-link-45deg me-1"></i>关联
+                                </button>
+                            </div>
                         </div>
                         
                         <div class="d-flex flex-column gap-2">
                             {% for sib in siblings %}
                             <div class="position-relative sibling-group">
-                                <a href="{% url 'detail' sib.pk %}" class="d-flex align-items-center p-2 bg-white rounded-3 border text-decoration-none shadow-sm sibling-card">
-                                    <div class="sibling-thumb-wrapper">
+                                <input type="checkbox" class="form-check-input variant-merge-checkbox position-absolute" 
+                                    value="{{ sib.pk }}" 
+                                    style="top: -5px; left: -5px; z-index: 10; transform: scale(1.2); cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                                    <a href="{% url 'detail' sib.pk %}?from={{ request.GET.from|default:'home' }}&page={{ request.GET.page|default:'1' }}{% if request.GET.q %}&q={{ request.GET.q|urlencode }}{% endif %}{% if request.GET.filter %}&filter={{ request.GET.filter }}{% endif %}&back_to_detail_id={{ group.pk }}" class="d-flex align-items-center p-2 bg-white rounded-3 border text-decoration-none shadow-sm sibling-card">                                    <div class="sibling-thumb-wrapper">
                                         {% with cover=sib.cover_image|default:sib.images.first %}
                                             {% if cover %}
                                                 {% if cover.is_video %}
@@ -1060,7 +1066,22 @@
                                                     <i class="bi bi-person-fill me-1"></i>{{ char.name }}
                                                 </span>
                                             {% endfor %}
-                                            
+                                            {% if sib.references.exists %}
+                                            <div class="d-flex align-items-center border rounded-pill shadow-sm" 
+                                                 style="background-color: #fff; padding: 2px 6px; height: 20px;" 
+                                                 title="该版本使用了 {{ sib.references.count }} 张参考图">
+                                                <i class="bi bi-image text-secondary me-1" style="font-size: 0.6rem;"></i>
+                                                <div class="d-flex align-items-center">
+                                                    {% for ref in sib.references.all|slice:":3" %}
+                                                        <img src="{{ ref.image.url }}" class="border border-white" 
+                                                             style="width: 14px; height: 14px; border-radius: 3px; object-fit: cover; {% if not forloop.first %}margin-left: -6px;{% endif %} position: relative; z-index: {{ 10|add:forloop.revcounter }};">
+                                                    {% endfor %}
+                                                    {% if sib.references.count > 3 %}
+                                                        <span class="ms-1 text-secondary" style="font-size: 0.6rem; font-weight: bold; line-height: 1;">+</span>
+                                                    {% endif %}
+                                                </div>
+                                            </div>
+                                            {% endif %}
                                         </div>
                                         <div class="sibling-diff-wrapper custom-scrollbar">
                                             {{ sib.diff_html|safe }}

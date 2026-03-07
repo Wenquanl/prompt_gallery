@@ -2154,3 +2154,43 @@ def api_generate_title(request):
         
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)})
+
+@require_POST
+def merge_variants_api(request):
+    """手动将选中的版本合并到当前提示词组"""
+    try:
+        data = json.loads(request.body)
+        main_group_id = data.get('main_group_id')
+        merge_ids = data.get('merge_ids', [])
+
+        if not main_group_id or not merge_ids:
+            return JsonResponse({'status': 'error', 'message': '参数不完整'})
+
+        # 获取主卡片
+        main_group = get_object_or_404(PromptGroup, id=main_group_id)
+        
+        # 获取需要被合并的卡片（排除自己，防止逻辑错误）
+        groups_to_merge = PromptGroup.objects.filter(id__in=merge_ids).exclude(id=main_group_id)
+
+        merged_count = 0
+        for group in groups_to_merge:
+            # 1. 转移生成图片和参考图
+            ImageItem.objects.filter(group=group).update(group=main_group)
+            ReferenceItem.objects.filter(group=group).update(group=main_group)
+            
+            # 2. 如果主卡片没封面，借用一下
+            if not main_group.cover_image and group.cover_image:
+                main_group.cover_image = group.cover_image
+                main_group.save()
+                
+            # 3. 删除空壳组
+            group.delete()
+            merged_count += 1
+
+        return JsonResponse({
+            'status': 'success', 
+            'message': f'成功合并了 {merged_count} 个版本！'
+        })
+        
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': str(e)})
