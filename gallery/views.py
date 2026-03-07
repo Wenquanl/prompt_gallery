@@ -847,6 +847,17 @@ def detail(request, pk):
     
     tags_bar = get_tags_bar_data()
     all_models_list = AIModel.objects.values_list('name', flat=True).order_by('name')
+
+    char_refs_data = []
+    all_chars_for_ref = Character.objects.all().order_by('-order', 'name')
+    for char in all_chars_for_ref:
+        # 查找带有该人物标签的卡片所使用的所有参考图，取最新的 12 张
+        refs = ReferenceItem.objects.filter(group__characters=char).order_by('-id').distinct()[:12]
+        if refs.exists():
+            char_refs_data.append({
+                'character': char,
+                'refs': refs
+            })
     
     return render(request, 'gallery/detail.html', {
         'all_models_list': all_models_list,        
@@ -862,6 +873,7 @@ def detail(request, pk):
         'videos_list': videos_list,
         'prev_group': prev_group,
         'next_group': next_group,
+        'char_refs_data': char_refs_data,
     })
 
 
@@ -925,26 +937,24 @@ def upload(request):
                         # 创建新对象
                         new_ref = ReferenceItem(group=group)
                         
-                        # 显式打开文件（使用 with 语句更安全）
                         try:
-                            # 必须确保文件存在
                             if not ref.image.storage.exists(ref.image.name):
                                 print(f"DEBUG: 原文件不存在于磁盘: {ref.image.name}")
                                 continue
 
-                            with ref.image.open('rb') as f:
-                                # 读取内容
-                                file_content = ContentFile(f.read())
-                                # 生成新文件名
-                                original_name = os.path.basename(ref.image.name)
-                                # 保存
-                                new_ref.image.save(f"copy_{original_name}", file_content, save=True)
-                                print("DEBUG: 复制成功")
+                            # 补全旧图的哈希（如果老图没有哈希）
+                            if not ref.image_hash:
+                                ref.calculate_hash()
+                                ref.save(update_fields=['image_hash'])
+
+                            # 直接复用哈希和路径，不再 read() 和 save() 文件内容
+                            new_ref.image_hash = ref.image_hash
+                            new_ref.image.name = ref.image.name
+                            new_ref.save()
+                            print("DEBUG: 参考图软引用复用成功")
                                 
                         except Exception as inner_e:
-                            print(f"DEBUG: 复制单个文件失败: {inner_e}")
-                            # 这里不要 raise，防止一张图失败导致整个流程失败
-                            # 但一定要打印出来看是什么错
+                            print(f"DEBUG: 复用单个文件失败: {inner_e}")
 
             except PromptGroup.DoesNotExist:
                 print("DEBUG: 源组 ID 未找到")
@@ -968,7 +978,16 @@ def upload(request):
             
         ref_files = request.FILES.getlist('upload_references')
         for rf in ref_files:
-            ReferenceItem.objects.create(group=group, image=rf)
+            file_hash = calculate_file_hash(rf)
+            existing_ref = ReferenceItem.objects.filter(image_hash=file_hash).first()
+            
+            # 如果这图库里已经有了，就软引用；如果没有，就正常创建
+            if existing_ref and existing_ref.image and existing_ref.image.storage.exists(existing_ref.image.name):
+                ref = ReferenceItem(group=group, image_hash=file_hash)
+                ref.image.name = existing_ref.image.name
+                ref.save()
+            else:
+                ReferenceItem.objects.create(group=group, image=rf, image_hash=file_hash)
 
         if not created_image_ids:
             pass
@@ -1230,11 +1249,40 @@ def add_references_to_group(request, pk):
 
         try:
             files = request.FILES.getlist('new_references')
+            existing_ref_ids = request.POST.getlist('existing_ref_ids')
             new_refs = []
+            # 处理本地新上传的图
             if files:
                 for f in files:
-                    ref = ReferenceItem.objects.create(group=group, image=f)
+                    file_hash = calculate_file_hash(f)
+                    existing_ref = ReferenceItem.objects.filter(image_hash=file_hash).first()
+                    
+                    if existing_ref and existing_ref.image and existing_ref.image.storage.exists(existing_ref.image.name):
+                        # 【去重】：不保存新文件，直接复用老文件的路径
+                        ref = ReferenceItem(group=group, image_hash=file_hash)
+                        ref.image.name = existing_ref.image.name
+                        ref.save()
+                    else:
+                        ref = ReferenceItem.objects.create(group=group, image=f, image_hash=file_hash)
                     new_refs.append(ref)
+            # 【新增】处理从图库中快捷选择的老图 (物理复制一份文件防互相影响)
+            if existing_ref_ids:
+                for ref_id in existing_ref_ids:
+                    try:
+                        old_ref = ReferenceItem.objects.get(id=ref_id)
+                        if old_ref.image and old_ref.image.storage.exists(old_ref.image.name):
+                            # 补全旧图的哈希
+                            if not old_ref.image_hash:
+                                old_ref.calculate_hash()
+                                old_ref.save(update_fields=['image_hash'])
+                                
+                            # 【去重】：完全不再物理复制，直接软引用复用路径！
+                            new_ref = ReferenceItem(group=group, image_hash=old_ref.image_hash)
+                            new_ref.image.name = old_ref.image.name 
+                            new_ref.save()
+                            new_refs.append(new_ref)
+                    except Exception as e:
+                        print(f"复用参考图失败 ID {ref_id}: {e}")
             
             if is_ajax:
                 html_list = []
@@ -1270,7 +1318,13 @@ def delete_group(request, pk):
                 img.image.delete(save=False)
         for ref in group.references.all():
             if ref.image:
-                ref.image.delete(save=False)
+                # 【新增】删除整组时也要排查参考图是否被借用
+                is_shared = False
+                if ref.image_hash:
+                    is_shared = ReferenceItem.objects.filter(image_hash=ref.image_hash).exclude(group=group).exists()
+                if not is_shared:
+                    ref.image.delete(save=False)
+
         group.delete()
         
         if is_ajax:
@@ -1312,7 +1366,16 @@ def delete_reference(request, pk):
                   request.META.get('HTTP_X_REQUESTED_WITH') == 'XMLHttpRequest'
                   
         try:
-            item.image.delete(save=False)
+            if item.image:
+                # 【新增】检查是否还有其他卡片在复用这个物理文件
+                is_shared = False
+                if item.image_hash:
+                    is_shared = ReferenceItem.objects.filter(image_hash=item.image_hash).exclude(pk=item.pk).exists()
+                
+                # 只有在这张图完全没有被其他人引用的情况下，才从硬盘物理删除
+                if not is_shared:
+                    item.image.delete(save=False)
+
             item.delete()
             
             if is_ajax:

@@ -1009,20 +1009,21 @@
                         <div class="d-flex align-items-center">
                             <strong class="text-muted me-2" style="width: 70px;">生成渠道:</strong>
                             <span id="display-provider" 
-                                  class="badge cursor-pointer px-3 py-2 d-flex align-items-center 
-                                  {% if group.provider == 'fal_ai' %}bg-dark text-white
-                                  {% elif group.provider == 'volcengine' %}bg-primary text-white
-                                  {% elif group.provider == 'google_ai' %}bg-warning text-dark
-                                  {% elif group.provider == 'gemini_web' %}bg-info text-dark
-                                  {% else %}bg-secondary text-white{% endif %}" 
-                                  ondblclick="enableParamEdit('provider', '{{ group.provider|default:''|escapejs }}', {{ group.pk }})" 
-                                  title="双击修改渠道">
+                                class="badge cursor-pointer px-3 py-2 d-flex align-items-center 
+                                {% if group.provider == 'fal_ai' %}bg-dark text-white
+                                {% elif group.provider == 'volcengine' %}bg-primary text-white
+                                {% elif group.provider == 'google_ai' %}bg-warning text-dark
+                                {% elif group.provider == 'gemini_web' %}bg-info text-dark
+                                {% else %}bg-secondary text-white{% endif %}" 
+                                ondblclick="enableParamEdit('provider', '{{ group.provider|default:''|escapejs }}', {{ group.pk }})" 
+                                title="双击修改渠道">
                                 {% if group.provider == 'fal_ai' %}<i class="bi bi-rocket-takeoff me-1"></i>
                                 {% elif group.provider == 'volcengine' %}<i class="bi bi-cloud-check me-1"></i>
                                 {% elif group.provider == 'google_ai' %}<i class="bi bi-google me-1"></i>
                                 {% elif group.provider == 'gemini_web' %}<i class="bi bi-browser-chrome me-1"></i>
                                 {% else %}<i class="bi bi-cpu me-1"></i>{% endif %}
-                                <span>{{ group.provider|default:"other" }}</span>
+                                
+                                <span>{{ group.get_provider_display|default:"其他渠道" }}</span>
                             </span>
                         </div>
                     </div>            

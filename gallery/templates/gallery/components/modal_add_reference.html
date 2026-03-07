@@ -9,17 +9,66 @@
                 <form id="addReferenceForm" action="{% url 'add_references' group.pk %}" method="post" enctype="multipart/form-data" onsubmit="handleImageUpload(event)">
                     {% csrf_token %}
                     
-                    <div id="zone-modal-ref" class="upload-zone-modal">
-                        <i class="bi bi-images"></i>
-                        <p>点击或将图片拖拽至此 (参考图)</p>
-                        <input type="file" name="new_references" id="input-modal-ref" multiple accept="image/*,video/*">
+                    <ul class="nav nav-pills mb-3" id="refTab" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active rounded-pill px-4" id="upload-tab" data-bs-toggle="tab" data-bs-target="#upload-ref" type="button" role="tab"><i class="bi bi-cloud-upload me-1"></i>本地上传</button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link rounded-pill px-4" id="char-tab" data-bs-toggle="tab" data-bs-target="#char-ref" type="button" role="tab"><i class="bi bi-person-badge me-1"></i>人物快捷参考</button>
+                        </li>
+                    </ul>
+
+                    <div class="tab-content" id="refTabContent">
+                        <div class="tab-pane fade show active" id="upload-ref" role="tabpanel">
+                            <div id="zone-modal-ref" class="upload-zone-modal">
+                                <i class="bi bi-images"></i>
+                                <p>点击或将图片拖拽至此 (参考图)</p>
+                                <input type="file" name="new_references" id="input-modal-ref" multiple accept="image/*,video/*">
+                            </div>
+                            <div id="preview-modal-ref" class="preview-container-modal"></div>
+                        </div>
+                        
+                        <div class="tab-pane fade" id="char-ref" role="tabpanel">
+                            {% if char_refs_data %}
+                                <div class="d-flex gap-2 overflow-auto py-2 custom-scrollbar" id="char-pills">
+                                    {% for item in char_refs_data %}
+                                        <button type="button" class="btn btn-outline-primary btn-sm rounded-pill char-filter-btn {% if forloop.first %}active{% endif %}" onclick="showCharRefs('{{ item.character.id }}', this)">
+                                            {{ item.character.name }}
+                                        </button>
+                                    {% endfor %}
+                                </div>
+                                
+                                <div id="char-ref-galleries" class="mt-3 p-2 bg-light rounded-3" style="min-height: 200px; max-height: 400px; overflow-y: auto;">
+                                    {% for item in char_refs_data %}
+                                        <div class="char-ref-gallery row g-2 {% if not forloop.first %}d-none{% endif %}" id="char-gallery-{{ item.character.id }}">
+                                            {% for ref in item.refs %}
+                                                <div class="col-3 col-md-4 col-lg-3">
+                                                    <div class="char-ref-card position-relative shadow-sm" onclick="toggleCharRefSelect(this, '{{ ref.id }}')" style="cursor: pointer; border: 3px solid transparent; border-radius: 8px; overflow: hidden; transition: all 0.2s;">
+                                                        <img src="{{ ref.thumbnail.url|default:ref.image.url }}" alt="ref" style="width: 100%; height: 120px; object-fit: cover;">
+                                                        
+                                                        <div class="position-absolute top-0 end-0 p-1 select-badge d-none">
+                                                            <i class="bi bi-check-circle-fill text-primary fs-4 bg-white rounded-circle" style="line-height: 1;"></i>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            {% endfor %}
+                                        </div>
+                                    {% endfor %}
+                                </div>
+                                
+                                <div id="hidden-existing-refs"></div>
+                            {% else %}
+                                <div class="text-center text-muted py-5">
+                                    <i class="bi bi-inbox fs-1"></i>
+                                    <p class="mt-2">暂无人物参考图记录。请先在其它作品中添加参考图并打上人物标签。</p>
+                                </div>
+                            {% endif %}
+                        </div>
                     </div>
 
-                    <div id="preview-modal-ref" class="preview-container-modal"></div>
-
-                    <div class="d-grid">
+                    <div class="d-grid mt-4">
                         <button type="submit" class="btn btn-info text-white rounded-pill fw-bold border-0">
-                            <i class="bi bi-cloud-upload me-2"></i>上传参考图
+                            <i class="bi bi-cloud-upload me-2"></i>确认添加
                         </button>
                     </div>
                 </form>
@@ -27,3 +76,44 @@
         </div>
     </div>
 </div>
+
+<script>
+    // 切换不同人物的参考图相册
+    function showCharRefs(charId, btnElement) {
+        document.querySelectorAll('.char-filter-btn').forEach(btn => btn.classList.remove('active'));
+        btnElement.classList.add('active');
+        
+        document.querySelectorAll('.char-ref-gallery').forEach(el => el.classList.add('d-none'));
+        const targetGallery = document.getElementById('char-gallery-' + charId);
+        if (targetGallery) {
+            targetGallery.classList.remove('d-none');
+        }
+    }
+    
+    // 点击图片卡片：选中 / 取消选中
+    function toggleCharRefSelect(card, refId) {
+        card.classList.toggle('selected');
+        const badge = card.querySelector('.select-badge');
+        const hiddenContainer = document.getElementById('hidden-existing-refs');
+        
+        if (card.classList.contains('selected')) {
+            card.style.borderColor = '#0d6efd';
+            badge.classList.remove('d-none');
+            
+            // 动态创建隐藏 input，随表单 POST 到后端
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = 'existing_ref_ids';
+            input.value = refId;
+            input.id = 'hidden-ref-' + refId;
+            hiddenContainer.appendChild(input);
+        } else {
+            card.style.borderColor = 'transparent';
+            badge.classList.add('d-none');
+            
+            // 移除对应的隐藏 input
+            const input = document.getElementById('hidden-ref-' + refId);
+            if (input) input.remove();
+        }
+    }
+</script>

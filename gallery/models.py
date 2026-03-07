@@ -192,6 +192,8 @@ class ImageItem(models.Model):
 class ReferenceItem(models.Model):
     group = models.ForeignKey(PromptGroup, on_delete=models.CASCADE, related_name='references', verbose_name="所属提示词组")
     image = models.FileField("参考文件", upload_to=reference_file_path)
+    # 【新增】增加哈希字段，用于去重
+    image_hash = models.CharField("MD5哈希", max_length=32, blank=True, db_index=True)
     
     thumbnail = ImageSpecField(source='image',
                                processors=[ResizeToFit(width=300, upscale=False)],
@@ -204,6 +206,24 @@ class ReferenceItem(models.Model):
             return False
         ext = os.path.splitext(self.image.name)[1].lower()
         return ext in ['.mp4', '.mov', '.avi', '.webm', '.mkv']
+
+    # 【新增】保存时自动计算哈希
+    def save(self, *args, **kwargs):
+        if not self.image_hash and self.image:
+            self.calculate_hash()
+        super().save(*args, **kwargs)
+
+    # 【新增】哈希计算逻辑
+    def calculate_hash(self):
+        md5 = hashlib.md5()
+        if self.image:
+            if hasattr(self.image, 'seek'):
+                self.image.seek(0)
+            for chunk in self.image.chunks():
+                md5.update(chunk)
+            self.image_hash = md5.hexdigest()
+            if hasattr(self.image, 'seek'):
+                self.image.seek(0)
 
     def __str__(self): return f"参考图 ID: {self.id}"
     class Meta: verbose_name = "参考图"; verbose_name_plural = "参考图集"
