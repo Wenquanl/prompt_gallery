@@ -2,7 +2,7 @@
 <div class="gallery-pagination-wrapper">
     
     {% if groups.has_previous %}
-    <a href="?page={{ groups.previous_page_number }}{% if search_query %}&q={{ search_query }}{% endif %}{% if current_filter %}&filter={{ current_filter }}{% endif %}{% if request.GET.search_id %}&search_id={{ request.GET.search_id }}{% endif %}" class="page-btn">
+    <a href="?page={{ groups.previous_page_number }}{% if url_params %}&{{ url_params }}{% endif %}" class="page-btn">
         <i class="bi bi-chevron-left"></i>
     </a>
     {% else %}
@@ -17,15 +17,14 @@
             {% if groups.number == num %}
                 <span class="page-btn active">{{ num }}</span>
             {% else %}
-                <a href="?page={{ num }}{% if search_query %}&q={{ search_query }}{% endif %}{% if current_filter %}&filter={{ current_filter }}{% endif %}{% if request.GET.search_id %}&search_id={{ request.GET.search_id }}{% endif %}" 
-                   class="page-btn">{{ num }}</a>
+                <a href="?page={{ num }}{% if url_params %}&{{ url_params }}{% endif %}" class="page-btn">{{ num }}</a>
             {% endif %}
         {% endif %}
         
     {% endfor %}
 
     {% if groups.has_next %}
-    <a href="?page={{ groups.next_page_number }}{% if search_query %}&q={{ search_query }}{% endif %}{% if current_filter %}&filter={{ current_filter }}{% endif %}{% if request.GET.search_id %}&search_id={{ request.GET.search_id }}{% endif %}" class="page-btn">
+    <a href="?page={{ groups.next_page_number }}{% if url_params %}&{{ url_params }}{% endif %}" class="page-btn">
         <i class="bi bi-chevron-right"></i>
     </a>
     {% else %}
@@ -38,7 +37,47 @@
                min="1" max="{{ groups.paginator.num_pages }}" 
                placeholder="页码"
                data-max-page="{{ groups.paginator.num_pages }}">
-        <button type="button" id="btnJumpPage" class="page-jump-btn">Go</button>
+        <button type="button" id="btnJumpPage" class="page-jump-btn" data-url-params="{{ url_params|default:'' }}">Go</button>
     </div>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const jumpBtn = document.getElementById('btnJumpPage');
+    const jumpInput = document.getElementById('jumpPageInput');
+    
+    if (jumpBtn && jumpInput) {
+        // 如果你之前的 JS 文件里已经写过 btnJumpPage 的点击事件，请用这段逻辑覆盖它
+        function executeJump() {
+            const page = jumpInput.value;
+            const maxPage = parseInt(jumpInput.getAttribute('data-max-page'), 10);
+            const urlParams = jumpBtn.getAttribute('data-url-params');
+            
+            if (page && page >= 1 && page <= maxPage) {
+                // 拼接页码和筛选参数
+                let newUrl = '?page=' + page;
+                if (urlParams) {
+                    newUrl += '&' + urlParams;
+                }
+                window.location.href = newUrl;
+            } else {
+                alert('请输入有效的页码（1 - ' + maxPage + '）');
+            }
+        }
+
+        // 绑定点击事件 (先移除可能存在的旧事件，防止重复触发)
+        const newJumpBtn = jumpBtn.cloneNode(true);
+        jumpBtn.parentNode.replaceChild(newJumpBtn, jumpBtn);
+        newJumpBtn.addEventListener('click', executeJump);
+
+        // 绑定回车键事件
+        jumpInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                executeJump();
+            }
+        });
+    }
+});
+</script>
 {% endif %}

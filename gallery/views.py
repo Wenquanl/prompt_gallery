@@ -5,6 +5,7 @@ import uuid
 import json
 import re
 import shutil
+import hashlib
 import fal_client
 import requests
 import base64
@@ -12,6 +13,7 @@ from rapidfuzz import fuzz
 import warnings 
 import subprocess
 import meilisearch
+from collections import defaultdict
 from urllib3.exceptions import InsecureRequestWarning 
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
@@ -557,8 +559,14 @@ def home(request):
     query = request.GET.get('q')
     filter_type = request.GET.get('filter')
     search_id = request.GET.get('search_id')
-
-    # === 1. 处理以图搜图提交 (POST) -> 转为 GET ===
+    
+    f_liked = request.GET.get('f_liked')
+    f_video = request.GET.get('f_video')
+    f_multi = request.GET.get('f_multi')
+    f_models = request.GET.getlist('f_model')  # 允许同名多个参数 (多选)
+    f_chars = request.GET.getlist('f_char')
+    f_tags = request.GET.getlist('f_tag')
+    # === 处理以图搜图提交 (POST) -> 转为 GET ===
     if request.method == 'POST' and request.FILES.get('search_image'):
         try:
             search_file = request.FILES['search_image']
@@ -580,7 +588,7 @@ def home(request):
             messages.error(request, "搜索过程中发生错误")
             return redirect('home')
 
-    # === 2. 处理以图搜图结果展示 (GET) ===
+    # === 处理以图搜图结果展示 (GET) ===
     if search_id:
         cache_key = f"home_search_{search_id}"
         cached_data = cache.get(cache_key)
@@ -617,7 +625,7 @@ def home(request):
     if query:
         try:
             # 尝试向 Meilisearch 发起毫秒级搜索 (填入你的 Master Key)
-            client = meilisearch.Client('http://127.0.0.1:7700', '你的MasterKey')
+            client = meilisearch.Client('http://127.0.0.1:7700', 'dq49aaqs-RYHbIfKGMOFJRrfco3jP-0Ubj4gcX9caBc')
             search_res = client.index('prompts').search(query, {
                 'limit': 100  # 获取最相关的前 100 条
             })
@@ -645,12 +653,46 @@ def home(request):
                 Q(tags__name__icontains=query)
             ).distinct()
     
-    if filter_type == 'liked':
+    # 基础状态筛选
+    if f_liked == '1' or filter_type == 'liked':
         queryset = queryset.filter(is_liked=True)
+    if f_video == '1':
+        queryset = queryset.filter(
+            # 1. 检查多图列表里是否包含视频
+            Q(images__image__icontains='.mp4') |
+            Q(images__image__icontains='.mov') |
+            Q(images__image__icontains='.avi') |
+            Q(images__image__icontains='.webm') |
+            Q(images__image__icontains='.mkv') |
+            # 2. 修复：跨表检查 cover_image 外键里的 image 字段
+            Q(cover_image__image__icontains='.mp4') |
+            Q(cover_image__image__icontains='.mov') |
+            Q(cover_image__image__icontains='.webm')
+        ).distinct()
+    if f_multi == '1':
+        queryset = queryset.annotate(img_count=Count('images')).filter(img_count__gt=1)
+        
+    # 模型筛选 (OR 逻辑：选了A或B都展示)
+    if f_models:
+        queryset = queryset.filter(model_info__in=f_models)
+        
+    # 人物筛选 (OR 逻辑)
+    if f_chars:
+        queryset = queryset.filter(characters__name__in=f_chars).distinct()
+        
+    # 标签筛选 (AND 逻辑：必须同时包含选中的多个标签，用于精准定位)
+    if f_tags:
+        for t in f_tags:
+            queryset = queryset.filter(tags__name=t)
 
     # === 版本去重与计数逻辑 ===
     version_counts = {}
-    if not query and not filter_type and not search_id:
+    
+    # 判断当前是否处于“高级筛选”状态
+    is_filtering = any([f_liked, f_video, f_multi, f_models, f_chars, f_tags])
+    
+    # 只有在：没搜文字、没以图搜图、且【没有开启任何组合筛选】时，才折叠去重
+    if not query and not search_id and not is_filtering:
         group_stats = PromptGroup.objects.values('group_id').annotate(
             main_id=Max(Case(When(is_main_variant=True, then='id'), output_field=IntegerField())),
             latest_id=Max('id'),
@@ -664,24 +706,44 @@ def home(request):
         
         queryset = queryset.filter(id__in=final_ids)
 
-    # === 5. 终极性能优化：统一执行 N+1 预加载 ===
+    # === 统一执行 N+1 预加载 ===
     # 无论上面走了哪个分支，最后统一下达预加载指令，将首页原本的 40+ 次查询压缩到 4 次
     queryset = queryset.select_related(
         'cover_image'
     ).prefetch_related(
         'images', 'tags', 'characters'
     )
-
+    # === 收集提供给前端侧边栏的数据 ===
     tags_bar = get_tags_bar_data()
+
+    # 获取所有的模型名称列表
+    model_names_list = list(AIModel.objects.values_list('name', flat=True))
+    
+    # 获取各维度筛选项并统计卡片数量 (过滤掉没有作品被关联的空标签/人物)
+    filter_data = {
+        'models': model_names_list,
+        'chars': Character.objects.annotate(use_count=Count('promptgroup')).filter(use_count__gt=0).order_by('-use_count'),
+        # 获取最常用的前 50 个普通标签（排除掉作为模型名的标签，防止和模型筛选重复）
+        'tags': Tag.objects.exclude(name__in=model_names_list).annotate(use_count=Count('promptgroup')).filter(use_count__gt=0).order_by('-use_count')[:50]
+    }
+
+    # === 分页与数据组装 ===
     paginator = Paginator(queryset, 12)
     page_number = request.GET.get('page')
     page = paginator.get_page(page_number)
     page_obj = paginator.get_page(page_number)
     page_range = page.paginator.get_elided_page_range(page.number, on_each_side=5, on_ends=1)
+    # 统计总卡片数量
     total_groups_count = PromptGroup.objects.values('group_id').distinct().count()
-
+    # 将计算好的版本数量绑定到每个对象上供前端展示
     for group in page_obj:
         group.version_count = version_counts.get(group.id, 0)
+
+    # 复制一份当前的 GET 请求参数，把 'page' 剔除掉，剩下的打包成 url 字符串
+    query_dict = request.GET.copy()
+    if 'page' in query_dict:
+        del query_dict['page']
+    url_params = query_dict.urlencode()
 
     return render(request, 'gallery/home.html', {
         'groups': page,
@@ -691,6 +753,14 @@ def home(request):
         'current_filter': filter_type,
         'tags_bar': tags_bar,
         'total_groups_count': total_groups_count,
+        'filter_data': filter_data,
+        'f_liked': f_liked,
+        'f_video': f_video,
+        'f_multi': f_multi,
+        'f_models': f_models,
+        'f_chars': f_chars,
+        'f_tags': f_tags,
+        'url_params': url_params,
     })
 
 
@@ -1164,7 +1234,7 @@ def upload(request):
 
 @csrf_exempt
 def check_duplicates(request):
-    """全库查重接口 (修复版 - 修正 update 报错)"""
+    """全库查重接口 (极致性能优化版：流式哈希 + 批量查询 + 解决 N+1)"""
     if request.method != 'POST':
         return JsonResponse({'status': 'error', 'message': '仅支持 POST 请求'})
 
@@ -1172,57 +1242,77 @@ def check_duplicates(request):
     if not files:
         return JsonResponse({'status': 'error', 'message': '未检测到上传文件'})
 
-    # 1. 创建临时保存目录
     batch_id = uuid.uuid4().hex
     temp_dir = os.path.join(settings.MEDIA_ROOT, 'temp_uploads', batch_id)
     os.makedirs(temp_dir, exist_ok=True)
 
-    results = []
+    file_data_list = []
+    hash_list = []
 
     try:
+        # ==========================================
+        # 优化 1：边写入边计算 Hash，彻底消灭二次磁盘读取
+        # ==========================================
         for file in files:
-            # 2. 保存文件到临时目录
             file_path = os.path.join(temp_dir, file.name)
+            md5_hash = hashlib.md5()
+            
             with open(file_path, 'wb+') as destination:
                 for chunk in file.chunks():
-                    destination.write(chunk)  # 【修正】这里必须用 write，不能用 update
-
-            # 3. 计算哈希 (确保引入了 calculate_file_hash)
-            # 注意：calculate_file_hash 通常需要文件路径或打开的文件对象，
-            # 这里传入 file_path 比较稳妥，因为 file 对象指针可能已经到底了
-            file_hash = calculate_file_hash(file_path) 
+                    destination.write(chunk)
+                    md5_hash.update(chunk)  # 边写硬盘边算哈希，榨干 IO 性能
             
-            # 构造 URL
+            file_hash = md5_hash.hexdigest()
+            hash_list.append(file_hash)
+            
             relative_path = f"temp_uploads/{batch_id}/{file.name}"
-            file_url = f"{settings.MEDIA_URL}{relative_path}"
+            file_data_list.append({
+                'filename': file.name,
+                'hash': file_hash,
+                'url': f"{settings.MEDIA_URL}{relative_path}"
+            })
 
-            # 4. 查库比对
-            duplicates = ImageItem.objects.filter(image_hash=file_hash)
+        # ==========================================
+        # 优化 2 & 3：使用 __in 批量查询，并用 select_related 解决 N+1
+        # ==========================================
+        # 将几十上百次 SQL 查询合并为 1 次，并提前连表拿出 Group 的标题
+        duplicates_qs = ImageItem.objects.select_related('group').filter(image_hash__in=hash_list)
+        
+        # 将查出来的重复项按照 hash 分组映射到内存字典中，查询时间复杂度降为 O(1)
+        dup_map = defaultdict(list)
+        for dup in duplicates_qs:
+            dup_map[dup.image_hash].append(dup)
+
+        # ==========================================
+        # 4. 极速组装返回结果
+        # ==========================================
+        results = []
+        for item in file_data_list:
+            f_hash = item['hash']
+            dups = dup_map.get(f_hash, [])
+            is_duplicate = len(dups) > 0
             
-            is_duplicate = duplicates.exists()
             dup_info = []
-            
-            if is_duplicate:
-                for dup in duplicates:
-                    dup_info.append({
-                        'id': dup.id,
-                        'group_id': dup.group.id, # 确保前端用 group_id 跳转详情页
-                        'group_title': dup.group.title,
-                        'is_video': dup.is_video,
-                        'url': dup.thumbnail.url if dup.thumbnail else dup.image.url
-                    })
+            for dup in dups:
+                dup_info.append({
+                    'id': dup.id,
+                    'group_id': dup.group.id,
+                    'group_title': dup.group.title, # 因为有 select_related，这里不再触发查询
+                    'is_video': dup.is_video,
+                    'url': dup.thumbnail.url if dup.thumbnail else dup.image.url
+                })
 
             results.append({
-                'filename': file.name,
+                'filename': item['filename'],
                 'status': 'duplicate' if is_duplicate else 'pass',
-                'url': file_url,
-                'thumbnail_url': file_url, # 前端字段兼容
+                'url': item['url'],
+                'thumbnail_url': item['url'],
                 'duplicates': dup_info
             })
             
     except Exception as e:
         import traceback
-        traceback.print_exc() # 打印详细错误堆栈到控制台，方便调试
+        traceback.print_exc()
         shutil.rmtree(temp_dir, ignore_errors=True)
         return JsonResponse({'status': 'error', 'message': str(e)})
 
@@ -2385,7 +2475,7 @@ def api_generate_title(request):
 
 @require_POST
 def merge_variants_api(request):
-    """手动将选中的版本合并到当前提示词组"""
+    """手动将选中的版本合并到当前提示词组 (批量性能优化版)"""
     try:
         data = json.loads(request.body)
         main_group_id = data.get('main_group_id')
@@ -2399,21 +2489,27 @@ def merge_variants_api(request):
         
         # 获取需要被合并的卡片（排除自己，防止逻辑错误）
         groups_to_merge = PromptGroup.objects.filter(id__in=merge_ids).exclude(id=main_group_id)
+        merged_count = groups_to_merge.count()
 
-        merged_count = 0
-        for group in groups_to_merge:
-            # 1. 转移生成图片和参考图
-            ImageItem.objects.filter(group=group).update(group=main_group)
-            ReferenceItem.objects.filter(group=group).update(group=main_group)
+        if merged_count == 0:
+            return JsonResponse({'status': 'success', 'message': '没有需要合并的版本。'})
+
+        # 【核心优化】：开启事务，并在底层使用 SQL IN 进行批量操作
+        with transaction.atomic():
+            # 1. 批量转移生成图片和参考图 (几十条 SQL 压缩为 2 条)
+            ImageItem.objects.filter(group__in=groups_to_merge).update(group=main_group)
+            ReferenceItem.objects.filter(group__in=groups_to_merge).update(group=main_group)
             
-            # 2. 如果主卡片没封面，借用一下
-            if not main_group.cover_image and group.cover_image:
-                main_group.cover_image = group.cover_image
-                main_group.save()
-                
-            # 3. 删除空壳组
-            group.delete()
-            merged_count += 1
+            # 2. 如果主卡片没封面，从这些即将被销毁的组里随便借一个有封面的
+            if not main_group.cover_image:
+                # 找一个带有 cover_image 的被合并组
+                first_valid_cover = groups_to_merge.exclude(cover_image__isnull=True).first()
+                if first_valid_cover:
+                    main_group.cover_image = first_valid_cover.cover_image
+                    main_group.save(update_fields=['cover_image'])
+                    
+            # 3. 批量删除空壳组 (1 条 SQL 搞定全部删除)
+            groups_to_merge.delete()
 
         return JsonResponse({
             'status': 'success', 
@@ -2421,6 +2517,8 @@ def merge_variants_api(request):
         })
         
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return JsonResponse({'status': 'error', 'message': str(e)})
     
 @csrf_exempt

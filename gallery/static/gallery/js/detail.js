@@ -1161,7 +1161,44 @@ document.addEventListener('click', function(e) {
     });
 });
 
-// ================= 版本关联管理 (支持多选) =================
+// 3. 【新增】全选/取消全选 (针对侧边栏其他版本)
+document.addEventListener('DOMContentLoaded', function() {
+    const selectAllBtn = document.getElementById('selectAllVariants');
+    
+    if (selectAllBtn) {
+        // 点击“全选”时，勾选所有子项
+        selectAllBtn.addEventListener('change', function() {
+            const isChecked = this.checked;
+            const variantCheckboxes = document.querySelectorAll('.variant-merge-checkbox');
+            
+            variantCheckboxes.forEach(cb => {
+                cb.checked = isChecked;
+            });
+            
+            // 手动派发一个 change 事件，让第1步写的代码能捕捉到，从而显示“合并(N)”按钮
+            if (variantCheckboxes.length > 0) {
+                variantCheckboxes[0].dispatchEvent(new Event('change', { bubbles: true }));
+            }
+        });
+    }
+});
+
+// 4. 【新增】当手动勾选/取消某个子项时，反向更新全选按钮的状态（全选/半选）
+document.addEventListener('change', function(e) {
+    if (e.target && e.target.classList.contains('variant-merge-checkbox')) {
+        const checkboxes = document.querySelectorAll('.variant-merge-checkbox');
+        const selectAllBtn = document.getElementById('selectAllVariants');
+        
+        if (selectAllBtn && checkboxes.length > 0) {
+            const allChecked = Array.from(checkboxes).every(c => c.checked);
+            const someChecked = Array.from(checkboxes).some(c => c.checked);
+            
+            selectAllBtn.checked = allChecked;
+            // 如果只选了一部分，给全选框加个横线的“半选”状态
+            selectAllBtn.indeterminate = someChecked && !allChecked;
+        }
+    }
+});
 
 // ================= 版本关联管理 (支持多选 & 自动推荐) =================
 

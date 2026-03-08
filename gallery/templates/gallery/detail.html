@@ -1130,7 +1130,11 @@
                             <h6 class="card-title text-primary fw-bold mb-0" style="font-size: 0.9rem;">
                                 <i class="bi bi-layers-fill me-2"></i>其他版本 ({{ siblings|length }})
                             </h6>
-                            <div class="d-flex gap-2"> 
+                            <div class="d-flex gap-2 align-items-center"> 
+                                <div class="form-check mb-0 me-1" style="font-size: 0.8rem; display: flex; align-items: center;">
+                                    <input class="form-check-input mt-0 me-1" type="checkbox" id="selectAllVariants" style="cursor: pointer; transform: scale(1.1);">
+                                    <label class="form-check-label text-muted" for="selectAllVariants" style="cursor: pointer; padding-top: 1px;">全选</label>
+                                </div>
                                 <button id="btn-merge-selected" class="btn btn-sm btn-warning text-dark rounded-pill px-3 shadow-sm" style="font-size: 0.75rem; display: none;" title="将选中的版本合并到当前">
                                     <i class="bi bi-sign-merge-left-fill me-1"></i>合并 (<span id="merge-count">0</span>)
                                 </button>

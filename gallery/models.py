@@ -188,11 +188,6 @@ class ImageItem(models.Model):
         ext = os.path.splitext(self.image.name)[1].lower()
         return ext in ['.mp4', '.mov', '.avi', '.webm', '.mkv']
 
-    def save(self, *args, **kwargs):
-        if not self.image_hash and self.image:
-            self.calculate_hash()
-        super().save(*args, **kwargs)
-
     def calculate_hash(self):
         md5 = hashlib.md5()
         if self.image:
@@ -226,11 +221,6 @@ class ReferenceItem(models.Model):
         ext = os.path.splitext(self.image.name)[1].lower()
         return ext in ['.mp4', '.mov', '.avi', '.webm', '.mkv']
 
-    # 【新增】保存时自动计算哈希
-    def save(self, *args, **kwargs):
-        if not self.image_hash and self.image:
-            self.calculate_hash()
-        super().save(*args, **kwargs)
 
     # 【新增】哈希计算逻辑
     def calculate_hash(self):
@@ -269,7 +259,7 @@ from django.db.models.signals import post_save, post_delete, m2m_changed
 from django.dispatch import receiver
 
 # 建立客户端连接（记得填入你的 Master Key）
-MEILI_CLIENT = meilisearch.Client('http://127.0.0.1:7700', '你的MasterKey')
+MEILI_CLIENT = meilisearch.Client('http://127.0.0.1:7700', 'dq49aaqs-RYHbIfKGMOFJRrfco3jP-0Ubj4gcX9caBc')
 
 def sync_promptgroup_to_meili(instance):
     """将 PromptGroup 的核心文本数据组装并推送给搜索引擎"""
