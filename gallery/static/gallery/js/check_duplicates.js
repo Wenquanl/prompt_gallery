@@ -1,10 +1,11 @@
 /**
- * 全库查重功能逻辑 (透明遮罩终极版)
+ * 全库查重功能逻辑 (透明遮罩终极版 + 性能修复版)
  * 核心原理：在视频上覆盖一层透明 div，彻底阻断浏览器对视频的鼠标捕捉。
  */
 
 let checkModalInstance;
 let currentBatchId = null;
+let blobUrlCache = []; // 【新增】用于记录生成的本地预览 URL，防止内存泄漏
 
 // === 1. 打开模态框 ===
 function openCheckModal() {
@@ -13,6 +14,15 @@ function openCheckModal() {
     
     if (!checkModalInstance) {
         checkModalInstance = new bootstrap.Modal(modalEl);
+        
+        // 【修复 1】：监听模态框关闭事件，彻底清理内存和状态
+        modalEl.addEventListener('hidden.bs.modal', () => {
+            blobUrlCache.forEach(url => URL.revokeObjectURL(url));
+            blobUrlCache = []; // 清空缓存
+            
+            const resultsArea = document.getElementById('checkResultsArea');
+            if (resultsArea) resultsArea.style.display = 'none';
+        });
     }
     
     const resultsArea = document.getElementById('checkResultsArea');
@@ -65,13 +75,6 @@ document.addEventListener('DOMContentLoaded', function() {
         dropZone.addEventListener('drop', (e) => {
             if (e.dataTransfer.files.length > 0) handleCheckUpload(e.dataTransfer.files);
         });
-        
-        const input = document.getElementById('checkInput');
-        if (input) {
-            input.addEventListener('change', function() {
-                if (this.files.length > 0) handleCheckUpload(this.files);
-            });
-        }
     }
 });
 
@@ -80,7 +83,7 @@ function handleCheckUpload(files) {
     const uploadArea = document.querySelector('.upload-area-dashed');
     const originalContent = uploadArea.innerHTML;
     
-    uploadArea.innerHTML = '<div class="spinner-border text-primary mb-3"></div><p>正在上传并对比全库哈希值...</p>';
+    uploadArea.innerHTML = '<div class="spinner-border text-primary mb-3"></div><p class="fw-bold mt-2">正在扫描并进行全库哈希比对...</p>';
     uploadArea.style.pointerEvents = 'none';
     
     const fileMap = {};
@@ -91,7 +94,12 @@ function handleCheckUpload(files) {
         fileMap[file.name] = file;
     });
 
-    const csrftoken = getCookie('csrftoken');
+    // 【修复 3】：更稳健的 CSRF Token 获取方式（双重保险）
+    let csrftoken = getCookie('csrftoken');
+    if (!csrftoken) {
+        const csrfInput = document.querySelector('[name=csrfmiddlewaretoken]');
+        if (csrfInput) csrftoken = csrfInput.value;
+    }
 
     fetch('/check-duplicates/', {
         method: 'POST',
@@ -103,11 +111,12 @@ function handleCheckUpload(files) {
         uploadArea.innerHTML = originalContent;
         uploadArea.style.pointerEvents = 'auto';
         
+        // 重新绑定事件
         uploadArea.onclick = function(e) {
             if (e.target.id !== 'checkInput') document.getElementById('checkInput').click();
         };
         const input = document.getElementById('checkInput');
-        input.onchange = function() { handleCheckUpload(this.files); };
+        if(input) input.onchange = function() { handleCheckUpload(this.files); };
 
         if (data.status === 'success') {
             currentBatchId = data.batch_id;
@@ -124,7 +133,7 @@ function handleCheckUpload(files) {
     });
 }
 
-// === 4. 生成媒体 HTML (透明遮罩终极版) ===
+// === 4. 生成媒体 HTML ===
 function getMediaHtml(url, explicitIsVideo, isSmall = false) {
     const sizeStyle = isSmall 
         ? 'width:30px; height:30px;' 
@@ -132,15 +141,11 @@ function getMediaHtml(url, explicitIsVideo, isSmall = false) {
     const borderClass = isSmall ? 'border-danger' : 'border-success';
 
     if (explicitIsVideo) {
-        // 【关键修复】
-        // 1. container: 负责监听鼠标事件
-        // 2. video: 在底层，负责播放
-        // 3. mask: 透明遮罩层，z-index: 10，盖在视频上，阻挡鼠标直接接触视频
-        // 4. icon: z-index: 20，最上层显示图标
+        // 【修复 2】：使用 .catch(() => {}) 吞掉快速移入移出导致的 play() 中断报错
         return `
             <div class="overflow-hidden rounded bg-dark position-relative d-inline-block border ${isSmall ? '' : borderClass}" 
                  style="${sizeStyle}"
-                 onmouseenter="let v=this.querySelector('video'); if(v) v.play()" 
+                 onmouseenter="let v=this.querySelector('video'); if(v) { v.play().catch(()=>{}); }" 
                  onmouseleave="let v=this.querySelector('video'); if(v) v.pause()">
                  
                 <video 
@@ -176,6 +181,10 @@ function renderCheckResults(results, hasDuplicate, fileMap) {
     let duplicateCount = 0;
     const detailUrlPrefix = "/image/"; 
 
+    // 在生成新的一批预览图前，清理上一批的内存
+    blobUrlCache.forEach(url => URL.revokeObjectURL(url));
+    blobUrlCache = [];
+
     results.forEach(item => {
         // --- 1. 处理左侧（新上传文件） ---
         let displayUrl = item.thumbnail_url;
@@ -184,6 +193,7 @@ function renderCheckResults(results, hasDuplicate, fileMap) {
         if (fileMap && fileMap[item.filename]) {
             const file = fileMap[item.filename];
             displayUrl = URL.createObjectURL(file);
+            blobUrlCache.push(displayUrl); // 【修复 1】：记录本地 URL 以便后续释放内存
             isVideo = file.type.startsWith('video/'); 
         } else {
             isVideo = !!item.filename.match(/\.(mp4|mov|avi|webm|mkv|m4v)$/i);
@@ -200,7 +210,7 @@ function renderCheckResults(results, hasDuplicate, fileMap) {
             if (item.duplicates && item.duplicates.length > 0) {
                  existingThumbsHtml = item.duplicates.map(d => {
                     return `
-                        <a href="${detailUrlPrefix}${d.group_id}/" target="_blank" class="me-1" title="查看 ID:${d.id}">
+                        <a href="${detailUrlPrefix}${d.group_id}/" target="_blank" class="me-1" title="点击查看原作品 (ID:${d.id})">
                             ${getMediaHtml(d.url, d.is_video, true)}
                         </a>
                     `;
@@ -215,8 +225,8 @@ function renderCheckResults(results, hasDuplicate, fileMap) {
                             <strong class="text-danger small"><i class="bi bi-exclamation-circle-fill me-1"></i>已存在</strong>
                             <div class="d-flex align-items-center">${existingThumbsHtml}</div>
                         </div>
-                        <div class="text-truncate small text-muted mt-1">${item.filename}</div>
-                        ${item.existing_group_title ? `<div class="small text-dark mt-1">位于: <strong>${item.existing_group_title}</strong></div>` : ''}
+                        <div class="text-truncate small text-muted mt-1" title="${item.filename}">${item.filename}</div>
+                        ${item.existing_group_title ? `<div class="small text-dark mt-1 text-truncate">位于: <strong>${item.existing_group_title}</strong></div>` : ''}
                     </div>
                 </div>
             `;
@@ -224,9 +234,9 @@ function renderCheckResults(results, hasDuplicate, fileMap) {
             html = `
                 <div class="check-item mb-2 p-2 rounded border d-flex align-items-center">
                     ${mainMediaHtml}
-                    <div class="flex-grow-1">
-                        <div class="text-success small fw-bold"><i class="bi bi-check-circle-fill me-1"></i>通过检测</div>
-                        <div class="text-truncate small text-muted mt-1">${item.filename}</div>
+                    <div class="flex-grow-1 min-width-0">
+                        <div class="text-success small fw-bold"><i class="bi bi-check-circle-fill me-1"></i>通过检测，为全新文件</div>
+                        <div class="text-truncate small text-muted mt-1" title="${item.filename}">${item.filename}</div>
                     </div>
                 </div>
             `;
@@ -234,27 +244,31 @@ function renderCheckResults(results, hasDuplicate, fileMap) {
         list.insertAdjacentHTML('beforeend', html);
     });
 
-    summary.innerHTML = `共检测 ${results.length} 张，发现 ${duplicateCount} 张重复`;
+    summary.innerHTML = `本次共检测 <strong>${results.length}</strong> 个文件，发现 <strong><span class="text-danger">${duplicateCount}</span></strong> 个重复`;
     if (resultsArea) resultsArea.style.display = 'block';
     
     // 更新底部按钮
     const nextUrl = `/upload/?batch_id=${currentBatchId}`;
     if (actionArea) {
         if (hasDuplicate) {
+            // 【修复 4】：优化文案，让用户明确知道接下来该怎么做
             actionArea.innerHTML = `
                 <div class="alert alert-warning border-0 small d-inline-block text-start mb-3 p-2 w-100">
-                    <i class="bi bi-exclamation-triangle me-1"></i> 发现重复项！建议剔除重复后再发布。
+                    <i class="bi bi-exclamation-triangle-fill text-warning me-1"></i> 发现重复文件！<br>
+                    建议点击右下角继续，并在<strong>下一个发布页中手动“X”掉</strong>这些重复项。
                 </div>
                 <div class="d-flex justify-content-end gap-2">
-                    <button class="btn btn-secondary rounded-pill px-4" data-bs-dismiss="modal">关闭</button>
-                    <a href="${nextUrl}" class="btn btn-primary rounded-pill px-4">仍要发布 <i class="bi bi-arrow-right"></i></a>
+                    <button class="btn btn-secondary rounded-pill px-4" data-bs-dismiss="modal">取消</button>
+                    <a href="${nextUrl}" class="btn btn-primary rounded-pill px-4">前往发布页处理 <i class="bi bi-arrow-right"></i></a>
                 </div>
             `;
         } else {
             actionArea.innerHTML = `
-                <div class="text-success mb-3 fw-bold text-center"><i class="bi bi-emoji-smile me-2"></i>完美！没有发现重复。</div>
+                <div class="text-success mb-3 fw-bold text-center"><i class="bi bi-emoji-smile me-2"></i>太棒了！所有文件均未重复。</div>
                 <div class="text-center">
-                    <a href="${nextUrl}" class="btn btn-lg btn-primary rounded-pill px-5 shadow fw-bold"><i class="bi bi-plus-lg me-2"></i>去发布新作品</a>
+                    <a href="${nextUrl}" class="btn btn-lg btn-primary rounded-pill px-5 shadow fw-bold">
+                        <i class="bi bi-cloud-arrow-up me-2"></i>前往发布
+                    </a>
                 </div>
             `;
         }

@@ -1127,12 +1127,14 @@
             
             badge.onclick = function() {
                 if (currentSelectedChars.has(char)) {
+                    // 取消选中：恢复默认灰色外观
                     currentSelectedChars.delete(char);
                     this.className = 'pub-tag-badge';
                     this.innerHTML = `<i class="bi bi-person me-1"></i>${char}`;
                 } else {
+                    // 选中：应用专用的粉色类
                     currentSelectedChars.add(char);
-                    this.className = 'badge bg-info text-dark rounded-pill px-3 py-2 cursor-pointer shadow-sm';
+                    this.className = 'pub-tag-badge active pub-tag-char-active';
                     this.innerHTML = `<i class="bi bi-person-check-fill me-1"></i>${char}`;
                 }
             };
@@ -1644,13 +1646,10 @@
             return;
         }
 
-        // ==========================================
-        // 【核心新增】：将“当前卡片”单独抽出来，插入到数组的最前面
-        // ==========================================
+        // 将“当前卡片”单独抽出来，插入到数组的最前面
         if (currentSourceGroupId) {
             const sourceIndex = groups.findIndex(g => String(g.id) === currentSourceGroupId);
             if (sourceIndex > -1) {
-                // 如果在相似列表中找到了当前卡片，直接剪切并放到第一位
                 const sourceGroup = groups.splice(sourceIndex, 1)[0];
                 groups.unshift(sourceGroup);
             }
@@ -1658,7 +1657,6 @@
 
         let html = '';
         groups.forEach((group, index) => {
-            // 判断当前遍历的这个组，是不是用户进入页面的“源卡片”
             const isCurrentSource = (currentSourceGroupId && String(group.id) === currentSourceGroupId);
 
             // 1. 渲染封面图
@@ -1666,7 +1664,7 @@
                 ? `<img src="${group.cover_url}" class="rounded shadow-sm" style="width: 70px; height: 70px; object-fit: cover;">`
                 : `<div class="rounded bg-light shadow-sm d-flex align-items-center justify-content-center text-muted" style="width: 70px; height: 70px;"><i class="bi bi-image fs-4"></i></div>`;
 
-            // 2. 右上角徽章 UI 判定 (源卡片特殊高亮，其他卡片显示相似度)
+            // 2. 右上角徽章 UI 判定
             let topBadgeHtml = '';
             if (isCurrentSource) {
                 topBadgeHtml = `<span class="badge bg-success shadow-sm rounded-pill px-2 py-1"><i class="bi bi-pin-angle-fill me-1"></i>当前所属作品</span>`;
@@ -1681,7 +1679,8 @@
 
             // 3. 模型标签与人物标签逻辑
             const cleanCurrentModelName = currentModelName ? currentModelName.replace(/\s*[\(（].*?[\)）]$/, '').trim() : '';
-            let isModelMatch = (cleanCurrentModelName && group.model_info && cleanCurrentModelName.toLowerCase() === group.model_info.toLowerCase());let modelBadge = '';
+            let isModelMatch = (cleanCurrentModelName && group.model_info && cleanCurrentModelName.toLowerCase() === group.model_info.toLowerCase());
+            let modelBadge = '';
             if (group.model_info && group.model_info !== '无模型') {
                 if (isModelMatch) {
                     modelBadge = `<span class="badge text-white fw-bold me-2 shadow-sm" style="background: linear-gradient(135deg, #8a2be2 0%, #4a00e0 100%); font-size: 0.75rem;"><i class="bi bi-cpu-fill me-1"></i>${group.model_info} (同款)</span>`;
@@ -1699,12 +1698,20 @@
                 });
             }
 
-            // 4. 卡片整体边框与背景判定 (如果是当前源卡片，给个醒目的绿色高亮框)
+            // 4. 高亮当前卡片样式
             const activeCardClass = isCurrentSource ? "border-success border-2 bg-success bg-opacity-10" : "";
 
-            // 5. 组装最终的卡片 HTML
+            // 5. 【核心修复】安全清洗所有引号和换行符，并存入 data-* 属性中
+            const safeTitle = group.title 
+                ? group.title.replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/[\r\n]+/g, ' ') 
+                : '未命名作品';
+
+            // 不再使用 onclick 传参，改为传 this
             html += `
-            <a href="javascript:void(0)" class="list-group-item list-group-item-action d-flex gap-3 align-items-center py-3 ${activeCardClass}" onclick="confirmAppendToGroup(${group.id}, '${group.title}')">
+            <a href="javascript:void(0)" class="list-group-item list-group-item-action d-flex gap-3 align-items-center py-3 ${activeCardClass}" 
+               data-group-id="${group.id}" 
+               data-group-title="${safeTitle}" 
+               onclick="confirmAppendToGroup(this)">
                 ${coverHtml}
                 <div class="flex-grow-1 overflow-hidden">
                     <div class="d-flex w-100 justify-content-between align-items-center mb-1">
@@ -1721,7 +1728,10 @@
         container.innerHTML = html;
     }
 
-    function confirmAppendToGroup(groupId, groupTitle) {
+    function confirmAppendToGroup(element) {
+        const groupId = element.getAttribute('data-group-id');
+        const groupTitle = element.getAttribute('data-group-title');
+
         Swal.fire({
             title: '确认追加?',
             html: `即将把新生成的图片收录进作品<br><strong class="text-primary">${groupTitle}</strong>`,
