@@ -28,7 +28,7 @@ env/
 # 7. 敏感配置 (比如存有 SECRET_KEY 或数据库密码的文件)
 .env
 local_settings.py
-
+migrations/
 # 8. IDE 编辑器配置文件 (每个人的编辑器配置不同，不要上传)
 .idea/
 .vscode/
