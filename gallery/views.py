@@ -11,6 +11,7 @@ import base64
 from rapidfuzz import fuzz
 import warnings 
 import subprocess
+import meilisearch
 from urllib3.exceptions import InsecureRequestWarning 
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
@@ -28,6 +29,7 @@ from .models import ImageItem, PromptGroup, Tag, AIModel, ReferenceItem, Charact
 from .forms import PromptGroupForm
 from .ai_utils import search_similar_images, generate_title_with_local_llm
 from .ai_providers import get_ai_provider
+from rapidfuzz import process, fuzz
 
 # === 引入 Service 层 ===
 from .services import (
@@ -613,14 +615,35 @@ def home(request):
 
     # === 常规文本搜索 ===
     if query:
-        queryset = queryset.filter(
-            Q(title__icontains=query) |
-            Q(prompt_text__icontains=query) |
-            Q(prompt_text_zh__icontains=query) |
-            Q(model_info__icontains=query) |       # 【新增】支持搜模型
-            Q(characters__name__icontains=query) | # 【新增】支持搜人物
-            Q(tags__name__icontains=query)
-        ).distinct()
+        try:
+            # 尝试向 Meilisearch 发起毫秒级搜索 (填入你的 Master Key)
+            client = meilisearch.Client('http://127.0.0.1:7700', '你的MasterKey')
+            search_res = client.index('prompts').search(query, {
+                'limit': 100  # 获取最相关的前 100 条
+            })
+            
+            hit_ids = [hit['id'] for hit in search_res['hits']]
+            
+            if hit_ids:
+                # 保持 Meilisearch 给出的智能排序顺序
+                preserved_order = Case(
+                    *[When(pk=pk, then=pos) for pos, pk in enumerate(hit_ids)], 
+                    output_field=IntegerField()
+                )
+                queryset = queryset.filter(id__in=hit_ids).order_by(preserved_order)
+            else:
+                queryset = queryset.none()
+                
+        except Exception as e:
+            print(f"⚠️ Meilisearch 搜索不可用，降级为原生数据库查询: {e}")
+            queryset = queryset.filter(
+                Q(title__icontains=query) |
+                Q(prompt_text__icontains=query) |
+                Q(prompt_text_zh__icontains=query) |
+                Q(model_info__icontains=query) |       
+                Q(characters__name__icontains=query) | 
+                Q(tags__name__icontains=query)
+            ).distinct()
     
     if filter_type == 'liked':
         queryset = queryset.filter(is_liked=True)
@@ -628,7 +651,6 @@ def home(request):
     # === 版本去重与计数逻辑 ===
     version_counts = {}
     if not query and not filter_type and not search_id:
-        # 【修改】使用 Case/When 优先获取 is_main_variant=True 的 ID
         group_stats = PromptGroup.objects.values('group_id').annotate(
             main_id=Max(Case(When(is_main_variant=True, then='id'), output_field=IntegerField())),
             latest_id=Max('id'),
@@ -636,18 +658,26 @@ def home(request):
         )
         final_ids = []
         for s in group_stats:
-            # 如果设定了主版本(main_id)，就用它；否则用最新的(latest_id)
             target_id = s['main_id'] if s['main_id'] else s['latest_id']
             final_ids.append(target_id)
             version_counts[target_id] = s['count']
+        
         queryset = queryset.filter(id__in=final_ids)
+
+    # === 5. 终极性能优化：统一执行 N+1 预加载 ===
+    # 无论上面走了哪个分支，最后统一下达预加载指令，将首页原本的 40+ 次查询压缩到 4 次
+    queryset = queryset.select_related(
+        'cover_image'
+    ).prefetch_related(
+        'images', 'tags', 'characters'
+    )
 
     tags_bar = get_tags_bar_data()
     paginator = Paginator(queryset, 12)
     page_number = request.GET.get('page')
     page = paginator.get_page(page_number)
     page_obj = paginator.get_page(page_number)
-    page_range = page.paginator.get_elided_page_range(page.number, on_each_side=2, on_ends=1)
+    page_range = page.paginator.get_elided_page_range(page.number, on_each_side=5, on_ends=1)
     total_groups_count = PromptGroup.objects.values('group_id').distinct().count()
 
     for group in page_obj:
@@ -665,7 +695,7 @@ def home(request):
 
 
 def liked_images_gallery(request):
-    queryset = ImageItem.objects.filter(is_liked=True).order_by('-id')
+    queryset = ImageItem.objects.filter(is_liked=True).select_related('group').order_by('-id')
     search_mode = 'text'
     query_text = request.GET.get('q')
     search_id = request.GET.get('search_id') 
@@ -835,17 +865,16 @@ def detail(request, pk):
     if not tag_ids:
         related_groups = []
     else:
-        # 2. 核心改进逻辑：
         related_groups = PromptGroup.objects.filter(
-            tags__id__in=tag_ids                 # 匹配拥有相同标签的作品
+            tags__id__in=tag_ids
         ).exclude(
-            group_id=group.group_id              # 排除掉当前作品及其变体系列
+            group_id=group.group_id
         ).annotate(
-            same_tag_count=Count('tags')         # 【关键】统计每张候选卡片与当前卡片重合的标签数量
+            same_tag_count=Count('tags')
         ).order_by(
-            '-same_tag_count',                   # 1. 标签重合越多（越像）的排越前面
-            '?'                                  # 2. 在相似度相同时随机打乱（打破“永远一样”的僵局）
-        ).distinct()[:4]
+            '-same_tag_count',
+            '?'
+        ).distinct().select_related('cover_image').prefetch_related('images')[:4]
     
     tags_bar = get_tags_bar_data()
     all_models_list = AIModel.objects.values_list('name', flat=True).order_by('name')
@@ -2134,53 +2163,53 @@ def api_publish_studio_creation(request):
 @csrf_exempt
 @require_POST
 def api_get_similar_groups_by_prompt(request):
-    """根据前端传来的 Prompt 文本，计算全库相似度并返回排序后的作品列表 - ORM 极限优化修复版"""
+    """根据前端传来的 Prompt 文本，计算全库相似度 (C++ 底层批处理极速版)"""
     try:
         data = json.loads(request.body)
         prompt_text = data.get('prompt', '').strip().lower()
         
-        prompt_words = set(w for w in re.split(r'[\s,，.。;；|()（）]+', prompt_text) if len(w) > 2)
-        
-        # 不实例化对象，只提取 id 和 文本
-        candidates_data = PromptGroup.objects.values_list('id', 'prompt_text').order_by('-id')[:2000]
+        # 1. 直接获取前 2000 条的 ID 和文本
+        candidates_data = list(PromptGroup.objects.values_list('id', 'prompt_text').order_by('-id')[:2000])
         
         recommendations = []
         
-        for other_id, other_content in candidates_data:
-            other_content = (other_content or "").strip().lower()
-            ratio = 0.0
+        if not prompt_text:
+            # 如果没传提示词，直接按最新时间返回兜底数据
+            top_recs = [(0.0, item[0]) for item in candidates_data[:15]]
+        else:
+            # 2. 构建供 rapidfuzz 使用的字典映射: { ID: 文本 }
+            prompt_len = len(prompt_text)
+            valid_choices = {}
+            for db_id, text in candidates_data:
+                text = (text or "").strip().lower()
+                if not text: continue
+                # 预过滤长度差异过大的
+                if abs(prompt_len - len(text)) <= max(prompt_len, len(text)) * 0.7:
+                    valid_choices[db_id] = text
+                    
+            # 3. 核心优化：C++ 层批量计算并直接取 Top 15
+            # extract 返回列表: [(匹配文本, 分数0-100, 字典的Key(即db_id)), ...]
+            matches = process.extract(
+                prompt_text,
+                valid_choices,
+                scorer=fuzz.ratio,
+                limit=15
+            )
             
-            if len(prompt_text) > 0 and len(other_content) > 0:
-                max_len = max(len(prompt_text), len(other_content))
-                # 只有符合预过滤条件的，才去执行耗时的相似度计算
-                if abs(len(prompt_text) - len(other_content)) <= max_len * 0.7:
-                    other_words = set(w for w in re.split(r'[\s,，.。;；|()（）]+', other_content) if len(w) > 2)
-                    if prompt_words and other_words:
-                        overlap = len(prompt_words.intersection(other_words))
-                        max_possible = min(len(prompt_words), len(other_words))
-                        if max_possible > 0 and (overlap / max_possible) >= 0.15:
-                            # 已经装了 rapidfuzz 就用 fuzz.ratio，没装就换回 difflib
-                            ratio = fuzz.ratio(prompt_text, other_content) / 100.0
-                
-                # 【关键修复 1】：无论相似度多低，甚至被上面的粗筛拦截（ratio 依然是 0.0），
-                # 都要无条件加进候选列表！这样才能实现原版的“按最新时间兜底”功能。
-                recommendations.append((ratio, other_id))
-                
-            elif len(prompt_text) == 0:
-                ratio = 0.0 
-                recommendations.append((ratio, other_id))
-            else:
-                # 搜索词不为空，但对方没有提示词，跳过
-                continue
+            # 将分数转换回 0-1 的比例，并重组为 (ratio, id) 格式
+            top_recs = [(match[1]/100.0, match[2]) for match in matches]
             
-        # 【关键修复 2】：必须加入 x[1] 作为第二排序条件，当 ratio 都是 0.0 时，按 ID 倒序（最新）展示
-        recommendations.sort(key=lambda x: (x[0], x[1]), reverse=True)
-        top_recs = recommendations[:15]
-        
-        # 提取排名前 15 的 ID
+            # 4. 如果匹配结果不足 15 个（比如全被短路过滤了），用最新的 ID 补齐兜底
+            if len(top_recs) < 15:
+                used_ids = {rec[1] for rec in top_recs}
+                for db_id, _ in candidates_data:
+                    if db_id not in used_ids:
+                        top_recs.append((0.0, db_id))
+                        if len(top_recs) >= 15:
+                            break
+
         top_ids = [item[1] for item in top_recs]
         
-        # 一次性去数据库拉取完整对象，并预加载图片和人物 (解决 N+1 查询阻塞)
         groups_dict = PromptGroup.objects.prefetch_related('images', 'characters').in_bulk(top_ids)
         
         results = []

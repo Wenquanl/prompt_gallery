@@ -6,6 +6,11 @@ from django.db import models
 from django.utils import timezone
 from imagekit.models import ImageSpecField
 from imagekit.processors import ResizeToFit
+from rapidfuzz import process, fuzz
+import meilisearch
+from django.db.models.signals import post_save, post_delete, m2m_changed
+from django.dispatch import receiver
+
 
 PROVIDER_CHOICES = [
     ('fal_ai', 'Fal.ai'),
@@ -109,39 +114,53 @@ class PromptGroup(models.Model):
         super().save(*args, **kwargs)
 
     def find_and_join_group(self):
-        """查找最近的相似提示词组 (仅比较正向提示词)"""
+        """查找最近的相似提示词组 (C++底层极速批处理版)"""
         my_content = (self.prompt_text or "").strip().lower()
         
         if len(my_content) < 5:
             return
 
-        # [修复1] 扩大搜索范围，防止只能匹配最近500条，建议改为2000或更多
-        candidates = PromptGroup.objects.order_by('-id')[:2000]
+        # 1. 内存优化：只取必须的字段，不要拉取整个模型实例
+        # 注意要转换成 list 触发 SQL 查询
+        candidates = list(PromptGroup.objects.order_by('-id').values_list(
+            'group_id', 'title', 'prompt_text'
+        )[:2000])
         
-        best_ratio = 0
-        best_group_id = None
-        best_match_title = None
+        # 2. 预过滤并构建待匹配字典 {文本: (group_id, title)}
+        valid_candidates = {}
+        my_len = len(my_content)
         
-        print(f"DEBUG: 正在为 [{self.title}] 查找相似提示词...")
-        for other in candidates:
-            other_content = (other.prompt_text or "").strip().lower()
-            
-            # [修复2] 长度过滤逻辑不对称修复
-            # 改为：如果长度差 > 最长文本的40%，则跳过。确保 A和B 比较结果一致。
-            max_len = max(len(my_content), len(other_content))
-            if max_len == 0: continue
-            
-            if abs(len(my_content) - len(other_content)) > max_len * 0.4:
+        for c_group_id, c_title, c_text in candidates:
+            c_text = (c_text or "").strip().lower()
+            if not c_text: 
                 continue
+                
+            max_len = max(my_len, len(c_text))
+            # 长度相差超过 40% 的直接抛弃，连模糊匹配都不用做
+            if abs(my_len - len(c_text)) <= max_len * 0.4:
+                valid_candidates[c_text] = (c_group_id, c_title)
 
-            ratio = difflib.SequenceMatcher(None, my_content, other_content).ratio()
-            if ratio > 0.80 and ratio > best_ratio:
-                best_ratio = ratio
-                best_group_id = other.group_id
-                best_match_title = other.title # 记录一下匹配到的标题用于日志
+        if not valid_candidates:
+            print(f"DEBUG: 未找到长度相似的候选项，创建新组。")
+            return
+
+        print(f"DEBUG: 正在为 [{self.title}] 查找相似提示词 (底层C++加速)...")
         
-        if best_group_id:
-            print(f"DEBUG: 匹配成功！关联到 [{best_match_title}]，相似度: {best_ratio:.2f}")
+        # 3. 核心优化：直接调用 C++ 引擎提取最相似的 1 个
+        # score_cutoff=80.0 代表相似度低于 80% 的直接在 C++ 层面短路抛弃，极大提升性能
+        best_match = process.extractOne(
+            my_content,
+            valid_candidates.keys(),
+            scorer=fuzz.ratio,
+            score_cutoff=80.0
+        )
+        
+        if best_match:
+            # extractOne 返回格式: (匹配到的文本, 相似度分数0-100, 索引或Key)
+            match_text, score, _ = best_match
+            best_group_id, best_match_title = valid_candidates[match_text]
+            
+            print(f"DEBUG: 匹配成功！关联到 [{best_match_title}]，相似度: {score/100:.2f}")
             self.group_id = best_group_id
         else:
             print(f"DEBUG: 未找到相似度 > 0.8 的组，创建新组。")
@@ -241,3 +260,54 @@ class ReferenceItem(models.Model):
         
     def __str__(self): return f"参考图 ID: {self.id}"
     class Meta: verbose_name = "参考图"; verbose_name_plural = "参考图集"
+
+# ==========================================
+# Meilisearch 搜索引擎自动同步机制
+# ==========================================
+import meilisearch
+from django.db.models.signals import post_save, post_delete, m2m_changed
+from django.dispatch import receiver
+
+# 建立客户端连接（记得填入你的 Master Key）
+MEILI_CLIENT = meilisearch.Client('http://127.0.0.1:7700', '你的MasterKey')
+
+def sync_promptgroup_to_meili(instance):
+    """将 PromptGroup 的核心文本数据组装并推送给搜索引擎"""
+    try:
+        tags_list = [t.name for t in instance.tags.all()] if instance.pk else []
+        chars_list = []
+        if instance.pk and hasattr(instance, 'characters'):
+            chars_list = [c.name for c in instance.characters.all()]
+
+        document = {
+            'id': instance.id,
+            'title': instance.title,
+            'prompt_text': instance.prompt_text or '',
+            'prompt_text_zh': instance.prompt_text_zh or '',
+            'model_info': instance.model_info or '',
+            'tags': tags_list,
+            'characters': chars_list,
+        }
+        MEILI_CLIENT.index('prompts').add_documents([document])
+    except Exception as e:
+        print(f"⚠️ Meilisearch 同步失败 (检查服务是否启动或 Key 是否正确): {e}")
+
+# 1. 监听模型保存 (新建/修改)
+@receiver(post_save, sender=PromptGroup)
+def on_promptgroup_save(sender, instance, **kwargs):
+    sync_promptgroup_to_meili(instance)
+
+# 2. 监听多对多字段变化 (标签或人物的增删)
+@receiver(m2m_changed, sender=PromptGroup.tags.through)
+@receiver(m2m_changed, sender=PromptGroup.characters.through)
+def on_promptgroup_m2m_change(sender, instance, action, **kwargs):
+    if action in ['post_add', 'post_remove', 'post_clear']:
+        sync_promptgroup_to_meili(instance)
+
+# 3. 监听模型删除
+@receiver(post_delete, sender=PromptGroup)
+def on_promptgroup_delete(sender, instance, **kwargs):
+    try:
+        MEILI_CLIENT.index('prompts').delete_document(instance.id)
+    except:
+        pass

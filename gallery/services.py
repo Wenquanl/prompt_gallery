@@ -6,7 +6,7 @@ import uuid
 from django.conf import settings
 from django.core.files.base import ContentFile
 from .models import ImageItem
-from .ai_utils import generate_image_embedding
+from .ai_utils import generate_image_embedding, add_to_faiss_index
 
 def is_valid_uuid(val):
     """校验是否为合法的 UUID 字符串"""
@@ -93,6 +93,7 @@ def process_images_background(image_ids):
                     if embedding_bytes:
                         img_item.feature_vector = embedding_bytes
                         save_needed = True
+                        add_to_faiss_index(img_item.id, embedding_bytes)
                 except Exception as e:
                     print(f"Embedding error {img_id}: {e}")
             

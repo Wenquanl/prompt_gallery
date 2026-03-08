@@ -3,124 +3,110 @@ from PIL import Image
 from sentence_transformers import SentenceTransformer
 import torch
 import os
-import cv2  # 【新增】引入 OpenCV 处理视频
-import tempfile # 【新增】处理上传的视频流
-from transformers import AutoModelForCausalLM, AutoTokenizer
+import cv2  
+import tempfile 
+import faiss  # 【新增】FAISS 内存索引引擎
+import requests # 【新增】用于请求本地 Ollama 服务
+import json
+import re
 
-# 全局变量存储模型 (单例模式)
+# ==========================================
+# 全局变量 (仅保留 CLIP 模型和 FAISS 索引)
+# ==========================================
 _model = None
-_text_model = None
-_text_tokenizer = None
+_faiss_index = None
+
+# 【重要修改】已经删除了 _text_model 和 _text_tokenizer，不再占用显存
 
 def load_model_on_startup():
     """
-    系统启动时预加载模型，由 apps.py 调用
+    系统启动时预加载图片向量模型，并构建 FAISS 索引
     """
-    global _model, _text_model, _text_tokenizer
+    global _model
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    
+    # 1. 加载 CLIP 模型 (用于以图搜图，必须保留)
     if _model is None:
-        print(">>> [AI核心] 正在预加载 CLIP 模型 (首次运行可能需要下载)...")
+        print(">>> [AI核心] 正在预加载 CLIP 模型...")
         try:
-            # 检测是否可用 GPU
-            device = 'cuda' if torch.cuda.is_available() else 'cpu'
             _model = SentenceTransformer('clip-ViT-B-32', device=device)
             print(f">>> [AI核心] CLIP 模型加载完毕，运行设备: {device}")
         except Exception as e:
             print(f">>> [AI核心] ❌ 模型加载失败: {e}")
-    # 【新增】加载用于生成标题的轻量级本地 LLM
-    if _text_model is None:
-        print(">>> [AI核心] 正在预加载本地文本大模型 (用于标题智能概括)...")
-        try:
-            model_id = "Qwen/Qwen2.5-1.5B-Instruct"
-            _text_tokenizer = AutoTokenizer.from_pretrained(model_id)
-            dtype = torch.float16 if device == 'cuda' else torch.float32
-            _text_model = AutoModelForCausalLM.from_pretrained(
-                model_id, 
-                torch_dtype=dtype,
-                low_cpu_mem_usage=True
-            ).to(device)
-            print(f">>> [AI核心] 本地文本大模型加载完毕！")
-        except Exception as e:
-            print(f">>> [AI核心] ❌ 文本大模型加载失败: {e}")
+            
+    # 2. 构建 FAISS 内存索引
+    build_faiss_index()
 
+# ==========================================
+# 标题生成模块 (Ollama 异步 API 化)
+# ==========================================
 def generate_title_with_local_llm(prompt_text):
     """
-    调用本地加载的大模型进行提示词概括
+    通过 HTTP 请求调用本地独立的 Ollama 服务进行标题概括，彻底解放 Django 进程
     """
-    global _text_model, _text_tokenizer
-    
-    if _text_model is None or _text_tokenizer is None:
+    if not prompt_text:
         return None
 
     try:
-        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        # 指向本地的 Ollama 服务接口
+        ollama_url = "http://localhost:11434/api/generate"
         
         system_prompt = """你是一个专业的AI绘画策展人。请为下面的绘画提示词创作一个简短、有美感的中文作品标题。
 要求：
 1. 敏锐捕捉核心主体（如人物角色、核心场景）和环境意境。
-2. 坚决忽略画质、镜头、光影和渲染参数（如masterpiece, 8k, unreal engine, photorealistic等）。
-3. 必须是纯中文，高度凝练，严格控制在 2 到 8 个字之间。
-4. 直接输出最终标题，绝对不要带标点符号、引号或多余的解释。
+2. 坚决忽略画质、镜头、光影和渲染参数（如masterpiece, 8k, unreal engine等）。
+3. 必须是纯中文，高度凝练，严格控制在 7到 13 个字之间。
+4. 直接输出最终标题，绝对不要带标点符号、引号或多余的解释。"""
 
-示例1：
-提示词：1girl, solo, outdoors, night, looking at viewer, masterpiece, best quality, ultra-detailed, 8k, photorealistic
-输出：月下少女
+        payload = {
+            "model": "qwen2.5:1.5b",  # 确保你在终端跑过 ollama run qwen2.5:1.5b
+            "prompt": f"提示词：{prompt_text}",
+            "system": system_prompt,
+            "stream": False,  
+            "options": {
+                "temperature": 0.1,
+                "num_predict": 20 # 限制最大输出 token，防止生成废话
+            }
+        }
 
-示例2：
-提示词：A futuristic city with flying cars, cyberpunk style, neon lights, unreal engine 5 render, cinematic lighting, octane render
-输出：赛博霓虹之城
-
-示例3：
-提示词：A cute cat sleeping on a sofa, warm sunlight, lazy afternoon, 35mm lens, kodak film
-输出：午后萌猫
-"""
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"提示词：{prompt_text}"}
-        ]
+        # 设置 10 秒超时，防止 Ollama 卡死导致网页无响应
+        response = requests.post(ollama_url, json=payload, timeout=10)
         
-        text = _text_tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-        model_inputs = _text_tokenizer([text], return_tensors="pt").to(device)
-
-        generated_ids = _text_model.generate(
-            model_inputs.input_ids,
-            max_new_tokens=20,      
-            temperature=0.1,        
-            repetition_penalty=1.1, 
-            do_sample=True
-        )
-        
-        generated_ids = [
-            output_ids[len(input_ids):] for input_ids, output_ids in zip(model_inputs.input_ids, generated_ids)
-        ]
-        response = _text_tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
-        
-        # 清理可能产生的意外标点符号
-        title = response.strip().strip('"').strip('”').strip('“').strip('《').strip('》')
-        
-        if title and len(title) <= 30:
-            return title
-        elif len(title) > 30:
-            return title[:28] + "..."
+        if response.status_code == 200:
+            result = response.json()
+            title = result.get("response", "").strip()
             
-    except Exception as e:
-        print(f"本地大模型生成标题时发生错误: {e}")
+            # 暴力清洗可能产生的意外标点符号
+            title = re.sub(r'[^\u4e00-\u9fa5a-zA-Z0-9]', '', title)
+            
+            if title:
+                print(f"✨ [Ollama] 成功生成标题: {title}")
+                return title[:15]
+                
+        print(f"⚠️ [Ollama] 返回异常状态码: {response.status_code}")
         return None
 
+    except requests.exceptions.Timeout:
+        print("❌ [Ollama] 请求超时，请检查 Ollama 是否卡死，已降级处理")
+        return None
+    except requests.exceptions.ConnectionError:
+        print("❌ [Ollama] 连接失败，请确保后台正在运行 Ollama")
+        return None
+    except Exception as e:
+        print(f"❌ [Ollama] 调用发生未知错误: {e}")
+        return None
+
+# ==========================================
+# 向量检索模块 (CLIP 编码)
+# ==========================================
 def get_model():
-    """
-    获取模型实例，如果因某种原因未在启动时加载，则在此处惰性加载
-    """
     global _model
     if _model is None:
         load_model_on_startup()
     return _model
 
 def generate_image_embedding(image_path_or_file):
-    """
-    输入图片路径或文件对象，返回 bytes 格式的向量
-    支持：图片文件、视频文件 (自动提取第一帧)
-    """
+    """生成图片特征向量 (Bytes)"""
     model = get_model()
     if model is None:
         return None
@@ -132,127 +118,140 @@ def generate_image_embedding(image_path_or_file):
         is_video = False
         file_path = ""
 
-        # 1. 判断是否为视频
         if isinstance(image_path_or_file, str):
-            # 情况A: 传入的是文件路径
             file_path = image_path_or_file
             ext = os.path.splitext(file_path)[1].lower()
             if ext in ['.mp4', '.mov', '.avi', '.webm', '.mkv']:
                 is_video = True
         elif hasattr(image_path_or_file, 'name'):
-            # 情况B: 传入的是上传的文件对象
             ext = os.path.splitext(image_path_or_file.name)[1].lower()
             if ext in ['.mp4', '.mov', '.avi', '.webm', '.mkv']:
                 is_video = True
-                # OpenCV 无法直接读取内存文件流，需写入临时文件
                 with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
                     if hasattr(image_path_or_file, 'seek'): image_path_or_file.seek(0)
                     tmp.write(image_path_or_file.read())
                     temp_video_path = tmp.name
                     file_path = tmp.name
 
-        # 2. 如果是视频，提取第一帧
         if is_video:
             cap = cv2.VideoCapture(file_path)
             ret, frame = cap.read()
             cap.release()
-            
             if ret:
-                # OpenCV 默认是 BGR，CLIP 需要 RGB
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 img = Image.fromarray(frame)
         
-        # 3. 如果不是视频或提取失败，尝试作为普通图片打开
         if img is None:
             img = Image.open(image_path_or_file)
         
-        # 4. 转换为向量
         embedding = model.encode(img)
-        
-        # 归一化 (方便后续计算余弦相似度)
         norm = np.linalg.norm(embedding)
         if norm > 0:
             embedding = embedding / norm
             
-        # 转为 bytes 存储到数据库
         return embedding.astype(np.float32).tobytes()
         
     except Exception as e:
-        # print(f"生成向量失败: {e}") # 生产环境可取消注释
+        print(f"生成特征向量失败: {e}")
         return None
     finally:
-        # 清理临时文件
         if temp_video_path and os.path.exists(temp_video_path):
             try:
                 os.remove(temp_video_path)
             except:
                 pass
 
+# ==========================================
+# FAISS 高性能检索引擎模块
+# ==========================================
+def build_faiss_index():
+    """初始化并构建 FAISS 全局倒排索引"""
+    global _faiss_index
+    from .models import ImageItem  # 局部引入，避免循环依赖
+    
+    print(">>> [FAISS] 正在构建全局向量索引...")
+    dimension = 512
+    base_index = faiss.IndexFlatIP(dimension)
+    _faiss_index = faiss.IndexIDMap(base_index)
+    
+    # 分块读取数据库，防 OOM
+    qs = ImageItem.objects.exclude(feature_vector__isnull=True).values_list('id', 'feature_vector')
+    
+    chunk_ids = []
+    chunk_vectors = []
+    
+    for obj_id, vec_bytes in qs.iterator(chunk_size=5000):
+        try:
+            chunk_ids.append(obj_id)
+            chunk_vectors.append(np.frombuffer(vec_bytes, dtype=np.float32))
+        except Exception:
+            continue
+            
+        if len(chunk_ids) >= 5000:
+            _faiss_index.add_with_ids(
+                np.array(chunk_vectors), 
+                np.array(chunk_ids, dtype=np.int64)
+            )
+            chunk_ids.clear()
+            chunk_vectors.clear()
+            
+    if chunk_ids:
+        _faiss_index.add_with_ids(
+            np.array(chunk_vectors), 
+            np.array(chunk_ids, dtype=np.int64)
+        )
+        
+    print(f">>> [FAISS] 向量索引构建完成！当前库中包含 {_faiss_index.ntotal} 张可检索图片。")
+
+def add_to_faiss_index(db_id, vector_bytes):
+    """动态追加单张新图片到 FAISS 索引，用于后台任务"""
+    global _faiss_index
+    if _faiss_index is None:
+        return
+    try:
+        vec = np.frombuffer(vector_bytes, dtype=np.float32).reshape(1, -1)
+        _faiss_index.add_with_ids(vec, np.array([db_id], dtype=np.int64))
+    except Exception as e:
+        print(f"动态追加 FAISS 索引失败: {e}")
+
 def search_similar_images(query_image_file, queryset, top_k=50):
-    """
-    高性能向量检索优化版：
-    1. 使用 values_list 仅读取 id 和 vector，避免实例化 Model 对象，极大降低内存消耗
-    2. 使用 numpy 矩阵运算代替循环，提升计算速度
-    """
-    # 1. 计算查询图的向量
+    """基于 FAISS 的极速以图搜图"""
+    global _faiss_index
+    
     query_bytes = generate_image_embedding(query_image_file)
     if query_bytes is None:
         return []
 
-    # 还原为 numpy 数组 (Shape: 512,)
-    query_vec = np.frombuffer(query_bytes, dtype=np.float32)
+    query_vec = np.frombuffer(query_bytes, dtype=np.float32).reshape(1, -1)
 
-    # 2. 仅从数据库提取 ID 和 BinaryVector
-    # exclude(feature_vector__isnull=True) 确保只取有向量的数据
-    data_list = list(queryset.exclude(feature_vector__isnull=True).values_list('id', 'feature_vector'))
-    
-    if not data_list:
-        return []
+    if _faiss_index is None or _faiss_index.ntotal == 0:
+        build_faiss_index()
+        
+    if _faiss_index.ntotal == 0:
+        return [] 
 
-    # 3. 构建计算矩阵
-    ids = [item[0] for item in data_list]
-    
-    # 批量将 bytes 转换为 numpy 数组
-    try:
-        # 假设向量维度是 512 (CLIP Base)
-        vectors = np.array([np.frombuffer(item[1], dtype=np.float32) for item in data_list])
-    except Exception as e:
-        print(f"向量数据解析失败: {e}")
-        return []
+    # 执行检索
+    distances, indices = _faiss_index.search(query_vec, top_k)
 
-    # 4. 矩阵运算计算相似度 (余弦相似度)
-    # vectors: (N, 512) dot query_vec: (512,) -> scores: (N,)
-    # 因为入库时已归一化，此处直接点积即为余弦相似度
-    scores = np.dot(vectors, query_vec)
-
-    # 5. 获取 Top K 的索引
-    # argsort 是从小到大，[::-1] 反转，[:k] 取前 k 个
-    k = min(top_k, len(scores))
-    top_indices = np.argsort(scores)[::-1][:k]
-
-    results = []
-    
-    # 阈值设定 (0.45 约为 45% 相似度，低于此值的通常不相关)
     THRESHOLD = 0.45
-    
-    # 收集符合条件的 ID 和 分数
     target_ids = []
-    id_score_map = {} # id -> score (0-100)
-
-    for idx in top_indices:
-        score = float(scores[idx])
-        if score > THRESHOLD:
-            obj_id = ids[idx]
-            target_ids.append(obj_id)
-            id_score_map[obj_id] = int(score * 100)
+    id_score_map = {}
     
+    for i, db_id in enumerate(indices[0]):
+        if db_id == -1: 
+            continue 
+            
+        score = float(distances[0][i])
+        if score > THRESHOLD:
+            target_ids.append(int(db_id))
+            id_score_map[int(db_id)] = int(score * 100)
+
     if not target_ids:
         return []
 
-    # 6. 批量获取数据库完整对象 (使用 in_bulk 减少查询次数)
     objects_dict = queryset.in_bulk(target_ids)
     
-    # 按照 target_ids 的排序顺序重组列表，并将分数挂载到对象上
+    results = []
     for obj_id in target_ids:
         if obj_id in objects_dict:
             obj = objects_dict[obj_id]
