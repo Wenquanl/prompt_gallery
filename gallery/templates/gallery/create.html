@@ -1225,8 +1225,13 @@
         // 【新增】：获取循环次数
         const loopCount = parseInt(document.getElementById('ai-loop-count').value) || 1;
 
-        if (maxImagesAllowed > 0 && currentFiles.length === 0) {
-            Swal.fire('提示', '当前模型必须上传参考图片！', 'warning');
+        // 动态读取当前分类是否强制需要垫图
+        const categoryId = document.getElementById('ai-category-select').value;
+        const catConfig = AI_CONFIG.categories.find(c => c.id === categoryId);
+        const imgRequired = catConfig.img_required !== undefined ? catConfig.img_required : (maxImagesAllowed > 0);
+
+        if (imgRequired && currentFiles.length === 0) {
+            Swal.fire('提示', '当前模式必须上传参考图片！', 'warning');
             return;
         }
         if (!promptText.trim()) {

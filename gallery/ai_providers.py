@@ -407,6 +407,10 @@ class GoogleAIProvider(BaseAIProvider):
         urls = []
         if getattr(response, 'parts', None):
             for part in response.parts:
+                # 【新增】：跳过模型的 thinking 过程产生的中间草图
+                if getattr(part, 'thought', False):
+                    continue
+                
                 if getattr(part, 'inline_data', None):
                     img_bytes = part.inline_data.data
                     mime = part.inline_data.mime_type or 'image/jpeg'

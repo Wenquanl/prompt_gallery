@@ -49,9 +49,10 @@ warnings.filterwarnings("ignore", category=InsecureRequestWarning)
 AI_STUDIO_CONFIG = {
     # 1. 大类定义
     'categories': [
-        {'id': 'multi', 'title': '🟢 多图融合', 'img_max': 10, 'img_help': '当前为多图模式：按住 Ctrl 键可多选 (最多10张)'},
-        {'id': 'i2i', 'title': '🔵 图生图', 'img_max': 1, 'img_help': '当前为单图模式：请上传 1 张参考图片'},
-        {'id': 't2i', 'title': '🟠 文生图', 'img_max': 0, 'img_help': '纯文本模式，无需传图'},
+        # 增加 'img_required': False，标记图片为可选
+        {'id': 'multi', 'title': '🟢 多图融合', 'img_max': 10, 'img_required': False, 'img_help': '按住 Ctrl 键可多选垫图 (最多10张)，也可直接文生图'},
+        {'id': 'i2i', 'title': '🔵 图生图', 'img_max': 1, 'img_required': True, 'img_help': '当前为单图模式：【必须】上传 1 张参考图片'},
+        {'id': 't2i', 'title': '🟠 文生图', 'img_max': 0, 'img_required': False, 'img_help': '纯文本模式，无需传图'},
     ],
     # 2. 具体模型定义
     'models': {
@@ -2087,11 +2088,17 @@ def api_generate_and_download(request):
 
         # 3. 获取上传图片列表 (控制最大张数)
         files_to_upload = []
-        img_max = next((cat['img_max'] for cat in AI_STUDIO_CONFIG['categories'] if cat['id'] == category_id), 0)
+        cat_config = next((cat for cat in AI_STUDIO_CONFIG['categories'] if cat['id'] == category_id), {})
+        img_max = cat_config.get('img_max', 0)
+        img_required = cat_config.get('img_required', True) # 默认需要图片
+
         if img_max > 0:
-            if not base_image_files:
-                return JsonResponse({'status': 'error', 'message': '该模型需要至少一张参考图片'})
-            files_to_upload = base_image_files[:img_max]
+            # 只有在强制需要图片且未上传时才拦截
+            if img_required and not base_image_files:
+                return JsonResponse({'status': 'error', 'message': '该模型分类需要至少上传一张参考图片'})
+            # 如果上传了图片，则截取最大数量；没上传则保留空列表进行文生图
+            if base_image_files:
+                files_to_upload = base_image_files[:img_max]
 
         # ==========================================
         # 核心修改点：使用适配器模式请求云端，解耦第三方 SDK

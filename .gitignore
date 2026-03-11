@@ -39,3 +39,4 @@ migrations/
 Thumbs.db
 
 backups/
+data.ms/
