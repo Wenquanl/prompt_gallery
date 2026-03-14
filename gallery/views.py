@@ -465,14 +465,15 @@ def get_cached_char_refs_data():
 
 def generate_diff_html(base_text, compare_text):
     """
-    比较 compare_text (其他版本) 相对于 base_text (当前版本) 的差异。
-    只返回差异部分的 HTML。
+    智能折叠版差异高亮（锚定按钮位置版）：
+    按钮永远固定在前5个标签的后面，展开的内容在其后方流式铺开，防止按钮被挤走。
     """
     if base_text is None: base_text = ""
     if compare_text is None: compare_text = ""
     
     def parse_tags_to_dict(text):
-        parts = re.split(r'[,\uff0c\n]+', text)
+        import re
+        parts = re.split(r'[,\uff0c\n;|；|。]+', text)
         return {p.strip().lower(): p.strip() for p in parts if p.strip()}
 
     base_map = parse_tags_to_dict(base_text)
@@ -481,29 +482,61 @@ def generate_diff_html(base_text, compare_text):
     base_keys = set(base_map.keys())
     comp_keys = set(comp_map.keys())
     
-    added_keys = comp_keys - base_keys
-    removed_keys = base_keys - comp_keys
+    added_keys = list(comp_keys - base_keys)
+    removed_keys = list(base_keys - comp_keys)
     
     if not added_keys and not removed_keys:
-        return '<span class="no-diff">无提示词差异</span>'
+        return '<span class="no-diff">无明显差异</span>'
     
-    html_parts = []
+    MAX_VISIBLE = 5
     
+    all_changes = []
     for k in added_keys:
-        val = comp_map[k]
-        display_val = (val[:20] + '..') if len(val) > 20 else val
-        html_parts.append(
-            f'<span class="diff-tag diff-add" title="相对于当前版本，此处新增了: {val}">'
-            f'<i class="bi bi-plus"></i>{display_val}</span>'
-        )
-        
+        all_changes.append(('add', comp_map[k]))
     for k in removed_keys:
-        val = base_map[k]
-        display_val = (val[:20] + '..') if len(val) > 20 else val
-        html_parts.append(
-            f'<span class="diff-tag diff-rem" title="相对于当前版本，此处移除了: {val}">'
-            f'<i class="bi bi-dash"></i>{display_val}</span>'
+        all_changes.append(('rem', base_map[k]))
+        
+    visible_parts = []
+    hidden_parts = []
+    
+    for i, (change_type, val) in enumerate(all_changes):
+        display_val = (val[:15] + '..') if len(val) > 15 else val
+        
+        hidden_class = " diff-hidden-tag" if i >= MAX_VISIBLE else ""
+        hidden_style = ' style="display:none;"' if i >= MAX_VISIBLE else ""
+        
+        if change_type == 'add':
+            tag_html = (
+                f'<span class="diff-tag diff-add{hidden_class}"{hidden_style} title="新增: {val}">'
+                f'<i class="bi bi-plus"></i>{display_val}</span>'
+            )
+        else:
+            tag_html = (
+                f'<span class="diff-tag diff-rem{hidden_class}"{hidden_style} title="移除: {val}">'
+                f'<i class="bi bi-dash"></i>{display_val}</span>'
+            )
+            
+        # 将前5个和剩余的标签分别存入不同的列表
+        if i < MAX_VISIBLE:
+            visible_parts.append(tag_html)
+        else:
+            hidden_parts.append(tag_html)
+            
+    html_parts = []
+    # 1. 先放入可见的前5个标签
+    html_parts.extend(visible_parts)
+    
+    # 2. 如果有隐藏标签，将按钮紧贴在第5个标签之后插入
+    if hidden_parts:
+        hidden_count = len(hidden_parts)
+        btn_html = (
+            f'<span class="diff-tag diff-toggle-btn" onclick="toggleDiff(event, this)" '
+            f'data-hidden-count="{hidden_count}" '
+            f'style="background: #f8fafc; border: 1px dashed #cbd5e1; color: #64748b; cursor: pointer; transition: all 0.2s;">'
+            f'<i class="bi bi-chevron-down"></i> 展开剩余 {hidden_count} 项</span>'
         )
+        html_parts.append(btn_html)        # 【关键】按钮在中间
+        html_parts.extend(hidden_parts)    # 【关键】隐藏项在按钮后面
         
     return "".join(html_parts)
 
