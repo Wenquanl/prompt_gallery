@@ -19,7 +19,7 @@
                         {% if cover.is_video and not cover.thumbnail %}
                              <div class="d-flex align-items-center justify-content-center h-100 w-100 bg-dark text-white"><i class="bi bi-play-circle fs-1"></i></div>
                         {% else %}
-                             <img src="{{ cover.thumbnail.url|default:cover.image.url }}" alt="{{ group.title }}">
+                             <img src="{{ cover.thumbnail.url|default:cover.image.url }}" alt="{{ group.title }}" loading="lazy" decoding="async" class="object-fit-cover">
                         {% endif %}
                     {% else %}
                         <div class="d-flex align-items-center justify-content-center h-100 w-100 text-secondary bg-light bg-opacity-50" style="min-height: 200px;">
@@ -32,7 +32,7 @@
                 <div class="ref-stack-container">
                     {% for ref in group.references.all|slice:":4" %}
                     <div class="ref-item">
-                        <img src="{{ ref.thumbnail.url }}" alt="Ref">
+                        <img src="{{ ref.thumbnail.url }}" alt="Ref" loading="lazy" decoding="async">
                     </div>
                     {% endfor %}
                     {% if group.references.count > 4 %}

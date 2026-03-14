@@ -40,11 +40,11 @@
             {% else %}
                 <div role="button" onclick="showModal({{ img.pk }})">
                     {% if force_image_url %}
-                        <img src="{{ force_image_url }}" class="thumb-img" alt="Artwork" style="width: 100%; display: block; min-height: 150px; object-fit: cover;">
+                        <img src="{{ force_image_url }}" class="thumb-img" alt="Artwork" style="width: 100%; display: block; min-height: 150px; object-fit: cover;" loading="lazy" decoding="async">
                     {% elif img.thumbnail %}
-                        <img src="{{ img.thumbnail.url }}" class="thumb-img" alt="Artwork" style="width: 100%; display: block; min-height: 150px; object-fit: cover;">
+                        <img src="{{ img.thumbnail.url }}" class="thumb-img" alt="Artwork" style="width: 100%; display: block; min-height: 150px; object-fit: cover;" loading="lazy" decoding="async">
                     {% else %}
-                        <img src="{{ img.image.url }}" class="thumb-img" alt="Artwork" style="width: 100%; display: block; min-height: 150px; object-fit: cover;">
+                        <img src="{{ img.image.url }}" class="thumb-img" alt="Artwork" style="width: 100%; display: block; min-height: 150px; object-fit: cover;" loading="lazy" decoding="async">
                     {% endif %}
                     <div class="hover-overlay"><i class="bi bi-zoom-in text-white fs-2"></i></div>
                 </div>

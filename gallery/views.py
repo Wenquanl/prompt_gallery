@@ -397,55 +397,71 @@ AI_STUDIO_CONFIG = {
 # 辅助函数
 # ==========================================
 def get_tags_bar_data():
-    """
-    【自愈版】获取标签栏数据：
-    自动扫描实际作品中用到的 model_info，如果发现没有注册在 AIModel 表里的模型，自动补齐。
-    绝对不会再发生模型标签丢失的问题。
-    """
+    """【缓存优化版】获取标签栏数据"""
+    cache_key = 'tags_bar_data_v2'
+    cached_data = cache.get(cache_key)
+    if cached_data:
+        return cached_data
+
     from django.db.models import Count
-    
-    # 1. 统计作品表中各模型的使用次数 (以实际作品为准)
     model_stats = PromptGroup.objects.values('model_info').annotate(
         use_count=Count('id')
     ).filter(use_count__gt=0)
     
     final_bar = []
-    # 获取目前 AIModel 表里已经注册的名字
     registered_models = list(AIModel.objects.values_list('name', flat=True))
     
-    # 2. 构造模型 Tab 数据
     for stat in model_stats:
         m_name = stat['model_info']
-        if not m_name: 
-            continue
-            
-        # 【核心修复】：如果发现作品里用到了某个模型，但 AIModel 表里没有，立刻自动注册！
+        if not m_name: continue
         if m_name not in registered_models:
             AIModel.objects.get_or_create(name=m_name)
-            registered_models.append(m_name) # 加入列表，确保下一步能把普通标签里的同名排除掉
-            
-        final_bar.append({
-            'name': m_name,
-            'use_count': stat['use_count'],
-            'is_model': 1  # 标记为模型，排在首页顶部
-        })
+            registered_models.append(m_name)
+        final_bar.append({'name': m_name, 'use_count': stat['use_count'], 'is_model': 1})
 
-    # 3. 获取剩余的普通标签 (排除掉所有的模型名)
     tags = Tag.objects.exclude(name__in=registered_models).annotate(
         use_count=Count('promptgroup')
     ).filter(use_count__gt=0).order_by('-use_count')
 
     for t in tags:
-        final_bar.append({
-            'name': t.name,
-            'use_count': t.use_count,
-            'is_model': 2  # 标记为普通标签，排在侧边栏
-        })
+        final_bar.append({'name': t.name, 'use_count': t.use_count, 'is_model': 2})
 
-    # 4. 排序返回：先按分类(模型在前)，再按使用次数降序
     final_bar.sort(key=lambda x: (x['is_model'], -x['use_count']))
     
+    # 将统计结果缓存 2 分钟，避免每次刷新页面都去扫描全表
+    cache.set(cache_key, final_bar, 120)
     return final_bar
+
+def get_cached_char_refs_data():
+    """【性能飞跃】提取并缓存人物参考图集，避免详情页/上传页 N+1 循环查询瘫痪"""
+    cache_key = "global_char_refs_data_v1"
+    cached_data = cache.get(cache_key)
+    if cached_data:
+        return cached_data
+        
+    char_refs_data = []
+    # 优化点：只查询那些【确实有关联参考图】的人物，过滤掉没用的空人物
+    all_chars_for_ref = Character.objects.filter(promptgroup__references__isnull=False).distinct().order_by('-order', 'name')
+    
+    for char in all_chars_for_ref:
+        raw_refs = ReferenceItem.objects.select_related('group').filter(group__characters=char).order_by('-id')
+        unique_refs = []
+        seen_identifiers = set() 
+        
+        for ref in raw_refs:
+            if not ref.image: continue
+            fingerprint = ref.image_hash if ref.image_hash else ref.image.name
+            if fingerprint not in seen_identifiers:
+                seen_identifiers.add(fingerprint)
+                unique_refs.append(ref)
+            if len(unique_refs) >= 12: break
+            
+        if unique_refs:
+            char_refs_data.append({'character': char, 'refs': unique_refs})
+            
+    # 缓存 5 分钟 (300秒)，因为这部分数据不需要毫秒级实时
+    cache.set(cache_key, char_refs_data, 300)
+    return char_refs_data
 
 def generate_diff_html(base_text, compare_text):
     """
@@ -711,7 +727,7 @@ def home(request):
     queryset = queryset.select_related(
         'cover_image'
     ).prefetch_related(
-        'images', 'tags', 'characters'
+        'images', 'tags', 'characters', 'references'
     )
     # === 收集提供给前端侧边栏的数据 ===
     tags_bar = get_tags_bar_data()
@@ -949,37 +965,38 @@ def detail(request, pk):
     tags_bar = get_tags_bar_data()
     all_models_list = AIModel.objects.values_list('name', flat=True).order_by('name')
 
-    char_refs_data = []
-    all_chars_for_ref = Character.objects.all().order_by('-order', 'name')
+    # char_refs_data = []
+    # all_chars_for_ref = Character.objects.all().order_by('-order', 'name')
     
-    for char in all_chars_for_ref:
-        # 1. 查出带有该人物标签的所有参考图记录（按时间倒序，最新的在前）
-        raw_refs = ReferenceItem.objects.filter(group__characters=char).order_by('-id')
+    # for char in all_chars_for_ref:
+    #     # 1. 查出带有该人物标签的所有参考图记录（按时间倒序，最新的在前）
+    #     raw_refs = ReferenceItem.objects.filter(group__characters=char).order_by('-id')
         
-        unique_refs = []
-        seen_identifiers = set() # 用于记忆已经挑出来的图片指纹
+    #     unique_refs = []
+    #     seen_identifiers = set() # 用于记忆已经挑出来的图片指纹
         
-        for ref in raw_refs:
-            if not ref.image:
-                continue
+    #     for ref in raw_refs:
+    #         if not ref.image:
+    #             continue
                 
-            # 2. 提取指纹：优先使用刚加上的 MD5 哈希，如果没有则使用文件路径
-            fingerprint = ref.image_hash if ref.image_hash else ref.image.name
+    #         # 2. 提取指纹：优先使用刚加上的 MD5 哈希，如果没有则使用文件路径
+    #         fingerprint = ref.image_hash if ref.image_hash else ref.image.name
             
-            # 3. 如果这个指纹还没见过，说明是“新面孔”，加入展示列表
-            if fingerprint not in seen_identifiers:
-                seen_identifiers.add(fingerprint)
-                unique_refs.append(ref)
+    #         # 3. 如果这个指纹还没见过，说明是“新面孔”，加入展示列表
+    #         if fingerprint not in seen_identifiers:
+    #             seen_identifiers.add(fingerprint)
+    #             unique_refs.append(ref)
                 
-            # 4. 凑够 12 张【不重复】的独立图片就收手
-            if len(unique_refs) >= 12:
-                break
+    #         # 4. 凑够 12 张【不重复】的独立图片就收手
+    #         if len(unique_refs) >= 12:
+    #             break
                 
-        if unique_refs:
-            char_refs_data.append({
-                'character': char,
-                'refs': unique_refs
-            })
+    #     if unique_refs:
+    #         char_refs_data.append({
+    #             'character': char,
+    #             'refs': unique_refs
+    #         })
+    char_refs_data = get_cached_char_refs_data()
     
     return render(request, 'gallery/detail.html', {
         'all_models_list': all_models_list,        
@@ -1196,24 +1213,26 @@ def upload(request):
             except PromptGroup.DoesNotExist:
                 pass
         
-        char_refs_data = []
-        all_chars_for_ref = Character.objects.all().order_by('-order', 'name')
+        # char_refs_data = []
+        # all_chars_for_ref = Character.objects.all().order_by('-order', 'name')
         
-        for char in all_chars_for_ref:
-            raw_refs = ReferenceItem.objects.filter(group__characters=char).order_by('-id')
-            unique_refs = []
-            seen_identifiers = set() 
+        # for char in all_chars_for_ref:
+        #     raw_refs = ReferenceItem.objects.filter(group__characters=char).order_by('-id')
+        #     unique_refs = []
+        #     seen_identifiers = set() 
             
-            for ref in raw_refs:
-                if not ref.image: continue
-                fingerprint = ref.image_hash if ref.image_hash else ref.image.name
-                if fingerprint not in seen_identifiers:
-                    seen_identifiers.add(fingerprint)
-                    unique_refs.append(ref)
-                if len(unique_refs) >= 12: break
+        #     for ref in raw_refs:
+        #         if not ref.image: continue
+        #         fingerprint = ref.image_hash if ref.image_hash else ref.image.name
+        #         if fingerprint not in seen_identifiers:
+        #             seen_identifiers.add(fingerprint)
+        #             unique_refs.append(ref)
+        #         if len(unique_refs) >= 12: break
                     
-            if unique_refs:
-                char_refs_data.append({'character': char, 'refs': unique_refs}) 
+        #     if unique_refs:
+        #         char_refs_data.append({'character': char, 'refs': unique_refs}) 
+
+        char_refs_data = get_cached_char_refs_data()
 
         form = PromptGroupForm(initial=initial_data)
         existing_titles = PromptGroup.objects.values_list('title', flat=True).distinct().order_by('title')
@@ -2020,21 +2039,23 @@ def create_view(request):
     except Exception:
         pass
 
-    char_refs_data = []
-    all_chars_for_ref = Character.objects.all().order_by('-order', 'name')
-    for char in all_chars_for_ref:
-        raw_refs = ReferenceItem.objects.filter(group__characters=char).order_by('-id')
-        unique_refs = []
-        seen_identifiers = set() 
-        for ref in raw_refs:
-            if not ref.image: continue
-            fingerprint = ref.image_hash if ref.image_hash else ref.image.name
-            if fingerprint not in seen_identifiers:
-                seen_identifiers.add(fingerprint)
-                unique_refs.append(ref)
-            if len(unique_refs) >= 12: break
-        if unique_refs:
-            char_refs_data.append({'character': char, 'refs': unique_refs})
+    # char_refs_data = []
+    # all_chars_for_ref = Character.objects.all().order_by('-order', 'name')
+    # for char in all_chars_for_ref:
+    #     raw_refs = ReferenceItem.objects.filter(group__characters=char).order_by('-id')
+    #     unique_refs = []
+    #     seen_identifiers = set() 
+    #     for ref in raw_refs:
+    #         if not ref.image: continue
+    #         fingerprint = ref.image_hash if ref.image_hash else ref.image.name
+    #         if fingerprint not in seen_identifiers:
+    #             seen_identifiers.add(fingerprint)
+    #             unique_refs.append(ref)
+    #         if len(unique_refs) >= 12: break
+    #     if unique_refs:
+    #         char_refs_data.append({'character': char, 'refs': unique_refs})
+
+    char_refs_data = get_cached_char_refs_data()
 
     return render(request, 'gallery/create.html', {
         'ai_config_json': json.dumps(AI_STUDIO_CONFIG),
@@ -2306,7 +2327,7 @@ def api_get_similar_groups_by_prompt(request):
 
         top_ids = [item[1] for item in top_recs]
         
-        groups_dict = PromptGroup.objects.prefetch_related('images', 'characters').in_bulk(top_ids)
+        groups_dict = PromptGroup.objects.select_related('cover_image').prefetch_related('images', 'characters').in_bulk(top_ids)
         
         results = []
         for ratio, group_id in top_recs:
