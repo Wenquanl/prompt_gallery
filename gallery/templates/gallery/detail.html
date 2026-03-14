@@ -830,6 +830,32 @@
         box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important;
         color: #0d6efd; /* 图标变蓝 */
     }
+    /* ========================================== */
+    /* 专属 AI 模型标签高级样式 */
+    /* ========================================== */
+    
+    /* 正常模型标签：科技紫晶风格 */
+    .model-badge {
+        background: linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%);
+        color: #5b21b6 !important;
+        border: 1px solid #ddd6fe;
+        box-shadow: 0 2px 4px rgba(139, 92, 246, 0.08);
+        transition: all 0.2s ease;
+    }
+    .model-badge i {
+        color: #8b5cf6;
+    }
+
+    /* 警告模型标签：琥珀黄风格 (用于其他版本的模型与主版本不一致时) */
+    .model-badge-warning {
+        background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+        color: #92400e !important;
+        border: 1px solid #fde68a;
+        box-shadow: 0 2px 4px rgba(245, 158, 11, 0.08);
+    }
+    .model-badge-warning i {
+        color: #d97706;
+    }
 </style>
 
 <button class="fab-like-btn {% if group.is_liked %}liked{% endif %}" 
@@ -1275,12 +1301,12 @@
                                                             <div class="d-flex flex-wrap gap-1 align-items-center">
                                                                 {% if sib.model_info %}
                                                                     {% if sib.model_info != group.model_info %}
-                                                                        <span class="badge rounded-pill" style="background-color: #fff3cd; color: #856404; border: 1px solid #ffeeba; font-weight: normal; font-size: 0.65rem;">
+                                                                        <span class="badge rounded-pill model-badge-warning" style="font-weight: 500; font-size: 0.65rem;">
                                                                             <i class="bi bi-exclamation-triangle-fill me-1"></i>{{ sib.model_info }}
                                                                         </span>
                                                                     {% else %}
-                                                                        <span class="badge bg-light text-secondary border rounded-pill" style="font-weight: normal; font-size: 0.65rem;">
-                                                                            <i class="bi bi-robot me-1"></i>{{ sib.model_info }}
+                                                                        <span class="badge rounded-pill model-badge" style="font-weight: 500; font-size: 0.65rem;">
+                                                                            <i class="bi bi-cpu-fill me-1"></i>{{ sib.model_info }}
                                                                         </span>
                                                                     {% endif %}
                                                                 {% endif %}
@@ -1575,7 +1601,7 @@
                         <div class="custom-checkbox"><i class="bi bi-check-lg"></i></div>
                     </div>
                     
-                    <div class="ratio ratio-1x1" style="background-color: #fff3fe;"> {% with cover=sib.cover_image|default:sib.images.first %}
+                    <div class="ratio ratio-1x1" style="background-color: #fcf8fb;"> {% with cover=sib.cover_image|default:sib.images.first %}
                             {% if cover %}
                                 {% if cover.is_video %}
                                     <div class="d-flex align-items-center justify-content-center text-white h-100 w-100"><i class="bi bi-play-circle fs-1"></i></div>
@@ -1591,8 +1617,8 @@
                     <div class="card-body p-3 d-flex flex-column bg-white">
                         <div class="d-flex justify-content-between align-items-center mb-2">
                             <div class="d-flex flex-wrap gap-1 align-items-center" style="max-width: 70%;">
-                                <span class="badge bg-light text-secondary border text-truncate" style="max-width: 100%; font-weight: 500;" title="{{ sib.model_info|default:'未知模型' }}">
-                                    <i class="bi bi-cpu me-1"></i>{{ sib.model_info|default:"未知模型" }}
+                                <span class="badge rounded-pill model-badge text-truncate" style="max-width: 100%; font-weight: 500; padding: 4px 10px;" title="{{ sib.model_info|default:'未知模型' }}">
+                                    <i class="bi bi-cpu-fill me-1"></i>{{ sib.model_info|default:"未知模型" }}
                                 </span>
                                 
                                 {% if sib.provider and sib.provider != 'other' %}
@@ -1989,11 +2015,14 @@
 
         // 监听全局右键事件
         document.addEventListener('contextmenu', function(e) {
-            // 查找是否点击了详情页的图片卡片 (.item-card)
+            // 查找是否点击了卡片
             const card = e.target.closest('.item-card');
             
-            // 排除视频（可选：如果您也想让视频设为封面，去掉 !card.classList.contains('video-wide-item')）
-            if (card) {
+            // 【核心修复】：判断这个卡片是不是在批量管理的抽屉里
+            const isInDrawer = e.target.closest('#siblingsBatchDrawer');
+            
+            // 只有当点击了卡片，并且卡片【不在抽屉里】时，才显示右键菜单
+            if (card && !isInDrawer) {
                 e.preventDefault(); // 阻止浏览器默认菜单
                 
                 // 获取图片ID
@@ -2004,7 +2033,7 @@
                 contextMenu.style.left = `${e.clientX}px`;
                 contextMenu.style.top = `${e.clientY}px`;
             } else {
-                // 如果不是点在卡片上，隐藏菜单
+                // 否则隐藏菜单，并允许浏览器原生的右键行为
                 contextMenu.style.display = 'none';
             }
         });
