@@ -1592,3 +1592,142 @@ function saveParamEdit(field, pk, newValue, oldValue, displaySpan) {
         displaySpan.innerHTML = displaySpan.dataset.originalHtml;
     });
 }
+
+// ================= 大图预览：基于 Transform 的完美放大与拖拽 =================
+
+document.addEventListener('DOMContentLoaded', function() {
+    const previewImg = document.getElementById('previewImage');
+    const modalBody = previewImg ? previewImg.closest('.modal-body') : null;
+    
+    if (!previewImg || !modalBody) return;
+
+    // 核心矩阵变量
+    let scale = 1;
+    let translateX = 0;
+    let translateY = 0;
+
+    // 拖拽状态管理
+    let isDragging = false;
+    let dragMoved = false; // 用于严格区分“纯点击”还是“拖拽”
+    let startX, startY;
+    let lastTranslateX = 0;
+    let lastTranslateY = 0;
+
+    // 1. 鼠标按下：准备拖拽
+    previewImg.addEventListener('mousedown', function(e) {
+        if (scale === 1) return; // 没放大时不许拖动
+        e.preventDefault(); // 防止触发浏览器默认的图片拖拽(禁止图标)
+        
+        // 拖拽时【必须】关闭 CSS 动画过渡，保证图片 100% 贴紧鼠标无延迟
+        previewImg.style.transition = 'none';
+
+        isDragging = true;
+        dragMoved = false;
+        startX = e.clientX;
+        startY = e.clientY;
+        lastTranslateX = translateX;
+        lastTranslateY = translateY;
+    });
+
+    // 2. 全局鼠标移动：执行平移计算
+    document.addEventListener('mousemove', function(e) {
+        if (!isDragging) return;
+
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+
+        // 移动距离超过 5px 判定为真实的拖拽 (防止帕金森手抖导致的点击失效)
+        if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+            dragMoved = true;
+        }
+
+        if (dragMoved) {
+            // 实时更新偏移量并渲染
+            translateX = lastTranslateX + dx;
+            translateY = lastTranslateY + dy;
+            updateTransform();
+        }
+    });
+
+    // 3. 全局鼠标松开：结束拖拽
+    document.addEventListener('mouseup', function() {
+        if (isDragging) {
+            isDragging = false;
+            // 延迟一点重置 dragMoved，让下方的 click 事件有足够的时间去读取它并进行拦截
+            setTimeout(() => {
+                dragMoved = false;
+            }, 50);
+        }
+    });
+
+    // 4. 核心：点击放大 / 缩小
+    previewImg.addEventListener('click', function(e) {
+        // 【最关键的拦截】：如果刚刚发生了真实的拖拽移动，这次松开绝对不能触发缩小！
+        if (dragMoved) return;
+
+        if (scale === 1) {
+            // --- 进入放大模式 ---
+            scale = 2.5; // 放大倍数，默认 2.5 倍
+            
+            // 数学计算：获取点击位置相对于图片中心点的偏移量，实现“指哪放哪”
+            const rect = previewImg.getBoundingClientRect();
+            const offsetX = e.clientX - rect.left - rect.width / 2;
+            const offsetY = e.clientY - rect.top - rect.height / 2;
+            
+            // 计算为了让点击点居中，需要反向移动的距离
+            translateX = -offsetX * (scale - 1);
+            translateY = -offsetY * (scale - 1);
+
+            // 开启过渡动画，让放大过程充满丝滑感
+            previewImg.style.transition = 'transform 0.3s cubic-bezier(0.25, 1, 0.5, 1)';
+            previewImg.classList.add('zoomed-in');
+            modalBody.classList.add('modal-zoomed-mode');
+            
+        } else {
+            // --- 退出放大模式 ---
+            resetZoomState();
+        }
+        updateTransform();
+    });
+
+    // 统一更新 DOM 的 transform 属性
+    function updateTransform() {
+        previewImg.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`;
+    }
+
+    // 全局重置状态函数
+    function resetZoomState() {
+        if (scale === 1) return;
+        scale = 1;
+        translateX = 0;
+        translateY = 0;
+        
+        // 开启过渡动画，让缩小回原位的过程同样丝滑
+        previewImg.style.transition = 'transform 0.3s cubic-bezier(0.25, 1, 0.5, 1)';
+        previewImg.classList.remove('zoomed-in');
+        modalBody.classList.remove('modal-zoomed-mode');
+        
+        updateTransform();
+    }
+
+    // 5. 状态清理：监听图片切换或模态框关闭，强制退出放大模式
+    const observer = new MutationObserver(function(mutations) {
+        mutations.forEach(function(mutation) {
+            if (mutation.attributeName === "src") {
+                // 用户点击“下一张”时，瞬间重置回原位，不需要过渡动画
+                previewImg.style.transition = 'none';
+                resetZoomState();
+            }
+        });
+    });
+    observer.observe(previewImg, { attributes: true });
+    
+    // 模态框关闭时清理
+    const modalEl = document.getElementById('imageModal');
+    if (modalEl) {
+        modalEl.addEventListener('hide.bs.modal', function () {
+            previewImg.style.transition = 'none';
+            resetZoomState();
+        });
+    }
+});

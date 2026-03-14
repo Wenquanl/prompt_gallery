@@ -900,6 +900,43 @@
     .version-item:last-child .timeline-hover-zoom {
         transform-origin: left bottom;
     }
+    /* ========================================== */
+    /* 大图预览：基于 Transform 的丝滑缩放与平移 */
+    /* ========================================== */
+    #previewImage {
+        cursor: zoom-in;
+        will-change: transform; /* 开启 GPU 硬件加速，拖拽极度丝滑 */
+    }
+
+    /* 当图片处于放大状态时 */
+    #previewImage.zoomed-in {
+        cursor: grab; /* 拖拽手型 */
+    }
+    
+    /* 拖拽过程中的指针形状 */
+    #previewImage.zoomed-in:active {
+        cursor: grabbing;
+    }
+    
+    /* 放大状态下隐藏周围所有多余的 UI 按钮，保持沉浸感 */
+    .modal-zoomed-mode .nav-prev,
+    .modal-zoomed-mode .nav-next,
+    .modal-zoomed-mode .modal-download-btn,
+    .modal-zoomed-mode .modal-like-btn,
+    .modal-zoomed-mode .modal-delete-btn,
+    .modal-zoomed-mode .image-counter,
+    .modal-zoomed-mode .close-modal-btn {
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.3s ease;
+    }
+    #imageModal {
+        overflow: hidden !important; /* 强制干掉 Bootstrap 模态框的外层滚动条 */
+    }
+    
+    #imageModal .modal-body {
+        overflow: hidden !important; /* 强制干掉内层容器的滚动条 */
+    }
 </style>
 
 <button class="fab-like-btn {% if group.is_liked %}liked{% endif %}" 
