@@ -690,8 +690,7 @@ def home(request):
     version_counts = {}
     
     # 判断当前是否处于“高级筛选”状态
-    is_filtering = any([f_liked, f_video, f_multi, f_models, f_chars, f_tags])
-    
+    is_filtering = any([f_liked, filter_type == 'liked', f_video, f_multi, f_models, f_chars, f_tags])    
     # 只有在：没搜文字、没以图搜图、且【没有开启任何组合筛选】时，才折叠去重
     if not query and not search_id and not is_filtering:
         group_stats = PromptGroup.objects.values('group_id').annotate(
