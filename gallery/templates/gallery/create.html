@@ -602,17 +602,23 @@
                     <div class="modal-dialog modal-dialog-centered modal-lg">
                         <div class="modal-content border-0 shadow-lg rounded-4">
                             <div class="modal-header border-0 pb-0">
-                                <h5 class="modal-title fw-bold"><i class="bi bi-magic text-primary me-2"></i>选择目标作品 (按相似度排序)</h5>
+                                <h5 class="modal-title fw-bold"><i class="bi bi-collection-fill text-primary me-2"></i>选择目标作品</h5>
                                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                             </div>
                             <div class="modal-body pt-3">
-                                <p class="text-muted small mb-3">系统已根据您当前使用的 Prompt 计算了全库相似度：</p>
+                                <div class="input-group mb-3 shadow-sm rounded-pill overflow-hidden border">
+                                    <span class="input-group-text bg-white border-0 pe-1"><i class="bi bi-search text-muted"></i></span>
+                                    <input type="text" class="form-control border-0 shadow-none" id="appendSearchInput" placeholder="输入关键词搜索全库作品..." autocomplete="off" onkeyup="debounceAppendSearch()">
+                                </div>
+                                
+                                <p class="text-muted small mb-2" id="appendModalSubtitle">系统已根据您当前使用的 Prompt 计算了全库相似度：</p>
                                 <div id="similarGroupsContainer" class="list-group custom-scrollbar" style="max-height: 450px; overflow-y: auto;">
-                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
+                
             </div>
         </div>
 
@@ -1607,6 +1613,45 @@
         });
     }
     // === 追加到现有组的核心逻辑 ===
+    let appendSearchTimeout;
+    function debounceAppendSearch() {
+        const val = document.getElementById('appendSearchInput').value.trim();
+        clearTimeout(appendSearchTimeout);
+        
+        // 如果清空了搜索框，恢复显示默认的“智能相似度推荐”
+        if (!val) {
+            document.getElementById('appendModalSubtitle').innerText = "系统已根据您当前使用的 Prompt 计算了全库相似度：";
+            fetchSimilarGroupsForAppend();
+            return;
+        }
+        
+        appendSearchTimeout = setTimeout(() => {
+            performAppendSearch(val);
+        }, 500);
+    }
+    function performAppendSearch(q) {
+        const container = document.getElementById('similarGroupsContainer');
+        const activeModelCard = document.querySelector('.model-card.active');
+        const currentModelName = activeModelCard ? activeModelCard.querySelector('.model-card-title').innerText.trim() : '';
+        
+        document.getElementById('appendModalSubtitle').innerText = `包含 "${q}" 的全库检索结果：`;
+        container.innerHTML = '<div class="text-center text-muted py-5"><div class="spinner-border text-primary mb-3"></div><br>正在检索全库...</div>';
+
+        fetch(`/api/groups/?q=${encodeURIComponent(q)}`)
+        .then(res => res.json())
+        .then(data => {
+            if (data.results) {
+                renderSimilarGroups(data.results, currentModelName, true); // 传 true 标记这是搜索结果
+            } else {
+                container.innerHTML = `<div class="text-center text-danger py-4">搜索失败</div>`;
+            }
+        })
+        .catch(err => {
+            console.error(err);
+            container.innerHTML = '<div class="text-center text-danger py-4">网络请求异常</div>';
+        });
+    }
+
     function openAddToGroupModal() {
         const selectedPaths = getSelectedSavedPaths();
         if (selectedPaths.length === 0) {
@@ -1614,8 +1659,19 @@
             return;
         }
         
+        // 每次打开弹窗时，清空搜索框并恢复默认状态
+        const searchInput = document.getElementById('appendSearchInput');
+        if (searchInput) searchInput.value = '';
+        const subtitle = document.getElementById('appendModalSubtitle');
+        if (subtitle) subtitle.innerText = "系统已根据您当前使用的 Prompt 计算了全库相似度：";
+        
         new bootstrap.Modal(document.getElementById('addToGroupModal')).show();
         fetchSimilarGroupsForAppend();
+        
+        // 自动聚焦搜索框，方便直接打字
+        setTimeout(() => {
+            if (searchInput) searchInput.focus();
+        }, 500);
     }
 
     function fetchSimilarGroupsForAppend() {
@@ -1633,7 +1689,7 @@
         .then(res => res.json())
         .then(data => {
             if (data.status === 'success') {
-                renderSimilarGroups(data.results, currentModelName);
+                renderSimilarGroups(data.results, currentModelName, false);
             } else {
                 container.innerHTML = `<div class="text-center text-danger py-4">检索失败: ${data.message}</div>`;
             }
@@ -1644,15 +1700,15 @@
         });
     }
 
-    function renderSimilarGroups(groups, currentModelName) {
+    function renderSimilarGroups(groups, currentModelName, isSearch = false) {
         const container = document.getElementById('similarGroupsContainer');
         if (!groups || groups.length === 0) {
-            container.innerHTML = '<div class="text-center text-muted py-4">暂无历史作品。</div>';
+            container.innerHTML = '<div class="text-center text-muted py-4"><i class="bi bi-inbox fs-1 d-block mb-2 opacity-50"></i>暂无作品。</div>';
             return;
         }
 
-        // 将“当前卡片”单独抽出来，插入到数组的最前面
-        if (currentSourceGroupId) {
+        // 将“当前卡片”单独抽出来，插入到数组的最前面（仅在非搜索模式下置顶）
+        if (currentSourceGroupId && !isSearch) { 
             const sourceIndex = groups.findIndex(g => String(g.id) === currentSourceGroupId);
             if (sourceIndex > -1) {
                 const sourceGroup = groups.splice(sourceIndex, 1)[0];
@@ -1673,13 +1729,17 @@
             let topBadgeHtml = '';
             if (isCurrentSource) {
                 topBadgeHtml = `<span class="badge bg-success shadow-sm rounded-pill px-2 py-1"><i class="bi bi-pin-angle-fill me-1"></i>当前所属作品</span>`;
-            } else {
+            } else if (group.similarity && !isSearch) {
+                // 推荐模式显示相似度
                 let badgeClass = 'bg-secondary';
                 let simValue = parseInt(group.similarity);
                 if(simValue > 80) badgeClass = 'bg-danger';
                 else if(simValue > 50) badgeClass = 'bg-warning text-dark';
                 else if(simValue > 20) badgeClass = 'bg-primary';
                 topBadgeHtml = `<span class="badge ${badgeClass} rounded-pill">相似度 ${group.similarity}</span>`;
+            } else if (isSearch) {
+                // 搜索模式显示固定徽章
+                topBadgeHtml = `<span class="badge bg-light text-secondary border rounded-pill"><i class="bi bi-search me-1"></i>检索结果</span>`;
             }
 
             // 3. 模型标签与人物标签逻辑
@@ -1706,12 +1766,11 @@
             // 4. 高亮当前卡片样式
             const activeCardClass = isCurrentSource ? "border-success border-2 bg-success bg-opacity-10" : "";
 
-            // 5. 【核心修复】安全清洗所有引号和换行符，并存入 data-* 属性中
+            // 5. 安全清洗引号
             const safeTitle = group.title 
                 ? group.title.replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/[\r\n]+/g, ' ') 
                 : '未命名作品';
 
-            // 不再使用 onclick 传参，改为传 this
             html += `
             <a href="javascript:void(0)" class="list-group-item list-group-item-action d-flex gap-3 align-items-center py-3 ${activeCardClass}" 
                data-group-id="${group.id}" 

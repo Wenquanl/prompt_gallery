@@ -856,6 +856,50 @@
     .model-badge-warning i {
         color: #d97706;
     }
+    /* ========================================== */
+    /* 时间轴缩略图：悬停看大图特效 */
+    /* ========================================== */
+    
+    /* 1. 提升当前鼠标所在行（版本）的层级，防止放大后的图片被下方的卡片盖住 */
+    .version-item:hover {
+        z-index: 50;
+    }
+
+    /* 2. 缩略图的基础过渡属性 */
+    .timeline-hover-zoom {
+        transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s ease;
+        transform-origin: left center; /* 关键：锚定左边缘，向右放大，绝不遮挡左侧的时间轴 */
+        position: relative;
+        z-index: 1;
+        cursor: zoom-in;
+    }
+
+    /* 3. 悬停时的弹开效果 */
+    .timeline-hover-zoom:hover {
+        transform: scale(5); /* 32px 放大 5 倍 = 160px，足够看清构图和细节 */
+        z-index: 100;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+        border: 1.5px solid #fff; /* 加上类似拍立得的白边框 */
+        border-radius: 4px !important;
+    }
+    /* ========================================== */
+    /* 【核心修复】时间轴边缘缩略图防裁切逻辑 */
+    /* ========================================== */
+    
+    /* 默认情况：中间的卡片向右侧、上下均匀放大 (保持不变) */
+    .timeline-hover-zoom {
+        transform-origin: left center;
+    }
+
+    /* 修复 1：排在第一位的卡片，改为向【右下方】放大，防止顶部被切掉 */
+    .version-item:first-child .timeline-hover-zoom {
+        transform-origin: left top;
+    }
+
+    /* 修复 2：排在最后一位的卡片，改为向【右上方】放大，防止底部被切掉或撑出不必要的滚动条 */
+    .version-item:last-child .timeline-hover-zoom {
+        transform-origin: left bottom;
+    }
 </style>
 
 <button class="fab-like-btn {% if group.is_liked %}liked{% endif %}" 
@@ -1290,7 +1334,7 @@
                                                                 {% if cover.is_video %}
                                                                     <div class="rounded bg-dark text-white d-flex align-items-center justify-content-center flex-shrink-0" style="width: 32px; height: 32px;"><i class="bi bi-play-fill"></i></div>
                                                                 {% else %}
-                                                                    <img src="{{ cover.thumbnail.url|default:cover.image.url }}" class="rounded object-fit-cover flex-shrink-0" style="width: 32px; height: 32px;" loading="lazy" decoding="async">
+                                                                    <img src="{{ cover.thumbnail.url|default:cover.image.url }}" class="rounded object-fit-cover flex-shrink-0 timeline-hover-zoom" style="width: 32px; height: 32px;" loading="lazy" decoding="async">
                                                                 {% endif %}
                                                             {% else %}
                                                                 <div class="rounded bg-light text-muted d-flex align-items-center justify-content-center flex-shrink-0" style="width: 32px; height: 32px;"><i class="bi bi-image"></i></div>
