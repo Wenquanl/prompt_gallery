@@ -29,34 +29,6 @@
     <script src="https://cdn.jsdelivr.net/npm/masonry-layout@4.2.2/dist/masonry.pkgd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/imagesloaded@5.0.0/imagesloaded.pkgd.min.js"></script>
     <script src="{% static 'gallery/js/common.js' %}"></script>
-    
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            const input = document.getElementById('navSearchInput');
-            const btn = document.getElementById('navSearchClearBtn');
-            
-            if (input && btn) {
-                // 初始化显示状态
-                if (input.value.length > 0 && document.activeElement === input) {
-                    btn.style.display = 'block';
-                }
-                
-                // 监听输入
-                input.addEventListener('input', function() {
-                    btn.style.display = this.value.length > 0 ? 'block' : 'none';
-                });
-                
-                // 监听清除点击
-                btn.addEventListener('mousedown', function(e) {
-                    e.preventDefault(); // 防止输入框失去焦点
-                    input.value = '';
-                    input.focus();
-                    btn.style.display = 'none';
-                });
-            }
-        });
-    </script>
-
     {% block extra_js %}{% endblock %}
 </body>
 </html>

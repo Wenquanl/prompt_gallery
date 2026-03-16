@@ -1,209 +1,11 @@
 {% extends 'gallery/base.html' %}
 {% load static %}
 
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'gallery/css/home.css' %}">
+{% endblock %}
+
 {% block content %}
-<style>
-    /* === 标签栏样式优化：支持自动换行 === */
-    .tags-bar-wrapper {
-        padding: 10px 0;
-        overflow: visible; /* 允许高度撑开 */
-    }
-    .tags-wrap-container {
-        display: flex;
-        flex-wrap: wrap; 
-        gap: 8px; 
-        max-height: 36px; /* 默认单行高度 */
-        overflow: hidden;
-        padding-right: 120px; 
-        /* 提前把底部 padding 加上，防止展开时跳动 */
-        padding-bottom: 4px; 
-        /* 稍微加快一点动画速度，0.3s 最符合人眼直觉 */
-        transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1); 
-    }
-    /* 添加模型按钮样式 */
-    .btn-add-model {
-        width: 32px; height: 32px;
-        border-radius: 50%;
-        border: 1px dashed #adb5bd;
-        background: rgba(255,255,255,0.5);
-        color: #6c757d;
-        display: flex; align-items: center; justify-content: center;
-        cursor: pointer;
-        transition: all 0.2s;
-        padding: 0;
-    }
-    .btn-add-model:hover {
-        border-color: var(--primary-color);
-        color: var(--primary-color);
-        background: white;
-        transform: scale(1.05);
-    }
-
-    /* === AI 创作室 Hero 按钮专属高级动效 === */
-    .btn-hero-ai {
-        position: relative;
-        overflow: hidden;
-        background: linear-gradient(135deg, #8a2be2 0%, #4a00e0 100%);
-        color: white !important;
-        border: none;
-        transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
-        box-shadow: 0 4px 15px rgba(138, 43, 226, 0.4);
-        z-index: 1;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-    }
-
-    /* 悬浮时的放大与阴影加深 */
-    .btn-hero-ai:hover {
-        transform: translateY(-3px) scale(1.03);
-        box-shadow: 0 10px 25px rgba(138, 43, 226, 0.6);
-    }
-
-    /* 核心：伪元素制作的流光扫过效果 */
-    .btn-hero-ai::after {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: -100%;
-        width: 50%;
-        height: 100%;
-        background: linear-gradient(to right, rgba(255,255,255,0) 0%, rgba(255,255,255,0.3) 50%, rgba(255,255,255,0) 100%);
-        transform: skewX(-25deg);
-        animation: ai-shimmer 3s infinite; /* 3秒循环一次 */
-        z-index: -1;
-    }
-
-    @keyframes ai-shimmer {
-        0% { left: -100%; }
-        20% { left: 200%; }
-        100% { left: 200%; } /* 留出 80% 的时间静止，避免光扫得太频繁导致眼花 */
-    }
-
-    /* 鼠标悬浮时，魔法棒图标的微小摇晃 */
-    .btn-hero-ai:hover .bi-magic {
-        animation: ai-wiggle 0.6s ease-in-out infinite alternate;
-    }
-
-    @keyframes ai-wiggle {
-        0% { transform: rotate(0deg) scale(1); }
-        100% { transform: rotate(15deg) scale(1.2); }
-    }
-/* === 全新：优雅的浮动磨砂模型栏设计 === */
-    .elegant-model-bar {
-        /* 用极淡淡的浅蓝/灰作为底色，与纯白底色拉开层次 */
-        background-color: #f8fafc; 
-        padding: 12px;
-        margin-bottom: 20px;
-        border-radius: 16px; /* 更圆润的边角，显得友好 */
-        /* 微微的投影，营造悬浮感 */
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
-        border: 1px solid #f1f5f9;
-    }
-
-    .tags-wrap-container {
-        display: flex;
-        flex-wrap: wrap; /* 允许换行 */
-        gap: 8px; /* 稍微缩小间距，更精致 */
-        /* 限制高度为单行，根据你的字体大小可能需要微调 (此处设为 36px) */
-        max-height: 36px; 
-        overflow: hidden;
-        /* 留出右侧空间给悬浮按钮，防止标签贴边 */
-        padding-right: 120px; 
-        transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-    }
-
-    /* === 标签胶囊按钮美化 === */
-    .tag-pill {
-        display: inline-flex;
-        background: #fff; /* 胶囊用纯白，在浅灰底色上浮现 */
-        border: 1px solid #e2e8f0;
-        border-radius: 50px;
-        padding: 6px 14px;
-        color: #475569;
-        font-size: 0.85rem;
-        font-weight: 500;
-        transition: all 0.2s;
-    }
-
-    /* 悬停效果：轻微浮起和变色 */
-    .tag-pill:hover {
-        background-color: #f1f5f9;
-        border-color: #cbd5e1;
-        color: #1e293b;
-        transform: translateY(-1px);
-    }
-
-    /* 选中状态 */
-    .tag-pill.active {
-        background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); /* 主题渐变 */
-        border-color: transparent;
-        color: white;
-        box-shadow: 0 2px 6px rgba(79, 70, 229, 0.2);
-    }
-    
-    .tag-pill.active i { color: rgba(255,255,255,0.8); }
-
-    /* 胶囊内的数字角标 */
-    .tag-pill .badge {
-        background-color: #f1f5f9;
-        color: #64748b;
-        font-weight: 400;
-    }
-    .tag-pill.active .badge {
-        background-color: rgba(255,255,255,0.2);
-        color: white;
-    }
-
-    /* === 优化：右侧悬浮按钮样式 (独立胶囊 + 毛玻璃效果) === */
-    .toggle-models-btn {
-        position: absolute;
-        top: 12px; /* 与父容器 padding 一致 */
-        right: 12px;
-        height: 36px;
-        padding: 0; /* 内部由 content 决定 padding */
-        border: none;
-        cursor: pointer;
-        z-index: 10;
-        background: transparent; /* 自身透明 */
-    }
-
-    .toggle-btn-content {
-        display: flex;
-        align-items: center;
-        height: 100%;
-        padding: 0 16px;
-        /* 核心：半透明白色背景 + 毛玻璃滤镜 */
-        background: rgba(255, 255, 255, 0.75); 
-        backdrop-filter: blur(8px); /* 磨砂效果 */
-        -webkit-backdrop-filter: blur(8px);
-        border: 1px solid rgba(226, 232, 240, 0.8);
-        border-radius: 50px;
-        color: #4f46e5; /* 主题色文字 */
-        font-size: 0.8rem;
-        font-weight: 600;
-        box-shadow: -4px 0 12px rgba(248, 250, 252, 0.9); /* 消除左侧标签被切断的生硬感 */
-        transition: all 0.3s;
-    }
-    
-    .toggle-models-btn:hover .toggle-btn-content {
-        background: rgba(255, 255, 255, 0.9);
-        border-color: #6366f1;
-        box-shadow: 0 2px 8px rgba(99, 102, 241, 0.15);
-    }
-
-    /* 图标旋转动画 */
-    .toggle-icon {
-        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        display: inline-block;
-    }
-
-    /* 展开状态下图标旋转 180 度 */
-    .tags-wrap-container.is-expanded + .toggle-models-btn .toggle-icon {
-        transform: rotate(180deg);
-    }
-</style>
-
 <div class="container py-5">
     {% if not search_query and not current_filter and not image_search_active %}
     <div class="row justify-content-center hero-section">
@@ -333,42 +135,41 @@
 {% block modals %}
     {% include 'gallery/components/modal_check_duplicates.html' with modal_id="checkDuplicatesModal" %}
     {% include 'gallery/components/modal_merge.html' %}
-<div class="modal fade" id="templateSelectModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content border-0 shadow-lg rounded-4">
-            <div class="modal-header border-0 pb-0">
-                <h5 class="modal-title fw-bold">选择模板卡片</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <p class="text-muted small mb-3">搜索现有的卡片，使用其提示词和参考图作为新创作的模板。</p>
-                <div class="position-relative mb-3">
-                    <input type="text" id="templateSearchInput" class="form-control rounded-pill ps-4" placeholder="搜索标题或提示词..." oninput="debounceSearchTemplate()">
-                    <i class="bi bi-search position-absolute top-50 end-0 translate-middle-y me-3 text-muted"></i>
+    <div class="modal fade" id="templateSelectModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg rounded-4">
+                <div class="modal-header border-0 pb-0">
+                    <h5 class="modal-title fw-bold">选择模板卡片</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
-                <div id="templateSearchResults" class="custom-scrollbar" style="max-height: 400px; overflow-y: auto;">
-                    <div class="text-center text-muted py-3 small">请输入关键词搜索</div>
+                <div class="modal-body">
+                    <p class="text-muted small mb-3">搜索现有的卡片，使用其提示词和参考图作为新创作的模板。</p>
+                    <div class="position-relative mb-3">
+                        <input type="text" id="templateSearchInput" class="form-control rounded-pill ps-4" placeholder="搜索标题或提示词..." oninput="debounceSearchTemplate()">
+                        <i class="bi bi-search position-absolute top-50 end-0 translate-middle-y me-3 text-muted"></i>
+                    </div>
+                    <div id="templateSearchResults" class="custom-scrollbar" style="max-height: 400px; overflow-y: auto;">
+                        <div class="text-center text-muted py-3 small">请输入关键词搜索</div>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
-</div>
 
-<div class="modal fade" id="addModelModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered modal-sm">
-        <div class="modal-content border-0 shadow-lg rounded-4">
-            <div class="modal-header border-0 pb-0">
-                <h5 class="modal-title fw-bold">添加新模型</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <input type="text" id="newModelNameInput" class="form-control rounded-pill mb-3" placeholder="例如: Midjourney v6">
-                <button onclick="submitAddModel()" class="btn btn-primary w-100 rounded-pill">确认添加</button>
+    <div class="modal fade" id="addModelModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-sm">
+            <div class="modal-content border-0 shadow-lg rounded-4">
+                <div class="modal-header border-0 pb-0">
+                    <h5 class="modal-title fw-bold">添加新模型</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="text" id="newModelNameInput" class="form-control rounded-pill mb-3" placeholder="例如: Midjourney v6">
+                    <button onclick="submitAddModel()" class="btn btn-primary w-100 rounded-pill">确认添加</button>
+                </div>
             </div>
         </div>
     </div>
-</div>
-
 {% endblock %}
 
 {% block extra_js %}
@@ -377,270 +178,5 @@
     
     <script id="current-filter-data" type="application/json">
         {% if current_filter == 'liked' %}true{% else %}false{% endif %}
-    </script>
-    
-    <script>
-        // === 添加模型相关的逻辑 ===
-        const addModelModal = new bootstrap.Modal(document.getElementById('addModelModal'));
-
-        function openAddModelModal() {
-            document.getElementById('newModelNameInput').value = '';
-            addModelModal.show();
-            // 聚焦输入框
-            setTimeout(() => document.getElementById('newModelNameInput').focus(), 300);
-        }
-        
-        function submitAddModel() {
-            const name = document.getElementById('newModelNameInput').value.trim();
-            if(!name) return;
-            
-            const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
-            
-            fetch('/add-model/', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRFToken': csrfToken
-                },
-                body: JSON.stringify({ name: name })
-            })
-            .then(res => res.json())
-            .then(data => {
-                if(data.status === 'success') {
-                    addModelModal.hide();
-                    window.location.reload(); // 刷新以显示新标签
-                } else {
-                    alert(data.message || '添加失败');
-                }
-            })
-            .catch(err => alert('网络错误'));
-        }
-
-        function toggleModels() {
-        const container = document.getElementById('model-tags-container');
-        const isExpanded = container.classList.contains('is-expanded');
-        
-        if (!isExpanded) {
-            // 准备展开
-            container.classList.add('is-expanded');
-            // 【核心丝滑秘诀】：精准获取实际需要的完整像素高度
-            const exactHeight = container.scrollHeight;
-            container.style.maxHeight = exactHeight + 'px';
-        } else {
-            // 准备收起
-            container.classList.remove('is-expanded');
-            // 恢复回 CSS 默认的单行高度
-            container.style.maxHeight = '36px'; 
-        }
-    }
-
-        // === 【新增】右键编辑模型标签逻辑 ===
-        function handleTagContextMenu(event, element) {
-            event.preventDefault(); // 阻止浏览器默认的右键菜单弹出
-            
-            const oldName = element.getAttribute('data-tag-name');
-
-            Swal.fire({
-                title: '编辑模型标签',
-                text: '修改后的名称将同步更新到所有关联的画作卡片',
-                input: 'text',
-                inputValue: oldName,
-                showCancelButton: true,
-                confirmButtonText: '保存修改',
-                cancelButtonText: '取消',
-                confirmButtonColor: '#8a2be2',
-                inputValidator: (value) => {
-                    if (!value || value.trim() === '') {
-                        return '标签名称不能为空！';
-                    }
-                    if (value.trim() === oldName) {
-                        return '名称未发生改变';
-                    }
-                }
-            }).then((result) => {
-                if (result.isConfirmed) {
-                    const newName = result.value.trim();
-                    submitEditModel(oldName, newName);
-                }
-            });
-        }
-
-        function submitEditModel(oldName, newName) {
-            const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
-
-            Swal.fire({
-                title: '正在更新...',
-                allowOutsideClick: false,
-                didOpen: () => Swal.showLoading()
-            });
-
-            fetch('/edit-model/', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRFToken': csrfToken
-                },
-                body: JSON.stringify({ old_name: oldName, new_name: newName })
-            })
-            .then(res => res.json())
-            .then(data => {
-                if(data.status === 'success') {
-                    Swal.fire({
-                        icon: 'success',
-                        title: '修改成功',
-                        toast: true,
-                        position: 'top-end',
-                        showConfirmButton: false,
-                        timer: 1500
-                    }).then(() => window.location.reload()); // 刷新页面以显示最新标签
-                } else {
-                    Swal.fire('修改失败', data.message || '未知错误', 'error');
-                }
-            })
-            .catch(err => {
-                console.error(err);
-                Swal.fire('错误', '网络或服务端异常', 'error');
-            });
-        }
-
-        // === 【新增】远端API 图片生成逻辑 ===
-        const seedreamModal = new bootstrap.Modal(document.getElementById('seedreamModal'));
-
-        function openSeedreamModal() {
-            document.getElementById('seedream-images').value = '';
-            document.getElementById('seedream-prompt').value = '';
-            document.getElementById('seedream-loading').style.display = 'none';
-            document.getElementById('btn-seedream-generate').disabled = false;
-            toggleAIModelUI(); // 每次打开重置UI
-            seedreamModal.show();
-        }
-
-        // 智能 UI 切换：根据选中项的 data-category 属性
-        function toggleAIModelUI() {
-            const selectEl = document.getElementById('ai-model-select');
-            const selectedOption = selectEl.options[selectEl.selectedIndex];
-            const category = selectedOption.getAttribute('data-category'); // 获取大类：t2i, i2i, multi
-
-            const imgBlock = document.getElementById('ai-image-upload-block');
-            const imgInput = document.getElementById('seedream-images');
-            const imgHelp = document.getElementById('ai-img-help');
-
-            if (category === 't2i') {
-                imgBlock.style.display = 'none'; // 隐藏图片上传
-            } else if (category === 'i2i') {
-                imgBlock.style.display = 'block';
-                imgInput.removeAttribute('multiple');
-                imgHelp.innerHTML = '当前为 <b class="text-primary">单图模式</b>：请上传 1 张参考图片。';
-            } else if (category === 'multi') {
-                imgBlock.style.display = 'block';
-                imgInput.setAttribute('multiple', 'multiple');
-                imgHelp.innerHTML = '当前为 <b class="text-success">多图模式</b>：按住 Ctrl / Command 键可多选 (最多10张)。';
-            }
-        }
-
-        function generateSeedream() {
-            const selectEl = document.getElementById('ai-model-select');
-            const modelChoice = selectEl.value;
-            const category = selectEl.options[selectEl.selectedIndex].getAttribute('data-category');
-            
-            const fileInput = document.getElementById('seedream-images');
-            const promptText = document.getElementById('seedream-prompt').value;
-
-            // 基础校验
-            if (category !== 't2i' && fileInput.files.length === 0) {
-                Swal.fire('提示', '当前模型必须上传参考图片！', 'warning');
-                return;
-            }
-            if (!promptText.trim()) {
-                Swal.fire('提示', '请输入提示词！', 'warning');
-                return;
-            }
-
-            const btn = document.getElementById('btn-seedream-generate');
-            const loading = document.getElementById('seedream-loading');
-            
-            btn.disabled = true;
-            loading.style.display = 'block';
-
-            const formData = new FormData();
-            formData.append('model_choice', modelChoice);
-            formData.append('prompt', promptText);
-            
-            // 追加图片文件
-            if (category !== 't2i') {
-                for (let i = 0; i < fileInput.files.length; i++) {
-                    formData.append('base_images', fileInput.files[i]);
-                }
-            }
-
-            fetch('/api/generate-direct/', {
-                method: 'POST',
-                body: formData 
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.status === 'success') {
-                    seedreamModal.hide();
-                    Swal.fire({
-                        title: '🎉 生成完毕！',
-                        text: data.message,
-                        imageUrl: data.image_url,
-                        imageHeight: 300,
-                        imageAlt: 'AI Generated Image',
-                        confirmButtonText: 'OK'
-                    });
-                } else {
-                    Swal.fire('❌ 发生错误', data.message, 'error');
-                }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                Swal.fire('❌ 请求失败', '网络错误或服务端报错，请查看后台', 'error');
-            })
-            .finally(() => {
-                btn.disabled = false;
-                loading.style.display = 'none';
-            });
-        }
-        document.addEventListener('DOMContentLoaded', () => {
-        // 1. 初始化交叉观察器
-        const cardObserver = new IntersectionObserver((entries, observer) => {
-            entries.forEach(entry => {
-                // 如果卡片进入了屏幕可视区域 (甚至还差 50px 就要进入时)
-                if (entry.isIntersecting) {
-                    // 加上动画触发类名
-                    entry.target.classList.add('animate-show');
-                    // 动画执行一次后就取消观察，节省性能
-                    observer.unobserve(entry.target); 
-                }
-            });
-        }, {
-            root: null,
-            threshold: 0.1, // 卡片露出 10% 时触发
-            rootMargin: "0px 0px -50px 0px" // 提前 50px 触发，让用户感觉不到延迟
-        });
-
-        // 2. 找到所有的卡片并开始观察
-        const cards = document.querySelectorAll('.gallery-card');
-        
-        // 可选：为了让第一屏的卡片有一点错落有致的梯次感，我们可以加个极短的微小延迟
-        cards.forEach((card, index) => {
-            // 前 10 张卡片根据索引稍微延迟一点点出现 (每张错开 50 毫秒)
-            if (index < 10) {
-                card.style.transitionDelay = `${index * 50}ms`;
-            }
-            cardObserver.observe(card);
-        });
-        //如果模型本来就很少（没有换行），自动隐藏展开按钮
-        const container = document.getElementById('model-tags-container');
-        const btn = document.getElementById('toggle-models-btn');
-        if (container && btn) {
-            // 如果只有一行，隐藏按钮
-            if (container.scrollHeight <= 42) {
-                btn.style.display = 'none';
-                container.style.paddingRight = '0'; 
-            }
-        }
-    });
     </script>
 {% endblock %}

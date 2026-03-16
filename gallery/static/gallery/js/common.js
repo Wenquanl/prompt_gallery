@@ -322,3 +322,28 @@ function playNotificationSound(type) {
         audioEl.play().catch(e => console.warn("后台音频播放尝试失败:", e));
     }
 }
+// === 导航栏搜索框交互逻辑 ===
+document.addEventListener('DOMContentLoaded', function() {
+    const input = document.getElementById('navSearchInput');
+    const btn = document.getElementById('navSearchClearBtn');
+    
+    if (input && btn) {
+        // 初始化显示状态：如果输入框有值并且处于焦点状态
+        if (input.value.length > 0 && document.activeElement === input) {
+            btn.style.display = 'block';
+        }
+        
+        // 监听输入，控制清除按钮的显示/隐藏
+        input.addEventListener('input', function() {
+            btn.style.display = this.value.length > 0 ? 'block' : 'none';
+        });
+        
+        // 监听清除按钮的点击事件
+        btn.addEventListener('mousedown', function(e) {
+            e.preventDefault(); // 防止输入框失去焦点，导致键盘收起或光标丢失
+            input.value = '';
+            input.focus();
+            btn.style.display = 'none';
+        });
+    }
+});

@@ -365,3 +365,258 @@ function searchTemplates() {
             resultsContainer.innerHTML = '<div class="text-center text-danger py-3 small">搜索出错</div>';
         });
 }
+// === 确保在 DOM 加载完成后初始化需要获取 DOM 的变量 ===
+let addModelModal, seedreamModal;
+
+document.addEventListener('DOMContentLoaded', () => {
+    // 初始化 Bootstrap Modals
+    const addModelEl = document.getElementById('addModelModal');
+    if(addModelEl) {
+        addModelModal = new bootstrap.Modal(addModelEl);
+    }
+    
+    const seedreamEl = document.getElementById('seedreamModal');
+    if(seedreamEl) {
+        seedreamModal = new bootstrap.Modal(seedreamEl);
+    }
+
+    // 1. 初始化交叉观察器 (懒加载动画)
+    const cardObserver = new IntersectionObserver((entries, observer) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                entry.target.classList.add('animate-show');
+                observer.unobserve(entry.target); 
+            }
+        });
+    }, {
+        root: null,
+        threshold: 0.1, 
+        rootMargin: "0px 0px -50px 0px"
+    });
+
+    // 2. 找到所有的卡片并开始观察
+    const cards = document.querySelectorAll('.gallery-card');
+    cards.forEach((card, index) => {
+        if (index < 10) {
+            card.style.transitionDelay = `${index * 50}ms`;
+        }
+        cardObserver.observe(card);
+    });
+
+    // 3. 如果模型本来就很少（没有换行），自动隐藏展开按钮
+    const container = document.getElementById('model-tags-container');
+    const btn = document.getElementById('toggle-models-btn');
+    if (container && btn) {
+        if (container.scrollHeight <= 42) {
+            btn.style.display = 'none';
+            container.style.paddingRight = '0'; 
+        }
+    }
+});
+
+// === 添加模型相关的逻辑 ===
+function openAddModelModal() {
+    document.getElementById('newModelNameInput').value = '';
+    addModelModal.show();
+    setTimeout(() => document.getElementById('newModelNameInput').focus(), 300);
+}
+
+function submitAddModel() {
+    const name = document.getElementById('newModelNameInput').value.trim();
+    if(!name) return;
+    
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
+    
+    fetch('/add-model/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify({ name: name })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if(data.status === 'success') {
+            addModelModal.hide();
+            window.location.reload(); 
+        } else {
+            alert(data.message || '添加失败');
+        }
+    })
+    .catch(err => alert('网络错误'));
+}
+
+function toggleModels() {
+    const container = document.getElementById('model-tags-container');
+    const isExpanded = container.classList.contains('is-expanded');
+    
+    if (!isExpanded) {
+        container.classList.add('is-expanded');
+        const exactHeight = container.scrollHeight;
+        container.style.maxHeight = exactHeight + 'px';
+    } else {
+        container.classList.remove('is-expanded');
+        container.style.maxHeight = '36px'; 
+    }
+}
+
+// === 右键编辑模型标签逻辑 ===
+function handleTagContextMenu(event, element) {
+    event.preventDefault(); 
+    const oldName = element.getAttribute('data-tag-name');
+
+    Swal.fire({
+        title: '编辑模型标签',
+        text: '修改后的名称将同步更新到所有关联的画作卡片',
+        input: 'text',
+        inputValue: oldName,
+        showCancelButton: true,
+        confirmButtonText: '保存修改',
+        cancelButtonText: '取消',
+        confirmButtonColor: '#8a2be2',
+        inputValidator: (value) => {
+            if (!value || value.trim() === '') {
+                return '标签名称不能为空！';
+            }
+            if (value.trim() === oldName) {
+                return '名称未发生改变';
+            }
+        }
+    }).then((result) => {
+        if (result.isConfirmed) {
+            const newName = result.value.trim();
+            submitEditModel(oldName, newName);
+        }
+    });
+}
+
+function submitEditModel(oldName, newName) {
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
+
+    Swal.fire({
+        title: '正在更新...',
+        allowOutsideClick: false,
+        didOpen: () => Swal.showLoading()
+    });
+
+    fetch('/edit-model/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify({ old_name: oldName, new_name: newName })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if(data.status === 'success') {
+            Swal.fire({
+                icon: 'success', title: '修改成功', toast: true,
+                position: 'top-end', showConfirmButton: false, timer: 1500
+            }).then(() => window.location.reload()); 
+        } else {
+            Swal.fire('修改失败', data.message || '未知错误', 'error');
+        }
+    })
+    .catch(err => {
+        console.error(err);
+        Swal.fire('错误', '网络或服务端异常', 'error');
+    });
+}
+
+// === 远端API 图片生成逻辑 ===
+function openSeedreamModal() {
+    document.getElementById('seedream-images').value = '';
+    document.getElementById('seedream-prompt').value = '';
+    document.getElementById('seedream-loading').style.display = 'none';
+    document.getElementById('btn-seedream-generate').disabled = false;
+    toggleAIModelUI(); 
+    seedreamModal.show();
+}
+
+function toggleAIModelUI() {
+    const selectEl = document.getElementById('ai-model-select');
+    if(!selectEl) return;
+    const selectedOption = selectEl.options[selectEl.selectedIndex];
+    const category = selectedOption.getAttribute('data-category'); 
+
+    const imgBlock = document.getElementById('ai-image-upload-block');
+    const imgInput = document.getElementById('seedream-images');
+    const imgHelp = document.getElementById('ai-img-help');
+
+    if (category === 't2i') {
+        imgBlock.style.display = 'none'; 
+    } else if (category === 'i2i') {
+        imgBlock.style.display = 'block';
+        imgInput.removeAttribute('multiple');
+        imgHelp.innerHTML = '当前为 <b class="text-primary">单图模式</b>：请上传 1 张参考图片。';
+    } else if (category === 'multi') {
+        imgBlock.style.display = 'block';
+        imgInput.setAttribute('multiple', 'multiple');
+        imgHelp.innerHTML = '当前为 <b class="text-success">多图模式</b>：按住 Ctrl / Command 键可多选 (最多10张)。';
+    }
+}
+
+function generateSeedream() {
+    const selectEl = document.getElementById('ai-model-select');
+    const modelChoice = selectEl.value;
+    const category = selectEl.options[selectEl.selectedIndex].getAttribute('data-category');
+    
+    const fileInput = document.getElementById('seedream-images');
+    const promptText = document.getElementById('seedream-prompt').value;
+
+    if (category !== 't2i' && fileInput.files.length === 0) {
+        Swal.fire('提示', '当前模型必须上传参考图片！', 'warning');
+        return;
+    }
+    if (!promptText.trim()) {
+        Swal.fire('提示', '请输入提示词！', 'warning');
+        return;
+    }
+
+    const btn = document.getElementById('btn-seedream-generate');
+    const loading = document.getElementById('seedream-loading');
+    
+    btn.disabled = true;
+    loading.style.display = 'block';
+
+    const formData = new FormData();
+    formData.append('model_choice', modelChoice);
+    formData.append('prompt', promptText);
+    
+    if (category !== 't2i') {
+        for (let i = 0; i < fileInput.files.length; i++) {
+            formData.append('base_images', fileInput.files[i]);
+        }
+    }
+
+    fetch('/api/generate-direct/', {
+        method: 'POST',
+        body: formData 
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            seedreamModal.hide();
+            Swal.fire({
+                title: '🎉 生成完毕！',
+                text: data.message,
+                imageUrl: data.image_url,
+                imageHeight: 300,
+                imageAlt: 'AI Generated Image',
+                confirmButtonText: 'OK'
+            });
+        } else {
+            Swal.fire('❌ 发生错误', data.message, 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        Swal.fire('❌ 请求失败', '网络错误或服务端报错，请查看后台', 'error');
+    })
+    .finally(() => {
+        btn.disabled = false;
+        loading.style.display = 'none';
+    });
+}

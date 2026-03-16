@@ -1731,3 +1731,548 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 });
+// ===== 详情页扩展交互逻辑 (从 HTML 中提取) =====
+
+document.addEventListener('DOMContentLoaded', function () {
+    // 1. 获取后端传来的配置数据 (如果存在)
+    const configEl = document.getElementById('detail-config-data');
+    let detailConfig = { groupId: null, rawPromptContent: 'image' };
+    if (configEl) {
+        detailConfig = JSON.parse(configEl.textContent);
+    }
+    window.detailConfig = detailConfig;
+
+    var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+    var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+        return new bootstrap.Tooltip(tooltipTriggerEl);
+    });
+
+    // === 批量管理逻辑 Start ===
+    const body = document.body;
+    const btnEnter = document.getElementById('btn-enter-batch');
+    const btnExit = document.getElementById('btn-exit-batch');
+    const batchBar = document.getElementById('batch-action-bar');
+    const countSpan = document.getElementById('selected-count');
+    const btnSelectAll = document.getElementById('btn-select-all');
+
+    function toggleBatchMode(active) {
+        if (active) {
+            body.classList.add('batch-mode');
+            batchBar.classList.add('active');
+            btnEnter.classList.add('d-none');
+        } else {
+            body.classList.remove('batch-mode');
+            batchBar.classList.remove('active');
+            btnEnter.classList.remove('d-none');
+            document.querySelectorAll('.item-card').forEach(c => c.classList.remove('selected'));
+            updateCount();
+        }
+    }
+
+    if(btnEnter) btnEnter.addEventListener('click', () => toggleBatchMode(true));
+    if(btnExit) btnExit.addEventListener('click', () => toggleBatchMode(false));
+
+    const gridContainer = document.getElementById('detail-masonry-grid-images');
+    const videoGridContainer = document.getElementById('detail-masonry-grid-videos');
+    let isDragSelectionOccurred = false;
+
+    function handleCardClick(e) {
+        if (!body.classList.contains('batch-mode')) return;
+        if (isDragSelectionOccurred) return;
+        
+        const card = e.target.closest('.item-card');
+        if (card) {
+            e.preventDefault();
+            e.stopPropagation();
+            card.classList.toggle('selected');
+            updateCount();
+        }
+    }
+
+    if(gridContainer) gridContainer.addEventListener('click', handleCardClick);
+    if(videoGridContainer) videoGridContainer.addEventListener('click', handleCardClick);
+
+    // 框选逻辑
+    const selectionBox = document.createElement('div');
+    selectionBox.classList.add('selection-area-box');
+    document.body.appendChild(selectionBox);
+
+    let isDragging = false;
+    let startX, startY;
+
+    document.addEventListener('mousedown', function(e) {
+        if (!body.classList.contains('batch-mode')) return;
+        if (e.target.closest('.batch-bar') || 
+            e.target.closest('.sticky-sidebar') || 
+            e.target.closest('.modal') || 
+            e.target.closest('button')) return;
+
+        isDragging = true;
+        isDragSelectionOccurred = false; 
+        startX = e.clientX;
+        startY = e.clientY;
+        
+        selectionBox.style.left = startX + 'px';
+        selectionBox.style.top = startY + 'px';
+        selectionBox.style.width = '0px';
+        selectionBox.style.height = '0px';
+        selectionBox.style.display = 'block';
+    });
+
+    document.addEventListener('mousemove', function(e) {
+        if (!isDragging) return;
+
+        const curX = e.clientX;
+        const curY = e.clientY;
+
+        if (Math.abs(curX - startX) > 5 || Math.abs(curY - startY) > 5) {
+            isDragSelectionOccurred = true;
+        }
+
+        const left = Math.min(startX, curX);
+        const top = Math.min(startY, curY);
+        const width = Math.abs(curX - startX);
+        const height = Math.abs(curY - startY);
+
+        selectionBox.style.left = left + 'px';
+        selectionBox.style.top = top + 'px';
+        selectionBox.style.width = width + 'px';
+        selectionBox.style.height = height + 'px';
+
+        const cards = document.querySelectorAll('.item-card');
+        cards.forEach(card => {
+            const rect = card.getBoundingClientRect();
+            if (left < rect.right && left + width > rect.left && top < rect.bottom && top + height > rect.top) {
+                 if (!card.classList.contains('selected')) {
+                     card.classList.add('selected');
+                 }
+            }
+        });
+        
+        if (isDragSelectionOccurred) {
+            requestAnimationFrame(updateCount);
+        }
+    });
+
+    document.addEventListener('mouseup', function(e) {
+        if (isDragging) {
+            isDragging = false;
+            selectionBox.style.display = 'none';
+            selectionBox.style.width = '0';
+            selectionBox.style.height = '0';
+            setTimeout(() => { isDragSelectionOccurred = false; }, 100);
+        }
+    });
+
+    if(btnSelectAll) {
+        btnSelectAll.addEventListener('click', () => {
+            const cards = document.querySelectorAll('.item-card');
+            const allSelected = document.querySelectorAll('.item-card.selected').length === cards.length;
+            cards.forEach(c => {
+                if (allSelected) c.classList.remove('selected');
+                else c.classList.add('selected');
+            });
+            updateCount();
+        });
+    }
+
+    function updateCount() {
+        const count = document.querySelectorAll('.item-card.selected').length;
+        if(countSpan) countSpan.textContent = count;
+    }
+
+    function getSelectedItems() {
+        const selected = [];
+        document.querySelectorAll('.item-card.selected').forEach(card => {
+            selected.push({
+                id: card.dataset.imgId,
+                url: card.dataset.imgUrl
+            });
+        });
+        return selected;
+    }
+
+    const batchDeleteModalEl = document.getElementById('batchDeleteModal');
+    let modalDelete;
+    if(batchDeleteModalEl) {
+        modalDelete = new bootstrap.Modal(batchDeleteModalEl);
+    }
+    const btnTriggerDelete = document.getElementById('btn-batch-delete-trigger');
+    const btnConfirmDelete = document.getElementById('btn-confirm-batch-delete');
+
+    if(btnTriggerDelete && modalDelete) {
+        btnTriggerDelete.addEventListener('click', () => {
+            const items = getSelectedItems();
+            if (items.length === 0) return alert('请先选择要删除的项目');
+            document.getElementById('modal-delete-count').textContent = items.length;
+            modalDelete.show();
+        });
+    }
+
+    if(btnConfirmDelete && modalDelete) {
+        btnConfirmDelete.addEventListener('click', () => {
+            const items = getSelectedItems();
+            const ids = items.map(i => i.id);
+            const csrfInput = document.querySelector('[name=csrfmiddlewaretoken]');
+            const csrfToken = csrfInput ? csrfInput.value : '';
+            
+            fetch("/batch-delete-images/", { 
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken
+                },
+                body: JSON.stringify({ image_ids: ids })
+            })
+            .then(response => response.json())
+            .then(data => {
+                modalDelete.hide();
+                if (data.status === 'success') {
+                    document.querySelectorAll('.item-card.selected').forEach(card => {
+                        const col = card.closest('.col-6') || card.closest('.col-12') || card; 
+                        col.remove();
+                    });
+                    toggleBatchMode(false); 
+                    const imgCountBadge = document.getElementById('image-count-badge');
+                    if(imgCountBadge) imgCountBadge.innerText = document.querySelectorAll('#detail-masonry-grid-images .item-card').length;
+                } else {
+                    alert('删除失败: ' + data.message);
+                }
+            });
+        });
+    }
+
+    const btnBatchDownload = document.getElementById('btn-batch-download');
+    const modalDownloadEl = document.getElementById('batchDownloadModal');
+    let modalDownload;
+    if(modalDownloadEl) {
+        modalDownload = new bootstrap.Modal(modalDownloadEl);
+    }
+    const btnConfirmDownload = document.getElementById('btn-confirm-batch-download');
+    
+    function sanitizeFilename(text) {
+        if (!text) return 'image';
+        return text.replace(/[\r\n]+/g, ' ').replace(/[<>:"/\\|?*]/g, '').trim().substring(0, 60);
+    }
+
+    if(btnBatchDownload && modalDownload) {
+        btnBatchDownload.addEventListener('click', () => {
+            const items = getSelectedItems();
+            if (items.length === 0) return alert('请先选择要下载的项目');
+            document.getElementById('modal-download-count').textContent = items.length;
+            modalDownload.show();
+        });
+    }
+
+    if(btnConfirmDownload && modalDownload) {
+        btnConfirmDownload.addEventListener('click', () => {
+            modalDownload.hide();
+            const items = getSelectedItems();
+            const basePromptName = sanitizeFilename(window.detailConfig.rawPromptContent) || 'image';
+
+            const downloadNext = (index) => {
+                if (index >= items.length) return;
+                const item = items[index];
+                const ext = item.url.split('.').pop().split('?')[0]; 
+                const filename = `${basePromptName}_${item.id}.${ext}`; 
+                
+                fetch(item.url)
+                    .then(resp => resp.blob())
+                    .then(blob => {
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.style.display = 'none';
+                        a.href = url;
+                        a.download = filename; 
+                        document.body.appendChild(a);
+                        a.click();
+                        window.URL.revokeObjectURL(url);
+                        document.body.removeChild(a);
+                        setTimeout(() => downloadNext(index + 1), 400); 
+                    })
+                    .catch(err => {
+                        console.error('下载失败', err);
+                        setTimeout(() => downloadNext(index + 1), 400);
+                    });
+            };
+            downloadNext(0);
+        });
+    }
+
+    // 智能对比并高亮“其他版本”列表中的人物标签
+    const currentCharNodes = document.querySelectorAll('#characters-wrapper .tag-char a');
+    const currentCharNames = Array.from(currentCharNodes).map(a => a.textContent.trim());
+    
+    document.querySelectorAll('.sibling-char-badge').forEach(badge => {
+        const charName = badge.getAttribute('data-char');
+        if (currentCharNames.includes(charName)) {
+            badge.style.backgroundColor = '#fff0f6';
+            badge.style.color = '#d81b60';
+            badge.style.borderColor = '#ffdeeb';
+            badge.title = "人物一致";
+        } else {
+            badge.style.backgroundColor = '#fff3cd';
+            badge.style.color = '#856404';
+            badge.style.borderColor = '#ffeeba';
+            badge.innerHTML = '<i class="bi bi-person-exclamation me-1"></i>' + charName;
+            badge.title = "人物变更: 当前主卡片无此角色";
+        }
+    });
+
+    // 底部抽屉批量管理
+    const drawerGrid = document.getElementById('drawer-siblings-grid');
+    const drawerCountSpan = document.getElementById('drawer-selected-count');
+    
+    if (drawerGrid) {
+        drawerGrid.addEventListener('click', function(e) {
+            if (e.target.closest('.diff-toggle-btn')) return;
+            const card = e.target.closest('.item-card');
+            if (card) {
+                card.classList.toggle('selected');
+                updateDrawerCount();
+            }
+        });
+        
+        function updateDrawerCount() {
+            const count = drawerGrid.querySelectorAll('.item-card.selected').length;
+            if(drawerCountSpan) {
+                drawerCountSpan.textContent = count;
+                drawerCountSpan.style.transform = 'scale(1.3)';
+                setTimeout(() => drawerCountSpan.style.transform = 'scale(1)', 200);
+            }
+        }
+        
+        const btnSelectAllDrawer = document.getElementById('btn-drawer-select-all');
+        if(btnSelectAllDrawer) {
+            btnSelectAllDrawer.addEventListener('click', function() {
+                const cards = drawerGrid.querySelectorAll('.item-card');
+                const allSelected = drawerGrid.querySelectorAll('.item-card.selected').length === cards.length;
+                cards.forEach(card => {
+                    if (allSelected) card.classList.remove('selected');
+                    else card.classList.add('selected');
+                });
+                this.textContent = allSelected ? "全选" : "取消全选";
+                updateDrawerCount();
+            });
+        }
+        
+        function getSelectedSiblingIds() {
+            const selected = [];
+            drawerGrid.querySelectorAll('.drawer-sibling-item').forEach(item => {
+                if (item.querySelector('.item-card').classList.contains('selected')) {
+                    selected.push(item.getAttribute('data-id'));
+                }
+            });
+            return selected;
+        }
+
+        const btnDrawerMerge = document.getElementById('btn-drawer-merge');
+        if(btnDrawerMerge) {
+            btnDrawerMerge.addEventListener('click', function() {
+                const ids = getSelectedSiblingIds();
+                if (ids.length === 0) return Swal.fire('提示', '请先选择要合并的版本', 'info');
+                const mainGroupId = window.detailConfig.groupId;
+                if (!mainGroupId) return Swal.fire('错误', '无法获取当前作品ID', 'error');
+
+                Swal.fire({
+                    title: `确认合并这 ${ids.length} 个版本？`,
+                    text: "被合并版本内的所有图片将转移至当前作品中，并且原来的空壳版本将被永久删除！此操作不可恢复。",
+                    icon: 'warning',
+                    showCancelButton: true,
+                    confirmButtonColor: '#ffc107',
+                    cancelButtonColor: '#6c757d',
+                    confirmButtonText: '确认合并',
+                    cancelButtonText: '取消'
+                }).then((result) => {
+                    if (result.isConfirmed) {
+                        Swal.fire({ title: '正在合并...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); } });
+                        // 请确保 getCookie 存在（通常在 common.js）
+                        let tk = typeof getCookie === 'function' ? getCookie('csrftoken') : document.querySelector('[name=csrfmiddlewaretoken]').value;
+                        fetch('/api/merge-variants/', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-CSRFToken': tk 
+                            },
+                            body: JSON.stringify({ main_group_id: mainGroupId, merge_ids: ids })
+                        })
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.status === 'success') {
+                                Swal.fire({ icon: 'success', title: '合并完成', timer: 1500, showConfirmButton: false }).then(() => window.location.reload());
+                            } else {
+                                Swal.fire('合并失败', data.message, 'error');
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Error:', error);
+                            Swal.fire('网络错误', '请求未能成功，请检查网络或控制台', 'error');
+                        });
+                    }
+                });
+            });
+        }
+
+        const btnDrawerUnlink = document.getElementById('btn-drawer-unlink');
+        if(btnDrawerUnlink) {
+            btnDrawerUnlink.addEventListener('click', function() {
+                const ids = getSelectedSiblingIds();
+                if (ids.length === 0) return Swal.fire('提示', '请先选择要解除关联的版本', 'info');
+                
+                Swal.fire({
+                    title: `确认解除这 ${ids.length} 个版本的关联?`,
+                    text: '这些版本将从当前系列中移出，变为独立的画廊卡片。',
+                    icon: 'warning',
+                    showCancelButton: true,
+                    confirmButtonColor: '#dc3545',
+                    confirmButtonText: '确认解除'
+                }).then((result) => {
+                    if (result.isConfirmed) {
+                        Swal.fire({ title: '正在解除关联...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); } });
+                        let tk = typeof getCookie === 'function' ? getCookie('csrftoken') : document.querySelector('[name=csrfmiddlewaretoken]').value;
+                        
+                        const unlinkPromises = ids.map(id => 
+                            fetch(`/api/unlink-group/${id}/`, {
+                                method: 'POST',
+                                headers: { 'X-CSRFToken': tk }
+                            }).then(res => res.json())
+                        );
+
+                        Promise.all(unlinkPromises)
+                            .then(results => {
+                                const allSuccess = results.every(res => res.status === 'success');
+                                if (allSuccess) {
+                                    Swal.fire({ icon: 'success', title: '已批量解除关联', timer: 1500, showConfirmButton: false }).then(() => window.location.reload());
+                                } else {
+                                    Swal.fire('部分失败', '有部分版本未能解除关联，请刷新页面查看', 'warning').then(() => window.location.reload());
+                                }
+                            })
+                            .catch(error => {
+                                console.error('Error:', error);
+                                Swal.fire('网络错误', '批量请求未能完全成功', 'error');
+                            });
+                    }
+                });
+            });
+        }
+    }
+});
+
+// AI 工作室打开
+function openAiStudioModal() {
+    const modalEl = document.getElementById('aiStudioModal');
+    if (modalEl) {
+        new bootstrap.Modal(modalEl).show();
+    }
+}
+
+// 悬浮按钮点击
+function toggleGroupLike(btn, groupId) {
+    const icon = btn.querySelector('i');
+    const isLiked = btn.classList.contains('liked');
+    btn.classList.toggle('liked');
+    if (!isLiked) {
+        icon.classList.remove('bi-heart');
+        icon.classList.add('bi-heart-fill');
+        btn.setAttribute('data-bs-original-title', '取消喜欢');
+        icon.style.transform = 'scale(1.4)';
+        setTimeout(() => icon.style.transform = 'scale(1)', 200);
+    } else {
+        icon.classList.remove('bi-heart-fill');
+        icon.classList.add('bi-heart');
+        btn.setAttribute('data-bs-original-title', '喜欢此作品');
+    }
+    const tooltip = bootstrap.Tooltip.getInstance(btn);
+    if (tooltip) tooltip.hide();
+
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+    fetch(`/toggle-like-group/${groupId}/`, {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': csrfToken,
+            'X-Requested-With': 'XMLHttpRequest'
+        }
+    }).catch(err => console.error(err));
+}
+
+// 右键菜单逻辑
+const contextMenu = document.getElementById('imgContextMenu');
+let rightClickedImgId = null;
+
+if(contextMenu) {
+    document.addEventListener('contextmenu', function(e) {
+        const card = e.target.closest('.item-card');
+        const isInDrawer = e.target.closest('#siblingsBatchDrawer');
+        if (card && !isInDrawer) {
+            e.preventDefault(); 
+            rightClickedImgId = card.dataset.imgId;
+            contextMenu.style.display = 'block';
+            contextMenu.style.left = `${e.clientX}px`;
+            contextMenu.style.top = `${e.clientY}px`;
+        } else {
+            contextMenu.style.display = 'none';
+        }
+    });
+
+    document.addEventListener('click', function() {
+        contextMenu.style.display = 'none';
+    });
+    
+    window.addEventListener('scroll', () => { contextMenu.style.display = 'none'; }, true);
+}
+
+function setAsCoverFromMenu() {
+    if (!rightClickedImgId || !window.detailConfig.groupId) return;
+    const groupId = window.detailConfig.groupId;
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+
+    Swal.fire({
+        title: '正在设置...',
+        didOpen: () => Swal.showLoading(),
+        background: 'transparent',
+        backdrop: 'rgba(0,0,0,0.1)',
+        showConfirmButton: false
+    });
+
+    fetch(`/api/set-cover/${groupId}/${rightClickedImgId}/`, {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': csrfToken,
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.status === 'success') {
+            Swal.fire({ icon: 'success', title: '封面已更新', toast: true, position: 'top', showConfirmButton: false, timer: 1000 });
+            setTimeout(() => { window.location.reload(); }, 1000);
+        } else {
+            Swal.fire('设置失败', data.message, 'error');
+        }
+    })
+    .catch(err => {
+        console.error(err);
+        Swal.fire('错误', '网络请求失败', 'error');
+    });
+}
+
+function toggleDiff(event, btn) {
+    event.preventDefault();
+    event.stopPropagation(); 
+    const container = btn.closest('.diff-container');
+    const hiddenTags = container.querySelectorAll('.diff-hidden-tag');
+    const isExpanded = btn.classList.contains('expanded');
+    const count = btn.getAttribute('data-hidden-count');
+
+    if (isExpanded) {
+        hiddenTags.forEach(tag => tag.style.display = 'none');
+        btn.classList.remove('expanded');
+        btn.innerHTML = `<i class="bi bi-chevron-down"></i> 展开剩余 ${count} 项`;
+        btn.style.background = '#f8fafc'; 
+    } else {
+        hiddenTags.forEach(tag => tag.style.display = '');
+        btn.classList.add('expanded');
+        btn.innerHTML = `<i class="bi bi-chevron-up"></i> 收起展开的 ${count} 项`;
+        btn.style.background = '#e2e8f0'; 
+    }
+}

@@ -1,0 +1,88 @@
+.bili-pagination-wrapper {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin-top: 50px;
+    font-size: 14px;
+    color: #666;
+    flex-wrap: wrap;
+    gap: 5px;
+    user-select: none;
+}
+
+.bili-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 34px;
+    min-width: 34px;
+    padding: 0 12px;
+    margin: 0 2px;
+    border: 1px solid #e3e5e7;
+    border-radius: 4px;
+    background-color: #fff;
+    color: #61666d;
+    text-decoration: none;
+    transition: all 0.2s;
+    cursor: pointer;
+    font-family: inherit;
+}
+
+.bili-btn:hover:not(.disabled):not(.active) {
+    border-color: #00aeec;
+    color: #00aeec;
+    text-decoration: none;
+}
+
+.bili-btn.active {
+    background-color: #00aeec;
+    border-color: #00aeec;
+    color: #fff;
+    cursor: default;
+}
+
+.bili-btn.disabled {
+    background-color: #f6f7f8;
+    color: #c0c4cc;
+    cursor: not-allowed;
+    border-color: #e3e5e7;
+    pointer-events: none;
+}
+
+.bili-ellipsis {
+    margin: 0 4px;
+    color: #999;
+    font-weight: bold;
+    letter-spacing: 2px;
+}
+
+.bili-jump-box {
+    display: inline-flex;
+    align-items: center;
+    margin-left: 15px;
+    color: #61666d;
+}
+
+.bili-input {
+    width: 50px;
+    height: 34px;
+    margin: 0 8px;
+    padding: 0 4px;
+    border: 1px solid #e3e5e7;
+    border-radius: 4px;
+    text-align: center;
+    outline: none;
+    transition: border-color 0.2s;
+    color: #61666d;
+    background: transparent;
+}
+
+.bili-input:focus {
+    border-color: #00aeec;
+}
+
+.bili-input::-webkit-inner-spin-button, 
+.bili-input::-webkit-outer-spin-button { 
+  -webkit-appearance: none; 
+  margin: 0; 
+}
