@@ -9,7 +9,7 @@ urlpatterns = [
     path('create/', views.create_view, name='create'),
     path('image/<int:pk>/', views.detail, name='detail'),
     path('upload/', views.upload, name='upload'),
-    
+    path('api/video-to-gif/', views.api_video_to_gif, name='api_video_to_gif'),
     # 删除相关
     path('delete-group/<int:pk>/', views.delete_group, name='delete_group'),
     path('delete-image/<int:pk>/', views.delete_image, name='delete_image'),

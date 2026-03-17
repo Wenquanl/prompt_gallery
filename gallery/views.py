@@ -2608,3 +2608,75 @@ def launch_comfyui(request):
             return JsonResponse({'status': 'error', 'message': str(e)})
             
     return JsonResponse({'status': 'error', 'message': '仅支持 POST 请求'})
+
+
+@csrf_exempt
+@require_POST
+def api_video_to_gif(request):
+    try:
+        # 1. 兼容性导入 MoviePy
+        try:
+            from moviepy import VideoFileClip
+        except ImportError:
+            from moviepy.editor import VideoFileClip
+
+        video_file = request.FILES.get('video')
+        start_time = float(request.POST.get('start_time', 0))
+        end_time = float(request.POST.get('end_time', 5))
+        
+        # 【新增】：从前端获取目标帧率和宽度，并设置默认值
+        target_fps = int(request.POST.get('fps', 12))
+        target_width = int(request.POST.get('width', 480))
+        
+        # 限制最大帧率为 24，最大宽度为 720，防止恶意攻击搞挂服务器
+        target_fps = min(target_fps, 60)
+        target_width = min(target_width, 720)
+
+        if not video_file:
+            return JsonResponse({'status': 'error', 'message': '未检测到视频文件'})
+
+        # 创建临时目录
+        batch_id = str(uuid.uuid4())
+        temp_dir = os.path.join(settings.MEDIA_ROOT, 'temp_video_to_gif', batch_id)
+        os.makedirs(temp_dir, exist_ok=True)
+
+        in_path = os.path.join(temp_dir, video_file.name)
+        with open(in_path, 'wb+') as f:
+            for chunk in video_file.chunks():
+                f.write(chunk)
+
+        out_filename = f"GIF_{batch_id}.gif"
+        out_dir = os.path.join(settings.MEDIA_ROOT, 'gifs')
+        os.makedirs(out_dir, exist_ok=True)
+        out_path = os.path.join(out_dir, out_filename)
+
+        # 2. 核心处理：根据 MoviePy 版本自适应语法
+        with VideoFileClip(in_path) as clip:
+            
+            # --- 兼容 subclipped (新) / subclip (旧) ---
+            if hasattr(clip, 'subclipped'):
+                subclip = clip.subclipped(start_time, end_time)  # MoviePy 2.x
+            else:
+                subclip = clip.subclip(start_time, end_time)     # MoviePy 1.x
+            
+            # --- 兼容 resized (新) / resize (旧) ---
+            if hasattr(subclip, 'resized'):
+                final_clip = subclip.resized(width=target_width)          # MoviePy 2.x
+            else:
+                final_clip = subclip.resize(width=target_width)           # MoviePy 1.x
+            
+            # 生成 GIF，使用前端传来的目标帧率
+            final_clip.write_gif(out_path, fps=target_fps, logger=None)
+
+        gif_url = f"{settings.MEDIA_URL}gifs/{out_filename}"
+        
+        # 清理临时视频
+        if os.path.exists(in_path):
+            os.remove(in_path)
+
+        return JsonResponse({'status': 'success', 'gif_url': gif_url})
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({'status': 'error', 'message': f'转换失败: {str(e)}'}, status=500)

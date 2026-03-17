@@ -1,0 +1,119 @@
+<div class="modal fade" id="videoToGifModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title fw-bold"><i class="bi bi-film text-warning me-2"></i>视频转 GIF 工具</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-4">
+                <div class="mb-3">
+                    <label class="form-label small text-muted">选择视频文件</label>
+                    <input class="form-control rounded-pill" type="file" id="gifVideoInput" accept="video/*">
+                </div>
+                
+                <div class="mb-3 text-center" style="display: none;" id="gifPreviewContainer">
+                    <video id="gifVideoPreview" controls class="rounded-3 shadow-sm" style="max-height: 200px; width: 100%; background: #000;"></video>
+                </div>
+
+                <div class="row g-2 mb-3">
+                    <div class="col-6">
+                        <label class="form-label small text-muted">开始时间 (秒)</label>
+                        <input type="number" class="form-control rounded-pill" id="gifStartTime" value="0" step="0.1" min="0">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small text-muted">结束时间 (秒)</label>
+                        <input type="number" class="form-control rounded-pill" id="gifEndTime" value="3" step="0.1" min="0.1">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small text-muted">分辨率宽度</label>
+                        <select class="form-select rounded-pill" id="gifWidth">
+                            <option value="320">低清 (320px) - 最快</option>
+                            <option value="480" selected>标清 (480px) - 推荐</option>
+                            <option value="720">高清 (720px) - 较慢</option>
+                        </select>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small text-muted">流畅度 (FPS)</label>
+                        <select class="form-select rounded-pill" id="gifFps">
+                            <option value="8">卡顿 (8 fps)</option>
+                            <option value="12">常规 (12 fps)</option>
+                            <option value="15">流畅 (15 fps)</option>
+                            <option value="24" selected>丝滑 (24 fps) - 推荐</option>
+                            <option value="30">极致 (30 fps) - 消耗性能</option>
+                            <option value="60">狂暴 (60 fps) - 可能卡死服务器</option>
+                        </select>
+                    </div>
+                </div>
+
+                <button class="btn btn-warning w-100 rounded-pill fw-bold text-white shadow-sm" id="btnConvertGif">
+                    <span id="gifBtnText">开始转换</span>
+                    <div class="spinner-border spinner-border-sm d-none" id="gifLoading"></div>
+                </button>
+
+                <div class="mt-4 text-center d-none" id="gifResultContainer">
+                    <hr class="opacity-10">
+                    <img id="gifResultImage" src="" class="img-fluid border rounded-3 shadow-sm mb-3" style="max-height: 250px;">
+                    <br>
+                    <a id="gifDownloadBtn" href="" download class="btn btn-outline-primary btn-sm rounded-pill px-4">下载 GIF</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    function openVideoToGifModal() {
+        const modal = new bootstrap.Modal(document.getElementById('videoToGifModal'));
+        modal.show();
+    }
+
+    document.getElementById('gifVideoInput')?.addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        const videoPreview = document.getElementById('gifVideoPreview');
+        videoPreview.src = URL.createObjectURL(file);
+        document.getElementById('gifPreviewContainer').style.display = 'block';
+    });
+
+    document.getElementById('btnConvertGif')?.addEventListener('click', async function() {
+        const file = document.getElementById('gifVideoInput').files[0];
+        if (!file) return alert("请选择视频");
+
+        const btn = this;
+        const btnText = document.getElementById('gifBtnText');
+        const loading = document.getElementById('gifLoading');
+        
+        btn.disabled = true;
+        btnText.innerText = "处理中...";
+        loading.classList.remove('d-none');
+
+        const formData = new FormData();
+        formData.append('video', file);
+        formData.append('start_time', document.getElementById('gifStartTime').value);
+        formData.append('end_time', document.getElementById('gifEndTime').value);
+        formData.append('fps', document.getElementById('gifFps').value);
+        formData.append('width', document.getElementById('gifWidth').value);
+
+        try {
+            const response = await fetch('/api/video-to-gif/', {
+                method: 'POST',
+                headers: { 'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value },
+                body: formData
+            });
+            const data = await response.json();
+            if (data.status === 'success') {
+                document.getElementById('gifResultImage').src = data.gif_url;
+                document.getElementById('gifDownloadBtn').href = data.gif_url;
+                document.getElementById('gifResultContainer').classList.remove('d-none');
+            } else {
+                alert(data.message);
+            }
+        } catch (e) {
+            alert("转换失败，请检查网络或服务器状态");
+        } finally {
+            btn.disabled = false;
+            btnText.innerText = "开始转换";
+            loading.classList.add('d-none');
+        }
+    });
+</script>

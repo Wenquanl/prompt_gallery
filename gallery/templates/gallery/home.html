@@ -116,6 +116,10 @@
 {% include 'gallery/components/offcanvas_tags.html' %}
 
 <div class="fixed-bottom d-flex flex-column gap-3 align-items-end" style="right: 24px; bottom: 100px; z-index: 1030; pointer-events: none;">
+    <button class="btn-float-action shadow" onclick="openVideoToGifModal()" title="视频转 GIF" 
+            style="pointer-events: auto; width: 48px; height: 48px; border-radius: 50%; background: #fff; border: none; transition: transform 0.2s;">
+        <i class="bi bi-film fs-5 text-warning"></i>
+    </button>
     <button class="btn-float-action shadow" onclick="openMergeModal()" title="版本合并管理" 
             style="pointer-events: auto; width: 48px; height: 48px; border-radius: 50%; background: #fff; border: none; transition: transform 0.2s;">
         <i class="bi bi-intersect fs-5 text-primary"></i>
@@ -135,6 +139,7 @@
 {% block modals %}
     {% include 'gallery/components/modal_check_duplicates.html' with modal_id="checkDuplicatesModal" %}
     {% include 'gallery/components/modal_merge.html' %}
+    {% include 'gallery/components/modal_video_to_gif.html' %}
     <div class="modal fade" id="templateSelectModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content border-0 shadow-lg rounded-4">
