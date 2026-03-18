@@ -40,3 +40,6 @@ Thumbs.db
 
 backups/
 data.ms/
+
+test_proxy.py
+run_server.bat

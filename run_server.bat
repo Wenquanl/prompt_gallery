@@ -20,7 +20,7 @@ timeout /t 2 /nobreak > nul
 :: 2. 启动 Django Web 服务
 echo [2/2] 正在启动 Django Web 服务...
 echo.
-waitress-serve --listen=0.0.0.0:8000 --threads=16 core.wsgi:application
+waitress-serve --listen=0.0.0.0:8888 --threads=16 core.wsgi:application
 
 :: 如果 Django 意外退出，暂停窗口看报错
 pause
