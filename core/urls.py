@@ -5,7 +5,8 @@ from django.conf.urls.static import static
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('', include('gallery.urls')), # 将主页指向 gallery app
+    path('', include('gallery.urls')),
+    path('visuals/', include('visuals.urls')),
 ]
 
 # 这一步是为了在开发模式下能显示上传的图片

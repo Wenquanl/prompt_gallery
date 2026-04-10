@@ -59,16 +59,24 @@ AI_STUDIO_CONFIG = {
         'flux-dev': {
             'provider': 'fal_ai',
             'category': 't2i',
-            'endpoint': 'fal-ai/flux/dev',
-            'title': 'Flux Dev',
-            'desc': '推荐，生成质量极高，语义理解精准',
+            'endpoint': 'fal-ai/bytedance/seedream/v4.5/text-to-image',
+            'title': 'Seedream 4.5-t2i (Fal)',
+            'desc': '文生图',
             'params': [
-                {'id': 'image_size', 'label': '图片画幅 (Size)', 'type': 'select', 'options': [
-                    {'value': 'landscape_4_3', 'text': '横版 4:3 (默认)'},
+                {'id': 'num_images', 'label': '生成图数量', 'type': 'range', 'min': 1, 'max': 4, 'step': 1, 'default': 1},
+                {'id': 'max_images', 'label': '最大生成图数量', 'type': 'range', 'min': 1, 'max': 4, 'step': 1, 'default': 1},
+                {'id': 'image_size', 'label': '生成尺寸 (Size)', 'type': 'select', 'options': [
+                    {'value': 'auto_2K', 'text': '2K'},
+                    {'value': 'auto_4K', 'text': '4K'},
+                    {'value': 'portrait_16_9', 'text': '竖版 9:16'},
                     {'value': 'portrait_4_3', 'text': '竖版 3:4'},
-                    {'value': 'square_hd', 'text': '正方形 HD'}
-                ], 'default': 'landscape_4_3'},
-                {'id': 'num_inference_steps', 'label': '生成步数 (Steps)', 'type': 'range', 'min': 20, 'max': 50, 'step': 1, 'default': 28}
+                    {'value': 'landscape_16_9', 'text': '横版 16:9'},
+                    {'value': 'landscape_4_3', 'text': '横版 4:3'},
+                    {'value': 'landscape_16_9', 'text': '横版 16:9'},
+                    {'value': 'square_hd', 'text': '1:1 正方形 HD'},
+                    {'value': 'square', 'text': '1:1 正方形'}
+                ], 'default': 'auto_2K'},
+                {'id': 'enable_safety_checker', 'label': '启用安全检查', 'type': 'checkbox', 'default': False}
             ]
         },
         'flux-dev-i2i': {

@@ -38,6 +38,7 @@ INSTALLED_APPS = [
     
     # Local apps
     'gallery.apps.GalleryConfig',
+    'visuals',
 ]
 
 MIDDLEWARE = [
@@ -132,3 +133,21 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# 1. 注册 Huey 应用
+if 'huey.contrib.djhuey' not in INSTALLED_APPS: # 防止重复添加
+    INSTALLED_APPS.append('huey.contrib.djhuey') # (Assuming it's a list)
+
+# 2. Huey 队列配置（使用 SQLite 作为中间件，Windows 极其友好，无需装 Redis）
+HUEY = {
+    'huey_class': 'huey.SqliteHuey',  
+    'name': 'prompt_gallery_tasks',
+    'results': True,
+    'store_none': False,
+    'immediate': False,  # 设为 False 表示真正使用异步。如果开发调试时想看报错，可临时改为 True
+    'filename': os.path.join(BASE_DIR, 'huey_tasks.sqlite3'), # 在项目根目录生成独立的任务数据库
+}
+
+# 3. 告诉 Caddy 内部重定向的 Header 名称 (后续会用到)
+# Nginx 默认是 X-Accel-Redirect，Caddy 可以自定义或复用
+SENDFILE_HEADER = 'X-Accel-Redirect'

@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>我的视频画廊</title>
+    <style>
+        /* ... 保留你之前写的所有 :root, body, grid, card 等基础样式 ... */
+        :root {
+            --bg-color: #121212;
+            --card-bg: #1e1e1e;
+            --text-main: #ffffff;
+            --text-sub: #a0a0a0;
+            --accent: #bb86fc;
+        }
+
+        body {
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            margin: 0;
+            padding: 40px 20px;
+        }
+
+        .header { text-align: center; margin-bottom: 50px; }
+        .header h1 { font-weight: 300; letter-spacing: 2px; margin: 0 0 10px 0; }
+
+        .gallery-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 24px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .video-card {
+            background-color: var(--card-bg);
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            cursor: pointer;
+        }
+
+        .video-card:hover {
+            transform: translateY(-8px);
+            box-shadow: 0 12px 25px rgba(0, 0, 0, 0.5);
+        }
+
+        .cover-wrapper {
+            width: 100%;
+            aspect-ratio: 16 / 9;
+            overflow: hidden;
+            background-color: #000;
+        }
+
+        .cover-image {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transition: transform 0.5s ease;
+        }
+
+        .video-card:hover .cover-image {
+            transform: scale(1.05);
+        }
+
+        .info-area { padding: 16px; }
+        .video-title { font-size: 1rem; font-weight: 500; margin: 0 0 8px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .video-date { font-size: 0.8rem; color: var(--text-sub); margin: 0; }
+
+        /* ================= 新增：模态框（播放弹窗）样式 ================= */
+        .modal-overlay {
+            display: none; /* 默认隐藏 */
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(0, 0, 0, 0.9); /* 纯黑半透明遮罩 */
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        /* 显示模态框时的类 */
+        .modal-overlay.active {
+            display: flex;
+            opacity: 1;
+        }
+
+        .video-container {
+            width: 80%;
+            max-width: 1200px;
+            box-shadow: 0 0 30px rgba(0,0,0,0.8);
+            border-radius: 8px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        video {
+            width: 100%;
+            display: block;
+            outline: none;
+        }
+
+        .close-btn {
+            position: absolute;
+            top: 20px;
+            right: 30px;
+            color: white;
+            font-size: 40px;
+            font-weight: bold;
+            cursor: pointer;
+            z-index: 1001;
+            transition: color 0.2s;
+        }
+
+        .close-btn:hover { color: var(--accent); }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>VIDEO GALLERY</h1>
+        <p style="color: var(--text-sub);">已处理完成的视觉作品展示</p>
+    </div>
+
+    <div class="gallery-grid">
+        {% for video in videos %}
+        <div class="video-card" data-video-id="{{ video.id }}" title="{{ video.video_path }}">
+            <div class="cover-wrapper">
+                {% if video.cover_url %}
+                    <img src="{{ video.cover_url }}" alt="{{ video.title }}" class="cover-image">
+                {% else %}
+                    <div style="width:100%; height:100%; background:#333; display:flex; align-items:center; justify-content:center; color:#666;">No Cover</div>
+                {% endif %}
+            </div>
+            <div class="info-area">
+                <h3 class="video-title">{{ video.title }}</h3>
+                <p class="video-date">{{ video.created_at|date:"Y-m-d H:i" }}</p>
+            </div>
+        </div>
+        {% empty %}
+        <div style="grid-column: 1 / -1; text-align: center; color: var(--text-sub); padding: 50px;">
+            暂无已完成抽帧的视频，快去运行扫描脚本吧！
+        </div>
+        {% endfor %}
+    </div>
+
+    <div class="modal-overlay" id="videoModal">
+        <span class="close-btn" id="closeBtn">&times;</span>
+        <div class="video-container">
+            <video id="player" controls controlsList="nodownload"></video>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const cards = document.querySelectorAll('.video-card');
+            const modal = document.getElementById('videoModal');
+            const player = document.getElementById('player');
+            const closeBtn = document.getElementById('closeBtn');
+
+            // 1. 点击卡片，打开弹窗并播放
+            cards.forEach(card => {
+                card.addEventListener('click', () => {
+                    const videoId = card.getAttribute('data-video-id');
+                    
+                    // 拼接我们在 urls.py 里配置的流媒体地址
+                    const streamUrl = `/visuals/stream/${videoId}/`;
+                    
+                    // 设置播放器地址并播放
+                    player.src = streamUrl;
+                    modal.classList.add('active');
+                    player.play();
+                });
+            });
+
+            // 2. 关闭弹窗的统一函数
+            const closeModal = () => {
+                modal.classList.remove('active');
+                player.pause();  // 暂停播放
+                player.src = ""; // 清空地址，释放浏览器内存
+            };
+
+            // 3. 点击右上角 X 关闭
+            closeBtn.addEventListener('click', closeModal);
+
+            // 4. 点击遮罩层空白处关闭
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    closeModal();
+                }
+            });
+
+            // 5. 按 ESC 键关闭
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' && modal.classList.contains('active')) {
+                    closeModal();
+                }
+            });
+        });
+    </script>
+</body>
+</html>
