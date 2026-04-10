@@ -43,3 +43,7 @@ data.ms/
 
 test_proxy.py
 run_server.bat
+
+huey_tasks.sqlite3-wal
+huey_tasks.sqlite3-shm 
+huey_tasks.sqlite3
