@@ -128,6 +128,12 @@ STATICFILES_DIRS = [
 # Media files (User uploads)
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+VISUALS_PREVIEW_ROOT = os.path.join(MEDIA_ROOT, 'visuals_previews')
+VISUALS_FFMPEG_EXE = os.getenv('VISUALS_FFMPEG_EXE', 'ffmpeg')
+VISUALS_FFPROBE_EXE = os.getenv('VISUALS_FFPROBE_EXE', 'ffprobe')
+VISUALS_SYNC_MINUTES = int(os.getenv('VISUALS_SYNC_MINUTES', '5'))
+MEILI_URL = os.getenv('MEILI_URL', 'http://127.0.0.1:7700')
+MEILI_KEY = os.getenv('MEILI_KEY', 'dq49aaqs-RYHbIfKGMOFJRrfco3jP-0Ubj4gcX9caBc')
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field

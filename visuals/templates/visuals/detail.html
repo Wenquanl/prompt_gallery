@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ resource.title }} | Visuals</title>
+    <style>
+        :root {
+            --bg-cream: #f5efe3;
+            --bg-warm: #ead8bf;
+            --panel: rgba(255, 250, 242, 0.9);
+            --panel-strong: rgba(255, 253, 248, 0.96);
+            --panel-deep: #382518;
+            --ink: #1b1713;
+            --muted: #776b60;
+            --line: rgba(71, 45, 21, 0.12);
+            --accent: #bb5d2e;
+            --accent-deep: #8f431d;
+            --shadow: 0 24px 60px rgba(63, 42, 23, 0.12);
+            --shadow-soft: 0 12px 28px rgba(63, 42, 23, 0.08);
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: "Bahnschrift", "Segoe UI", sans-serif;
+            color: var(--ink);
+            background:
+                radial-gradient(circle at top left, rgba(255, 250, 241, 0.9) 0, rgba(255, 250, 241, 0) 28%),
+                radial-gradient(circle at 86% 8%, rgba(208, 132, 78, 0.18) 0, rgba(208, 132, 78, 0) 24%),
+                linear-gradient(180deg, var(--bg-cream) 0%, #f1e6d3 52%, var(--bg-warm) 100%);
+        }
+
+        .shell {
+            max-width: 1420px;
+            margin: 0 auto;
+            padding: 28px 22px 70px;
+        }
+
+        .flash-stack {
+            display: grid;
+            gap: 10px;
+            margin-bottom: 14px;
+        }
+
+        .flash {
+            padding: 12px 16px;
+            border-radius: 16px;
+            border: 1px solid var(--line);
+            background: var(--panel);
+            box-shadow: var(--shadow-soft);
+            font-size: 0.88rem;
+            backdrop-filter: blur(10px);
+        }
+
+        .flash.success { background: #edf8f0; color: #1f6b41; border-color: rgba(31, 107, 65, 0.18); }
+        .flash.warning { background: #fbf1dd; color: #8a5b12; border-color: rgba(138, 91, 18, 0.18); }
+        .flash.error { background: #f9e3de; color: #8f3427; border-color: rgba(143, 52, 39, 0.18); }
+
+        .topbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 14px;
+            flex-wrap: wrap;
+            margin-bottom: 18px;
+        }
+
+        .crumbs {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .nav-strip {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .back,
+        .button,
+        .ghost {
+            text-decoration: none;
+            border-radius: 999px;
+            padding: 11px 16px;
+            font-size: 0.84rem;
+            font-weight: 700;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            border: 0;
+            cursor: pointer;
+            transition: transform 0.16s ease, background 0.16s ease;
+        }
+
+        .back,
+        .ghost {
+            background: rgba(255, 253, 248, 0.72);
+            color: var(--ink);
+            border: 1px solid var(--line);
+        }
+
+        .button {
+            background: linear-gradient(135deg, var(--accent), #cf7642);
+            color: #fff8f1;
+            box-shadow: 0 12px 24px rgba(187, 93, 46, 0.22);
+        }
+
+        .back:hover,
+        .button:hover,
+        .ghost:hover {
+            transform: translateY(-1px);
+        }
+
+        .ghost.is-disabled {
+            opacity: 0.48;
+            pointer-events: none;
+        }
+
+        .hero {
+            display: grid;
+            grid-template-columns: minmax(0, 1.3fr) minmax(300px, 0.9fr);
+            gap: 18px;
+            margin-bottom: 18px;
+        }
+
+        .hero-panel,
+        .summary-panel,
+        .preview-panel,
+        .info-panel,
+        .meta-card,
+        .long-card,
+        .status-card {
+            background: var(--panel);
+            border: 1px solid rgba(71, 45, 21, 0.1);
+            border-radius: 28px;
+            box-shadow: var(--shadow-soft);
+            backdrop-filter: blur(10px);
+        }
+
+        .hero-panel {
+            position: relative;
+            overflow: hidden;
+            padding: 28px;
+        }
+
+        .hero-panel::after {
+            content: "";
+            position: absolute;
+            inset: auto -70px -80px auto;
+            width: 240px;
+            height: 240px;
+            background: radial-gradient(circle, rgba(187, 93, 46, 0.22) 0%, rgba(187, 93, 46, 0) 68%);
+            pointer-events: none;
+        }
+
+        .eyebrow {
+            display: inline-block;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.2em;
+            color: var(--accent);
+            font-weight: 700;
+            margin-bottom: 10px;
+        }
+
+        .hero-panel h1 {
+            margin: 0;
+            font-family: Georgia, serif;
+            font-size: clamp(2rem, 4vw, 3.1rem);
+            line-height: 0.98;
+            letter-spacing: -0.03em;
+            max-width: 900px;
+        }
+
+        .hero-subtitle {
+            margin: 14px 0 0;
+            color: var(--muted);
+            line-height: 1.55;
+            max-width: 760px;
+            font-size: 0.94rem;
+        }
+
+        .hero-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 18px;
+        }
+
+        .hero-pill,
+        .chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 12px;
+            border-radius: 999px;
+            background: rgba(255, 252, 246, 0.88);
+            border: 1px solid rgba(71, 45, 21, 0.08);
+            color: var(--muted);
+            font-size: 0.8rem;
+        }
+
+        .hero-pill strong,
+        .chip strong { color: var(--ink); }
+
+        .summary-panel {
+            padding: 18px;
+            display: grid;
+            gap: 12px;
+            align-content: start;
+        }
+
+        .summary-title {
+            font-size: 0.76rem;
+            text-transform: uppercase;
+            letter-spacing: 0.18em;
+            color: var(--muted);
+            font-weight: 700;
+        }
+
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+        }
+
+        .status-card {
+            padding: 16px 14px;
+            background: var(--panel-strong);
+        }
+
+        .status-card strong {
+            display: block;
+            font-size: 1.35rem;
+            line-height: 1.05;
+            margin-bottom: 4px;
+        }
+
+        .status-card small {
+            color: var(--muted);
+            font-size: 0.74rem;
+        }
+
+        .layout {
+            display: grid;
+            grid-template-columns: minmax(0, 1.2fr) minmax(340px, 0.8fr);
+            gap: 20px;
+            align-items: start;
+        }
+
+        .preview-panel,
+        .info-panel {
+            padding: 22px;
+        }
+
+        .section-kicker {
+            margin: 0 0 10px;
+            font-size: 0.74rem;
+            text-transform: uppercase;
+            letter-spacing: 0.18em;
+            color: var(--muted);
+            font-weight: 700;
+        }
+
+        .preview-wrap {
+            min-height: 520px;
+            border-radius: 24px;
+            overflow: hidden;
+            background: linear-gradient(135deg, #dbc5ab, #b8895e 58%, #7c5333 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.28);
+        }
+
+        .preview-wrap img,
+        .preview-wrap video {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            display: block;
+            background: rgba(26, 20, 15, 0.18);
+        }
+
+        .preview-empty {
+            padding: 28px;
+            text-align: center;
+            color: rgba(255, 248, 241, 0.94);
+            line-height: 1.55;
+            max-width: 420px;
+        }
+
+        .preview-footer {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            align-items: center;
+            flex-wrap: wrap;
+            margin-top: 16px;
+        }
+
+        .preview-note {
+            color: var(--muted);
+            font-size: 0.84rem;
+            line-height: 1.45;
+        }
+
+        .meta-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 14px;
+        }
+
+        .meta-card,
+        .long-card {
+            padding: 16px;
+            background: var(--panel-strong);
+        }
+
+        .meta-card strong,
+        .long-card strong {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            color: var(--muted);
+        }
+
+        .meta-value {
+            color: var(--ink);
+            line-height: 1.45;
+            font-size: 0.92rem;
+        }
+
+        .meta-subtle {
+            margin-top: 8px;
+            color: var(--muted);
+            font-size: 0.8rem;
+            line-height: 1.45;
+        }
+
+        .long-card {
+            margin-top: 14px;
+        }
+
+        .long-value {
+            padding: 14px 16px;
+            border-radius: 18px;
+            background: rgba(56, 37, 24, 0.04);
+            border: 1px solid rgba(71, 45, 21, 0.08);
+            color: #463629;
+            font-family: "Cascadia Code", "Consolas", monospace;
+            font-size: 0.84rem;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+        }
+
+        .status-chip {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 6px 10px;
+            border-radius: 999px;
+            font-size: 0.78rem;
+            font-weight: 700;
+        }
+
+        .status-chip.ok { background: #dff3e7; color: #1f6b41; }
+        .status-chip.warning { background: #f8e6c8; color: #8a5b12; }
+        .status-chip.danger { background: #f4d6d1; color: #8f3427; }
+        .status-chip.muted { background: #ece7df; color: #6f665d; }
+
+        .cluster {
+            display: grid;
+            gap: 14px;
+            margin-top: 18px;
+        }
+
+        .cluster h2 {
+            margin: 0;
+            font-family: Georgia, serif;
+            font-size: 1.35rem;
+        }
+
+        .chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        body.modal-open {
+            overflow: hidden;
+        }
+
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 50;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 28px;
+            background: rgba(31, 24, 18, 0.7);
+            backdrop-filter: blur(10px);
+        }
+
+        .modal-overlay[hidden] {
+            display: none;
+        }
+
+        .modal-dialog {
+            width: min(1100px, 100%);
+            max-height: calc(100vh - 56px);
+            padding: 20px;
+            border-radius: 28px;
+            background: linear-gradient(180deg, rgba(251, 246, 238, 0.98), rgba(245, 237, 226, 0.96));
+            border: 1px solid rgba(143, 117, 82, 0.2);
+            box-shadow: 0 28px 80px rgba(43, 33, 21, 0.24);
+            overflow: auto;
+        }
+
+        .modal-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .modal-head h2 {
+            margin: 0;
+            font-family: Georgia, serif;
+            font-size: 1.5rem;
+        }
+
+        .modal-stage {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: min(72vh, 820px);
+            border-radius: 22px;
+            background: rgba(255, 255, 255, 0.74);
+            border: 1px solid rgba(143, 117, 82, 0.16);
+            overflow: hidden;
+        }
+
+        .modal-stage img,
+        .modal-stage video {
+            display: block;
+            width: 100%;
+            max-height: min(72vh, 820px);
+            object-fit: contain;
+            background: #100d0a;
+        }
+
+        .error-card {
+            margin-top: 18px;
+            padding: 16px;
+            border-radius: 20px;
+            background: rgba(143, 52, 39, 0.08);
+            border: 1px solid rgba(143, 52, 39, 0.14);
+        }
+
+        .error-card strong {
+            display: block;
+            margin-bottom: 8px;
+            color: #8f3427;
+        }
+
+        .error-card .long-value {
+            background: rgba(255,255,255,0.4);
+            color: #6b2a20;
+        }
+
+        @media (max-width: 1120px) {
+            .hero,
+            .layout {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 760px) {
+            .summary-grid,
+            .meta-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .preview-wrap {
+                min-height: 340px;
+            }
+        }
+
+        @media (max-width: 560px) {
+            .shell {
+                padding-inline: 14px;
+            }
+
+            .hero-panel,
+            .summary-panel,
+            .preview-panel,
+            .info-panel {
+                padding: 18px;
+                border-radius: 24px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="shell">
+        {% if messages %}
+        <div class="flash-stack">
+            {% for message in messages %}
+            <div class="flash {{ message.tags|default:'info' }}">{{ message }}</div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <div class="topbar">
+            <div class="crumbs">
+                <a class="back" href="{{ back_url }}">返回资源库</a>
+                <a class="back" href="{{ sources_page_url }}">资源源管理</a>
+            </div>
+            <div class="nav-strip">
+                {% if previous_resource_url %}
+                <a class="ghost" href="{{ previous_resource_url }}">前一个</a>
+                {% else %}
+                <span class="ghost is-disabled">前一个</span>
+                {% endif %}
+                {% if next_resource_url %}
+                <a class="ghost" href="{{ next_resource_url }}">后一个</a>
+                {% else %}
+                <span class="ghost is-disabled">后一个</span>
+                {% endif %}
+            </div>
+        </div>
+
+        <section class="hero">
+            <div class="hero-panel">
+                <div class="eyebrow">Resource Detail</div>
+                <h1>{{ resource.title }}</h1>
+                <p class="hero-subtitle">{{ resource.get_resource_type_display }} · {{ resource.get_status_display }}{% if resource.mime_type %} · {{ resource.mime_type }}{% endif %}{% if resource.file_size %} · {{ resource.file_size|filesizeformat }}{% endif %}</p>
+                <div class="hero-tags">
+                    <span class="hero-pill"><strong>资源源</strong>{{ resource.source_root|default:'未分配' }}</span>
+                    <span class="hero-pill"><strong>最近同步</strong>{{ resource_last_synced_label }}</span>
+                    {% if resource.width and resource.height %}
+                    <span class="hero-pill"><strong>尺寸</strong>{{ resource.width }} x {{ resource.height }}</span>
+                    {% endif %}
+                    {% if resource.duration_seconds %}
+                    <span class="hero-pill"><strong>时长</strong>{{ resource.duration_seconds }}</span>
+                    {% endif %}
+                </div>
+            </div>
+
+            <aside class="summary-panel">
+                <div class="summary-title">状态摘要</div>
+                <div class="summary-grid">
+                    <div class="status-card">
+                        <strong>{{ resource.get_status_display }}</strong>
+                        <small>当前资源状态</small>
+                    </div>
+                    <div class="status-card">
+                        <strong>{% if resource.is_missing %}缺失{% else %}正常{% endif %}</strong>
+                        <small>文件可用性</small>
+                    </div>
+                    <div class="status-card">
+                        <strong>{% if resource.is_liked %}已收藏{% else %}未收藏{% endif %}</strong>
+                        <small>收藏状态</small>
+                    </div>
+                    <div class="status-card">
+                        <strong>{{ resource.extension|default:'-'|upper }}</strong>
+                        <small>文件扩展名</small>
+                    </div>
+                </div>
+            </aside>
+        </section>
+
+        <div class="layout">
+            <section class="preview-panel">
+                <div class="section-kicker">Preview</div>
+                <div class="preview-wrap">
+                    {% if resource.resource_type == 'video' and not resource.is_missing %}
+                        <video controls src="{% url 'visuals:stream_video' resource.id %}"></video>
+                    {% elif resource.has_preview and not resource.is_missing %}
+                        <img src="{% url 'visuals:preview_resource' resource.id %}" alt="{{ resource.title }}">
+                    {% else %}
+                        <div class="preview-empty">当前资源没有可用预览。可以检查同步状态、文件路径或重新触发索引。</div>
+                    {% endif %}
+                </div>
+                <div class="preview-footer">
+                    <div class="preview-note">预览区优先展示原图、封面或视频流。若文件缺失或索引失败，这里会退回到空状态提示。</div>
+                    {% if preview_modal_url %}
+                    <button
+                        class="ghost"
+                        type="button"
+                        data-open-preview
+                        data-preview-url="{{ preview_modal_url }}"
+                        data-preview-kind="{{ preview_modal_kind }}"
+                        data-preview-title="{{ resource.title }}"
+                    >打开预览</button>
+                    {% endif %}
+                </div>
+
+                <div class="cluster">
+                    <h2>路径信息</h2>
+                    <div class="long-card">
+                        <strong>绝对路径</strong>
+                        <div class="long-value">{{ resource.file_path }}</div>
+                    </div>
+                    <div class="long-card">
+                        <strong>相对路径</strong>
+                        <div class="long-value">{{ resource.relative_path|default:'-' }}</div>
+                    </div>
+                </div>
+            </section>
+
+            <aside class="info-panel">
+                <div class="section-kicker">Metadata</div>
+                <div class="meta-grid">
+                    <div class="meta-card">
+                        <strong>资源源</strong>
+                        <div class="meta-value">{{ resource.source_root|default:'未分配' }}</div>
+                    </div>
+                    <div class="meta-card">
+                        <strong>最近同步</strong>
+                        <div class="meta-value">{{ resource_last_synced_label }}</div>
+                    </div>
+                    <div class="meta-card">
+                        <strong>文件大小</strong>
+                        <div class="meta-value">{{ resource.file_size|default:'-' }}</div>
+                    </div>
+                    <div class="meta-card">
+                        <strong>MIME</strong>
+                        <div class="meta-value">{{ resource.mime_type|default:'-' }}</div>
+                    </div>
+                    <div class="meta-card">
+                        <strong>尺寸</strong>
+                        <div class="meta-value">{% if resource.width and resource.height %}{{ resource.width }} x {{ resource.height }}{% else %}-{% endif %}</div>
+                    </div>
+                    <div class="meta-card">
+                        <strong>时长</strong>
+                        <div class="meta-value">{{ resource.duration_seconds|default:'-' }}</div>
+                    </div>
+                    <div class="meta-card">
+                        <strong>修改时间</strong>
+                        <div class="meta-value">{{ resource.modified_at|date:"Y-m-d H:i"|default:'-' }}</div>
+                    </div>
+                    <div class="meta-card">
+                        <strong>资源源状态</strong>
+                        <div class="meta-value">
+                            {% if source_status %}
+                                <span class="status-chip {{ source_status.tone }}">{{ source_status.label }}</span>
+                                <div class="meta-subtle">资源源最近同步：{{ source_status.last_synced_label }}</div>
+                            {% else %}
+                                -
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="long-card">
+                    <strong>文件哈希</strong>
+                    <div class="long-value">{{ resource.file_hash|default:'-' }}</div>
+                </div>
+
+                {% if resource.tags.all %}
+                <div class="cluster">
+                    <h2>标签</h2>
+                    <div class="chips">
+                        {% for tag in resource.tags.all %}
+                        <span class="chip">{{ tag.name }}</span>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+
+                {% if resource.collections.all %}
+                <div class="cluster">
+                    <h2>合集</h2>
+                    <div class="chips">
+                        {% for collection in resource.collections.all %}
+                        <span class="chip">合集 · {{ collection.name }}</span>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+
+                <div class="actions">
+                    <form method="post" action="{% url 'visuals:open_resource_in_explorer' resource.id %}">
+                        {% csrf_token %}
+                        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                        <button class="ghost" type="submit">打开所在位置</button>
+                    </form>
+                    <form method="post" action="{% url 'visuals:toggle_like' resource.id %}">
+                        {% csrf_token %}
+                        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                        <button class="button" type="submit">{% if resource.is_liked %}取消收藏{% else %}加入收藏{% endif %}</button>
+                    </form>
+                    <form method="post" action="{% url 'visuals:sync_resource_now' resource.id %}">
+                        {% csrf_token %}
+                        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                        <button class="ghost" type="submit">立即同步当前资源</button>
+                    </form>
+                    {% if resource.source_root %}
+                    <form method="post" action="{% url 'visuals:sync_source_now' resource.source_root.id %}">
+                        {% csrf_token %}
+                        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                        <button class="ghost" type="submit">立即同步所属资源源</button>
+                    </form>
+                    {% endif %}
+                </div>
+
+                {% if resource.last_error %}
+                <div class="error-card">
+                    <strong>最近错误</strong>
+                    <div class="long-value">{{ resource.last_error }}</div>
+                </div>
+                {% endif %}
+            </aside>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="preview-modal" hidden>
+        <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="preview-modal-title">
+            <div class="modal-head">
+                <h2 id="preview-modal-title">{{ resource.title }}</h2>
+                <button class="ghost" type="button" id="preview-modal-close">关闭</button>
+            </div>
+            <div class="modal-stage" id="preview-modal-stage"></div>
+        </div>
+    </div>
+
+    <script>
+        (function () {
+            const previewTrigger = document.querySelector('[data-open-preview]');
+            const previewModal = document.getElementById('preview-modal');
+            const previewStage = document.getElementById('preview-modal-stage');
+            const previewClose = document.getElementById('preview-modal-close');
+
+            if (!previewTrigger || !previewModal || !previewStage || !previewClose) {
+                return;
+            }
+
+            const previewUrl = previewTrigger.dataset.previewUrl;
+            const previewKind = previewTrigger.dataset.previewKind;
+            const previewTitle = previewTrigger.dataset.previewTitle || '资源预览';
+            let lastActiveElement = null;
+
+            const handleKeydown = function (event) {
+                if (event.key === 'Escape') {
+                    closePreview();
+                }
+            };
+
+            const buildPreviewNode = function () {
+                if (previewKind === 'video') {
+                    const video = document.createElement('video');
+                    video.controls = true;
+                    video.autoplay = true;
+                    video.playsInline = true;
+                    video.src = previewUrl;
+                    return video;
+                }
+
+                const image = document.createElement('img');
+                image.src = previewUrl;
+                image.alt = previewTitle;
+                return image;
+            };
+
+            const closePreview = function () {
+                previewModal.hidden = true;
+                previewStage.replaceChildren();
+                document.body.classList.remove('modal-open');
+                document.removeEventListener('keydown', handleKeydown);
+                if (lastActiveElement && typeof lastActiveElement.focus === 'function') {
+                    lastActiveElement.focus();
+                }
+            };
+
+            previewTrigger.addEventListener('click', function () {
+                lastActiveElement = document.activeElement;
+                previewStage.replaceChildren(buildPreviewNode());
+                previewModal.hidden = false;
+                document.body.classList.add('modal-open');
+                document.addEventListener('keydown', handleKeydown);
+                previewClose.focus();
+            });
+
+            previewClose.addEventListener('click', closePreview);
+
+            previewModal.addEventListener('click', function (event) {
+                if (event.target === previewModal) {
+                    closePreview();
+                }
+            });
+        }());
+    </script>
+</body>
+</html>

@@ -1,0 +1,959 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>资源源管理 | Visuals</title>
+    <style>
+        :root {
+            --bg-top: #f6efe2;
+            --bg-bottom: #e4d8c3;
+            --panel: rgba(255, 250, 241, 0.82);
+            --panel-strong: rgba(255, 252, 246, 0.94);
+            --ink: #211913;
+            --muted: #6f6256;
+            --line: rgba(75, 51, 27, 0.14);
+            --accent: #b2572a;
+            --accent-deep: #7f3412;
+            --good: #1f6b41;
+            --warn: #8a5b12;
+            --danger: #8f3427;
+            --shadow-lg: 0 26px 70px rgba(66, 45, 24, 0.12);
+            --shadow-md: 0 14px 34px rgba(66, 45, 24, 0.10);
+            --radius-xl: 32px;
+            --radius-lg: 24px;
+            --radius-md: 18px;
+            --radius-sm: 14px;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            color: var(--ink);
+            font-family: "Bahnschrift", "Segoe UI", sans-serif;
+            background:
+                radial-gradient(circle at top left, rgba(255, 255, 255, 0.65), transparent 26%),
+                radial-gradient(circle at 88% 12%, rgba(214, 152, 97, 0.18), transparent 22%),
+                linear-gradient(180deg, var(--bg-top) 0%, var(--bg-bottom) 100%);
+        }
+
+        .shell {
+            max-width: 1560px;
+            margin: 0 auto;
+            padding: 28px 22px 72px;
+        }
+
+        .flash-stack {
+            display: grid;
+            gap: 10px;
+            margin-bottom: 18px;
+        }
+
+        .flash {
+            padding: 14px 18px;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--line);
+            background: rgba(255, 252, 246, 0.9);
+            box-shadow: var(--shadow-md);
+            font-size: 0.92rem;
+        }
+
+        .flash.success { background: rgba(233, 248, 237, 0.96); color: var(--good); border-color: rgba(31, 107, 65, 0.15); }
+        .flash.warning { background: rgba(252, 241, 221, 0.96); color: var(--warn); border-color: rgba(138, 91, 18, 0.15); }
+        .flash.error { background: rgba(249, 227, 222, 0.96); color: var(--danger); border-color: rgba(143, 52, 39, 0.15); }
+
+        .hero {
+            display: grid;
+            grid-template-columns: minmax(0, 1.3fr) minmax(320px, 0.78fr);
+            gap: 18px;
+            margin-bottom: 22px;
+        }
+
+        .hero-panel,
+        .hero-side,
+        .summary-card,
+        .panel,
+        .source-card,
+        .empty-card {
+            border: 1px solid var(--line);
+            background: var(--panel);
+            backdrop-filter: blur(12px);
+            box-shadow: var(--shadow-lg);
+        }
+
+        .hero-panel {
+            position: relative;
+            overflow: hidden;
+            border-radius: var(--radius-xl);
+            padding: 28px;
+            background:
+                radial-gradient(circle at top right, rgba(178, 87, 42, 0.16), transparent 26%),
+                linear-gradient(135deg, rgba(255, 252, 246, 0.94), rgba(244, 233, 216, 0.9));
+        }
+
+        .hero-panel::after {
+            content: "";
+            position: absolute;
+            inset: auto -90px -110px auto;
+            width: 280px;
+            height: 280px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(178, 87, 42, 0.14), transparent 70%);
+            pointer-events: none;
+        }
+
+        .eyebrow {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 11px;
+            border-radius: 999px;
+            background: rgba(255, 246, 234, 0.96);
+            color: var(--accent-deep);
+            font-size: 0.76rem;
+            font-weight: 700;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+        }
+
+        .hero-panel h1 {
+            margin: 16px 0 12px;
+            font-family: Georgia, serif;
+            font-size: clamp(2.2rem, 4vw, 3.6rem);
+            line-height: 1;
+        }
+
+        .hero-copy {
+            max-width: 880px;
+            color: var(--muted);
+            font-size: 1rem;
+            line-height: 1.7;
+            margin: 0;
+        }
+
+        .hero-badges {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 22px;
+        }
+
+        .hero-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 14px;
+            border-radius: 999px;
+            background: rgba(255, 250, 243, 0.92);
+            border: 1px solid rgba(127, 52, 18, 0.08);
+            color: var(--ink);
+            font-size: 0.9rem;
+        }
+
+        .hero-badge strong {
+            color: var(--accent-deep);
+        }
+
+        .hero-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 24px;
+        }
+
+        .hero-side {
+            border-radius: var(--radius-xl);
+            padding: 22px;
+            display: grid;
+            gap: 16px;
+            align-content: space-between;
+            background: linear-gradient(180deg, rgba(255, 251, 244, 0.96), rgba(245, 233, 214, 0.88));
+        }
+
+        .hero-side h2,
+        .panel h2,
+        .sources-section h2,
+        .section-label {
+            margin: 0;
+            font-size: 0.78rem;
+            letter-spacing: 0.16em;
+            text-transform: uppercase;
+            color: var(--muted);
+        }
+
+        .hero-side strong {
+            display: block;
+            margin-top: 8px;
+            font-size: 2rem;
+            line-height: 1.05;
+        }
+
+        .hero-side p {
+            margin: 0;
+            color: var(--muted);
+            line-height: 1.6;
+        }
+
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 14px;
+            margin-bottom: 22px;
+        }
+
+        .summary-card {
+            border-radius: 24px;
+            padding: 20px 20px 18px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .summary-card::before {
+            content: "";
+            position: absolute;
+            inset: 0 auto auto 0;
+            width: 120px;
+            height: 120px;
+            background: radial-gradient(circle, rgba(178, 87, 42, 0.11), transparent 70%);
+            pointer-events: none;
+        }
+
+        .summary-card strong {
+            display: block;
+            position: relative;
+            font-size: 2rem;
+            line-height: 1;
+            margin-bottom: 8px;
+        }
+
+        .summary-card small {
+            display: block;
+            position: relative;
+            color: var(--muted);
+            line-height: 1.5;
+        }
+
+        .workspace {
+            display: grid;
+            grid-template-columns: minmax(320px, 390px) minmax(0, 1fr);
+            gap: 18px;
+            align-items: start;
+        }
+
+        .sidebar {
+            display: grid;
+            gap: 18px;
+            position: sticky;
+            top: 18px;
+        }
+
+        .panel {
+            border-radius: 28px;
+            padding: 22px;
+        }
+
+        .panel-title,
+        .sources-title {
+            margin: 8px 0 0;
+            font-family: Georgia, serif;
+        }
+
+        .panel-title { font-size: 1.55rem; }
+        .sources-title { font-size: 1.85rem; }
+
+        .panel-subtitle,
+        .sources-subtitle {
+            margin: 6px 0 0;
+            color: var(--muted);
+            font-size: 0.92rem;
+            line-height: 1.6;
+        }
+
+        .source-form,
+        .stack,
+        .quick-grid,
+        .sources-section,
+        .source-list {
+            display: grid;
+            gap: 12px;
+        }
+
+        .field {
+            display: grid;
+            gap: 6px;
+        }
+
+        .field label {
+            font-size: 0.8rem;
+            color: var(--muted);
+        }
+
+        .field input {
+            width: 100%;
+            border: 1px solid rgba(75, 51, 27, 0.14);
+            border-radius: 14px;
+            padding: 12px 14px;
+            background: rgba(255, 254, 249, 0.95);
+            color: var(--ink);
+            font-size: 0.92rem;
+        }
+
+        .source-path-row {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 8px;
+        }
+
+        .field-error {
+            color: var(--danger);
+            font-size: 0.78rem;
+        }
+
+        .help-text {
+            color: var(--muted);
+            font-size: 0.84rem;
+            line-height: 1.65;
+        }
+
+        .inline-check {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--muted);
+            font-size: 0.86rem;
+        }
+
+        .button,
+        .ghost-button,
+        .mini-button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            min-height: 42px;
+            padding: 10px 16px;
+            border-radius: 999px;
+            border: 0;
+            text-decoration: none;
+            font-size: 0.88rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: transform .18s ease;
+        }
+
+        .button:hover,
+        .ghost-button:hover,
+        .mini-button:hover,
+        .source-actions a:hover {
+            transform: translateY(-1px);
+        }
+
+        .button {
+            background: linear-gradient(135deg, #c46533, #8d3d16);
+            color: #fff9f3;
+            box-shadow: 0 10px 22px rgba(141, 61, 22, 0.24);
+        }
+
+        .ghost-button,
+        .mini-button {
+            background: rgba(255, 252, 246, 0.92);
+            border: 1px solid var(--line);
+            color: var(--ink);
+        }
+
+        .mini-button.danger {
+            background: rgba(249, 227, 222, 0.96);
+            border-color: rgba(143, 52, 39, 0.18);
+            color: var(--danger);
+        }
+
+        .quick-card,
+        .metric-card,
+        .progress-shell,
+        .info-shell,
+        .error-box {
+            padding: 14px 15px;
+            border-radius: 18px;
+            background: rgba(255, 252, 246, 0.8);
+            border: 1px solid rgba(75, 51, 27, 0.09);
+        }
+
+        .quick-card strong,
+        .metric-card strong {
+            display: block;
+            margin-bottom: 4px;
+        }
+
+        .quick-card span,
+        .metric-card span {
+            color: var(--muted);
+            font-size: 0.84rem;
+            line-height: 1.55;
+        }
+
+        .sources-head,
+        .source-head,
+        .progress-head {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            align-items: flex-start;
+        }
+
+        .source-card,
+        .empty-card {
+            border-radius: 28px;
+            padding: 20px;
+        }
+
+        .source-card {
+            background: linear-gradient(180deg, rgba(255, 252, 246, 0.95), rgba(245, 236, 223, 0.9));
+        }
+
+        .empty-card {
+            text-align: center;
+            color: var(--muted);
+            padding: 40px 24px;
+        }
+
+        .source-kicker {
+            font-size: 0.76rem;
+            text-transform: uppercase;
+            letter-spacing: 0.16em;
+            color: var(--muted);
+        }
+
+        .source-head h3 {
+            margin: 6px 0 0;
+            font-size: 1.32rem;
+            font-family: Georgia, serif;
+        }
+
+        .source-path {
+            margin-top: 8px;
+            color: var(--muted);
+            word-break: break-all;
+            line-height: 1.65;
+        }
+
+        .status-chip {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 34px;
+            padding: 6px 12px;
+            border-radius: 999px;
+            font-size: 0.76rem;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .status-chip.ok { background: rgba(223, 243, 231, 0.95); color: var(--good); }
+        .status-chip.warning { background: rgba(248, 230, 200, 0.95); color: var(--warn); }
+        .status-chip.danger { background: rgba(244, 214, 209, 0.95); color: var(--danger); }
+        .status-chip.muted { background: rgba(236, 231, 223, 0.95); color: var(--muted); }
+
+        .source-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1.08fr) minmax(280px, 0.92fr);
+            gap: 16px;
+            align-items: start;
+        }
+
+        .metric-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 10px;
+        }
+
+        .source-meta,
+        .folder-list,
+        .source-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .metric-chip,
+        .folder-chip {
+            display: inline-flex;
+            align-items: center;
+            min-height: 32px;
+            padding: 6px 11px;
+            border-radius: 999px;
+            font-size: 0.79rem;
+        }
+
+        .metric-chip { background: rgba(242, 228, 208, 0.96); color: #6a4a2f; }
+        .folder-chip { background: rgba(237, 231, 219, 0.96); color: var(--muted); }
+
+        .progress-shell {
+            background: linear-gradient(180deg, rgba(255, 252, 246, 0.88), rgba(243, 232, 215, 0.7));
+        }
+
+        .progress-row { margin-top: 12px; }
+
+        .progress-head {
+            margin-bottom: 7px;
+            color: var(--muted);
+            font-size: 0.82rem;
+            line-height: 1.5;
+        }
+
+        .progress-bar {
+            height: 11px;
+            border-radius: 999px;
+            background: rgba(228, 213, 192, 0.95);
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #d7834e, #a1491f);
+            transition: width .22s ease;
+        }
+
+        .progress-path {
+            margin-top: 7px;
+            color: var(--muted);
+            font-size: 0.78rem;
+            line-height: 1.6;
+            word-break: break-all;
+        }
+
+        .error-box {
+            color: var(--danger);
+            background: rgba(249, 227, 222, 0.86);
+            border-color: rgba(143, 52, 39, 0.12);
+            line-height: 1.6;
+            font-size: 0.84rem;
+        }
+
+        .source-actions form {
+            margin: 0;
+        }
+
+        @media (max-width: 1220px) {
+            .hero,
+            .workspace,
+            .source-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .sidebar {
+                position: static;
+            }
+        }
+
+        @media (max-width: 980px) {
+            .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+
+        @media (max-width: 720px) {
+            .shell { padding-inline: 14px; }
+            .summary-grid,
+            .metric-grid,
+            .source-path-row { grid-template-columns: 1fr; }
+            .hero-panel,
+            .hero-side,
+            .panel,
+            .source-card,
+            .empty-card { border-radius: 24px; padding: 18px; }
+            .hero-actions,
+            .source-actions { display: grid; }
+            .button,
+            .ghost-button,
+            .mini-button { width: 100%; }
+            .sources-head,
+            .source-head,
+            .progress-head { flex-direction: column; }
+        }
+    </style>
+</head>
+<body>
+<div class="shell">
+    {% if messages %}
+    <div class="flash-stack">
+        {% for message in messages %}
+        <div class="flash {{ message.tags|default:'info' }}">{{ message }}</div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <section class="hero">
+        <div class="hero-panel">
+            <div class="eyebrow">Source Control Surface</div>
+            <h1>资源源管理</h1>
+            <p class="hero-copy">把本地目录、同步状态和索引结果集中放在一页里处理。这里保留添加、编辑、立即同步和移除索引等原有能力，但把信息拆成更清晰的控制台视图，减少你在大批量资源源之间来回扫视的负担。</p>
+            <div class="hero-badges">
+                <span class="hero-badge"><strong>最近全局同步</strong>{{ sync_summary.last_synced_label }}</span>
+                <span class="hero-badge"><strong>已启用</strong>{{ sync_summary.enabled_count }} / {{ sync_summary.total_count }} 个</span>
+                <span class="hero-badge" id="syncing-count-meta">{% if sync_summary.syncing_count %}<strong>扫描中 {{ sync_summary.syncing_count }} 个</strong>{% endif %}</span>
+                {% if sync_summary.error_count %}<span class="hero-badge"><strong>异常</strong>{{ sync_summary.error_count }} 个</span>{% endif %}
+            </div>
+            <div class="hero-actions">
+                <a class="ghost-button" href="{% url 'visuals:home' %}">返回资源库</a>
+                <a class="ghost-button" href="{% url 'visuals:duplicates' %}">查看重复文件检测</a>
+                <form method="post" action="{% url 'visuals:sync_all_sources_now' %}">
+                    {% csrf_token %}
+                    <input type="hidden" name="next" value="{{ sources_page_url }}">
+                    <button class="button" type="submit">立即同步全部</button>
+                </form>
+            </div>
+        </div>
+
+        <aside class="hero-side">
+            <div>
+                <h2>Control Snapshot</h2>
+                <strong>{{ library_stats.total_resources }}</strong>
+                <p>当前已索引资源总数，缺失资源 {{ library_stats.missing_resources }}。新增资源源后会立即进入扫描与索引流程。</p>
+            </div>
+            <div class="quick-grid">
+                <div class="quick-card">
+                    <strong>进度可见</strong>
+                    <span>目录扫描和索引处理拆成两段显示，sources/progress/ 会持续回刷卡片状态。</span>
+                </div>
+                <div class="quick-card">
+                    <strong>直接操作</strong>
+                    <span>保留 保存并立即扫描、保存更新、立即同步、移除索引 等动作，不改变现有后端行为。</span>
+                </div>
+            </div>
+        </aside>
+    </section>
+
+    <section class="summary-grid">
+        <article class="summary-card"><strong>{{ sync_summary.total_count }}</strong><small>资源源总数。包括启用、停用和最近出现异常的目录映射。</small></article>
+        <article class="summary-card"><strong>{{ sync_summary.enabled_count }}</strong><small>当前启用中的资源源。只有启用项会进入自动或手动同步队列。</small></article>
+        <article class="summary-card"><strong>{{ library_stats.total_resources }}</strong><small>全库索引资源总数，用来判断资源源扩展后是否已经落到索引层。</small></article>
+        <article class="summary-card"><strong>{{ library_stats.missing_resources }}</strong><small>已经建立索引但文件不可达的资源，建议优先回查其所属资源源。</small></article>
+    </section>
+
+    <div class="workspace">
+        <aside class="sidebar">
+            <section class="panel">
+                <h2>Add Source</h2>
+                <div class="panel-title">添加资源源</div>
+                <p class="panel-subtitle">把本地目录接入 visuals 的轻索引层。保存并立即扫描 后会开始同步并把新内容暴露给首页。</p>
+                <form class="source-form" method="post" action="{% url 'visuals:create_source_root' %}">
+                    {% csrf_token %}
+                    <input type="hidden" name="next" value="{{ sources_page_url }}">
+                    <div class="field">
+                        <label for="source-name">显示名称</label>
+                        <input id="source-name" type="text" name="name" value="{{ source_form.name.value|default:'' }}" placeholder="例如：素材盘 / 模型库">
+                        {% if source_form.name.errors %}<div class="field-error">{{ source_form.name.errors|join:' ' }}</div>{% endif %}
+                    </div>
+                    <div class="field">
+                        <label for="source-root-path">本地目录路径</label>
+                        <div class="source-path-row">
+                            <input id="source-root-path" type="text" name="root_path" value="{{ source_form.root_path.value|default:'' }}" placeholder="例如：E:/Assets 或 D:\\Models">
+                            <button class="mini-button" type="button" id="pick-source-root-btn" onclick="pickSourceRoot('source-root-path', 'source-name', 'pick-source-root-btn')">选择文件夹</button>
+                        </div>
+                        {% if source_form.root_path.errors %}<div class="field-error">{{ source_form.root_path.errors|join:' ' }}</div>{% endif %}
+                    </div>
+                    <label class="inline-check">
+                        <input type="checkbox" name="is_enabled" value="1" {% if source_form.is_enabled.value or source_form.is_enabled.value == None %}checked{% endif %}>
+                        加入后启用同步
+                    </label>
+                    <button class="button" type="submit">保存并立即扫描</button>
+                    <div class="help-text">这里维护本地目录到 visuals 轻索引层的映射。目录名会自动带入显示名称，但你仍然可以手动覆盖。</div>
+                </form>
+            </section>
+
+            {% if edit_source and edit_source_form %}
+            <section class="panel">
+                <h2>Edit Source</h2>
+                <div class="panel-title">编辑资源源</div>
+                <p class="panel-subtitle">更新名称、目录路径或启用状态。保存更新 后会按当前开关决定是否重新入队同步。</p>
+                <form class="source-form" method="post" action="{% url 'visuals:update_source_root' edit_source.id %}">
+                    {% csrf_token %}
+                    <input type="hidden" name="next" value="{{ sources_page_url }}">
+                    <div class="field">
+                        <label for="edit-source-name">显示名称</label>
+                        <input id="edit-source-name" type="text" name="name" value="{{ edit_source_form.name.value|default:'' }}">
+                        {% if edit_source_form.name.errors %}<div class="field-error">{{ edit_source_form.name.errors|join:' ' }}</div>{% endif %}
+                    </div>
+                    <div class="field">
+                        <label for="edit-source-root-path">本地目录路径</label>
+                        <div class="source-path-row">
+                            <input id="edit-source-root-path" type="text" name="root_path" value="{{ edit_source_form.root_path.value|default:'' }}">
+                            <button class="mini-button" type="button" id="pick-edit-source-root-btn" onclick="pickSourceRoot('edit-source-root-path', 'edit-source-name', 'pick-edit-source-root-btn')">选择文件夹</button>
+                        </div>
+                        {% if edit_source_form.root_path.errors %}<div class="field-error">{{ edit_source_form.root_path.errors|join:' ' }}</div>{% endif %}
+                    </div>
+                    <label class="inline-check">
+                        <input type="checkbox" name="is_enabled" value="1" {% if edit_source_form.is_enabled.value %}checked{% endif %}>
+                        启用这个资源源的同步
+                    </label>
+                    <div class="source-actions">
+                        <button class="button" type="submit">保存更新</button>
+                        <a class="ghost-button" href="{{ sources_page_url }}">取消编辑</a>
+                    </div>
+                </form>
+            </section>
+            {% endif %}
+        </aside>
+
+        <section class="sources-section">
+            <div class="sources-head">
+                <div>
+                    <h2>Source Directory Atlas</h2>
+                    <div class="sources-title">现有资源源</div>
+                    <p class="sources-subtitle">每张卡片聚合了目录状态、最近同步结果、当前扫描进度和常用动作。扫描中的卡片会自动轮询刷新，不需要手动刷新页面。</p>
+                </div>
+            </div>
+
+            <div class="source-list">
+                {% for entry in source_tree %}
+                <article class="source-card" data-source-id="{{ entry.source.id }}" {% if entry.source.is_syncing %}data-syncing="1"{% endif %}>
+                    <div class="source-head">
+                        <div>
+                            <div class="source-kicker">Mapped Directory</div>
+                            <h3>{{ entry.source.name }}</h3>
+                            <div class="source-path">{{ entry.source.root_path }}</div>
+                        </div>
+                        <span class="status-chip {{ entry.status.tone }}" data-role="status-chip">{{ entry.status.label }}</span>
+                    </div>
+
+                    <div class="source-grid">
+                        <div class="stack">
+                            <div class="metric-grid">
+                                <div class="metric-card"><strong>{{ entry.total }}</strong><span>资源数量</span></div>
+                                <div class="metric-card"><strong>{{ entry.folders|length }}</strong><span>顶层目录</span></div>
+                                <div class="metric-card"><strong data-role="last-synced">{{ entry.status.last_synced_label }}</strong><span>最近同步</span></div>
+                            </div>
+
+                            <div class="info-shell">
+                                <p class="section-label">Recent Sync Summary</p>
+                                <div class="source-meta">
+                                    <span class="metric-chip" data-role="created-count">新增 {{ entry.source.last_sync_created }}</span>
+                                    <span class="metric-chip" data-role="updated-count">更新 {{ entry.source.last_sync_updated }}</span>
+                                    <span class="metric-chip" data-role="missing-count">缺失 {{ entry.source.last_sync_missing }}</span>
+                                </div>
+                            </div>
+
+                            {% if entry.folders %}
+                            <div class="info-shell">
+                                <p class="section-label">Top Folders</p>
+                                <div class="folder-list">
+                                    {% for folder_name, folder_count in entry.folders|slice:":12" %}
+                                    <span class="folder-chip">{{ folder_name }} · {{ folder_count }}</span>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                            {% endif %}
+                        </div>
+
+                        <div class="stack">
+                            <div class="progress-shell" data-role="progress-block" {% if not entry.source.is_syncing %}hidden{% endif %}>
+                                <p class="section-label">Live Progress</p>
+                                <div class="progress-head">
+                                    <span data-role="progress-phase">{{ entry.source.sync_phase|default:'扫描中' }}</span>
+                                    <span data-role="progress-count">{% if entry.source.is_syncing and not entry.source.sync_progress_total and not entry.source.sync_progress_scanned %}等待后台任务{% else %}目录 {{ entry.source.sync_progress_scanned }} / {{ entry.source.sync_progress_total|default:0 }}{% if entry.source.sync_progress_total %} · {{ entry.progress_percent }}%{% endif %}{% endif %}</span>
+                                </div>
+                                <div class="progress-bar"><div class="progress-fill" data-role="progress-fill" style="width: {{ entry.progress_percent }}%;"></div></div>
+                                <div class="progress-path" data-role="progress-path" {% if not entry.source.sync_current_path %}hidden{% endif %}>{% if entry.source.sync_current_path %}当前：{{ entry.source.sync_current_path }}{% endif %}</div>
+                                <div class="progress-row" data-role="index-progress-row" {% if not entry.source.index_progress_total %}hidden{% endif %}>
+                                    <div class="progress-head">
+                                        <span>索引处理</span>
+                                        <span data-role="index-progress-count">{{ entry.source.index_progress_processed }} / {{ entry.source.index_progress_total }}{% if entry.source.index_progress_total %} · {{ entry.index_progress_percent }}%{% endif %} · 成功 {{ entry.source.index_progress_completed }} · 失败 {{ entry.source.index_progress_failed }}</span>
+                                    </div>
+                                    <div class="progress-bar"><div class="progress-fill" data-role="index-progress-fill" style="width: {{ entry.index_progress_percent }}%;"></div></div>
+                                </div>
+                            </div>
+
+                            <div class="error-box" data-role="error-box" {% if not entry.source.last_sync_error %}hidden{% endif %}>{% if entry.source.last_sync_error %}错误：{{ entry.source.last_sync_error }}{% endif %}</div>
+
+                            <div class="source-actions">
+                                <a class="ghost-button" href="{{ sources_page_url }}?edit_source={{ entry.source.id }}">编辑</a>
+                                <a class="ghost-button" href="{% url 'visuals:home' %}?source={{ entry.source.id }}">查看资源</a>
+                                <form method="post" action="{% url 'visuals:sync_source_now' entry.source.id %}">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="next" value="{{ sources_page_url }}">
+                                    <button class="mini-button" type="submit">立即同步</button>
+                                </form>
+                                <form method="post" action="{% url 'visuals:delete_source_root' entry.source.id %}" onsubmit="return confirm('确定移除 {{ entry.source.name }} 的 {{ entry.total }} 条索引记录吗？本地文件不会删除。');">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="next" value="{{ sources_page_url }}">
+                                    <button class="mini-button danger" type="submit">移除索引</button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </article>
+                {% empty %}
+                <article class="empty-card">还没有资源源。先在左侧添加一个本地目录，再开始扫描。</article>
+                {% endfor %}
+            </div>
+        </section>
+    </div>
+</div>
+
+<script>
+async function pickSourceRoot(inputId, nameId, buttonId) {
+    const button = document.getElementById(buttonId);
+    const input = document.getElementById(inputId);
+    const nameInput = document.getElementById(nameId);
+    if (!button || !input) {
+        return;
+    }
+
+    button.disabled = true;
+    const previousLabel = button.textContent;
+    button.textContent = '打开中...';
+    try {
+        const response = await fetch('{% url "visuals:pick_source_root" %}', {
+            method: 'GET',
+            headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        });
+        const payload = await response.json();
+        if (payload.ok && payload.path) {
+            input.value = payload.path;
+            if (nameInput && !nameInput.value.trim()) {
+                const parts = payload.path.replace(/\\/g, '/').split('/').filter(Boolean);
+                if (parts.length) {
+                    nameInput.value = parts[parts.length - 1];
+                }
+            }
+        } else if (payload.message && payload.message !== '已取消选择。') {
+            alert(payload.message);
+        }
+    } catch (error) {
+        alert('目录选择器调用失败，请稍后重试。');
+    } finally {
+        button.disabled = false;
+        button.textContent = previousLabel;
+    }
+}
+
+if (document.querySelector('[data-syncing="1"]')) {
+    pollSyncProgress();
+}
+
+function statusToneClass(tone) {
+    return ['ok', 'warning', 'danger', 'muted'].includes(tone) ? tone : 'muted';
+}
+
+function renderProgressCount(entry) {
+    if (!entry.is_syncing) {
+        return '';
+    }
+    if (!entry.total && !entry.scanned) {
+        return '等待后台任务';
+    }
+    if (!entry.total) {
+        return '已发现 ' + entry.scanned + ' 项';
+    }
+    return '目录 ' + entry.scanned + ' / ' + entry.total + ' · ' + entry.percent + '%';
+}
+
+function renderIndexProgressCount(entry) {
+    if (!entry.index_total) {
+        return '';
+    }
+    return entry.index_processed + ' / ' + entry.index_total + ' · ' + entry.index_percent + '% · 成功 ' + entry.index_completed + ' · 失败 ' + entry.index_failed;
+}
+
+async function pollSyncProgress() {
+    try {
+        const response = await fetch('{{ sources_progress_url }}', {
+            method: 'GET',
+            headers: { 'X-Requested-With': 'XMLHttpRequest' },
+            cache: 'no-store',
+        });
+        if (!response.ok) {
+            throw new Error('progress fetch failed');
+        }
+        const payload = await response.json();
+        const syncingMeta = document.getElementById('syncing-count-meta');
+        if (syncingMeta) {
+            syncingMeta.innerHTML = payload.syncing_count ? '<strong>扫描中 ' + payload.syncing_count + ' 个</strong>' : '';
+        }
+
+        let hasSyncing = false;
+        payload.sources.forEach((entry) => {
+            const card = document.querySelector('[data-source-id="' + entry.id + '"]');
+            if (!card) {
+                return;
+            }
+            const statusChip = card.querySelector('[data-role="status-chip"]');
+            if (statusChip) {
+                statusChip.className = 'status-chip ' + statusToneClass(entry.status_tone);
+                statusChip.textContent = entry.status_label;
+            }
+            const lastSynced = card.querySelector('[data-role="last-synced"]');
+            if (lastSynced) {
+                lastSynced.textContent = entry.last_synced_label;
+            }
+            const createdCount = card.querySelector('[data-role="created-count"]');
+            if (createdCount) {
+                createdCount.textContent = '新增 ' + entry.last_sync_created;
+            }
+            const updatedCount = card.querySelector('[data-role="updated-count"]');
+            if (updatedCount) {
+                updatedCount.textContent = '更新 ' + entry.last_sync_updated;
+            }
+            const missingCount = card.querySelector('[data-role="missing-count"]');
+            if (missingCount) {
+                missingCount.textContent = '缺失 ' + entry.last_sync_missing;
+            }
+
+            const progressBlock = card.querySelector('[data-role="progress-block"]');
+            const progressPhase = card.querySelector('[data-role="progress-phase"]');
+            const progressCount = card.querySelector('[data-role="progress-count"]');
+            const progressFill = card.querySelector('[data-role="progress-fill"]');
+            const progressPath = card.querySelector('[data-role="progress-path"]');
+            const indexProgressRow = card.querySelector('[data-role="index-progress-row"]');
+            const indexProgressCount = card.querySelector('[data-role="index-progress-count"]');
+            const indexProgressFill = card.querySelector('[data-role="index-progress-fill"]');
+            if (progressBlock) {
+                progressBlock.hidden = !entry.is_syncing;
+            }
+            if (progressPhase) {
+                progressPhase.textContent = entry.phase || '扫描中';
+            }
+            if (progressCount) {
+                progressCount.textContent = renderProgressCount(entry);
+            }
+            if (progressFill) {
+                progressFill.style.width = entry.percent + '%';
+            }
+            if (progressPath) {
+                progressPath.hidden = !entry.current_path;
+                progressPath.textContent = entry.current_path ? '当前：' + entry.current_path : '';
+            }
+            if (indexProgressRow) {
+                indexProgressRow.hidden = !entry.index_total;
+            }
+            if (indexProgressCount) {
+                indexProgressCount.textContent = renderIndexProgressCount(entry);
+            }
+            if (indexProgressFill) {
+                indexProgressFill.style.width = entry.index_percent + '%';
+            }
+
+            const errorBox = card.querySelector('[data-role="error-box"]');
+            if (errorBox) {
+                errorBox.hidden = !entry.last_sync_error;
+                errorBox.textContent = entry.last_sync_error ? '错误：' + entry.last_sync_error : '';
+            }
+
+            if (entry.is_syncing) {
+                card.setAttribute('data-syncing', '1');
+                hasSyncing = true;
+            } else {
+                card.removeAttribute('data-syncing');
+            }
+        });
+
+        if (hasSyncing) {
+            window.setTimeout(pollSyncProgress, 1000);
+        }
+    } catch (error) {
+        window.setTimeout(pollSyncProgress, 2000);
+    }
+}
+</script>
+</body>
+</html>

@@ -3,203 +3,1712 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>我的视频画廊</title>
+    <title>Visuals 本地资源库</title>
     <style>
-        /* ... 保留你之前写的所有 :root, body, grid, card 等基础样式 ... */
         :root {
-            --bg-color: #121212;
-            --card-bg: #1e1e1e;
-            --text-main: #ffffff;
-            --text-sub: #a0a0a0;
-            --accent: #bb86fc;
+            --bg-cream: #f5efe3;
+            --bg-warm: #ead8bf;
+            --panel: rgba(255, 250, 242, 0.88);
+            --panel-strong: rgba(255, 253, 248, 0.96);
+            --panel-deep: #3c2818;
+            --ink: #1b1713;
+            --muted: #776b60;
+            --line: rgba(71, 45, 21, 0.12);
+            --accent: #bb5d2e;
+            --accent-deep: #8f431d;
+            --shadow: 0 24px 60px rgba(63, 42, 23, 0.12);
+            --shadow-soft: 0 12px 26px rgba(63, 42, 23, 0.08);
         }
+
+        * { box-sizing: border-box; }
 
         body {
-            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-            background-color: var(--bg-color);
-            color: var(--text-main);
             margin: 0;
-            padding: 40px 20px;
+            min-height: 100vh;
+            font-family: "Bahnschrift", "Segoe UI", sans-serif;
+            color: var(--ink);
+            background:
+                radial-gradient(circle at top left, rgba(255, 250, 241, 0.88) 0, rgba(255, 250, 241, 0) 28%),
+                radial-gradient(circle at 88% 8%, rgba(208, 132, 78, 0.18) 0, rgba(208, 132, 78, 0) 24%),
+                linear-gradient(180deg, var(--bg-cream) 0%, #f1e6d3 52%, var(--bg-warm) 100%);
         }
 
-        .header { text-align: center; margin-bottom: 50px; }
-        .header h1 { font-weight: 300; letter-spacing: 2px; margin: 0 0 10px 0; }
-
-        .gallery-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-            gap: 24px;
-            max-width: 1400px;
+        .shell {
+            max-width: 1660px;
             margin: 0 auto;
+            padding: 28px 22px 92px;
         }
 
-        .video-card {
-            background-color: var(--card-bg);
-            border-radius: 12px;
-            overflow: hidden;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
-            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        #library-app {
+            display: grid;
+            gap: 20px;
+        }
+
+        #library-app.is-loading {
+            opacity: 0.56;
+            pointer-events: none;
+            transition: opacity 0.18s ease;
+        }
+
+        .flash-stack {
+            display: grid;
+            gap: 10px;
+            margin-bottom: 14px;
+        }
+
+        .flash {
+            padding: 12px 16px;
+            border-radius: 16px;
+            border: 1px solid var(--line);
+            background: var(--panel);
+            box-shadow: var(--shadow-soft);
+            font-size: 0.88rem;
+            backdrop-filter: blur(10px);
+        }
+
+        .flash.success { background: #edf8f0; color: #1f6b41; border-color: rgba(31, 107, 65, 0.18); }
+        .flash.warning { background: #fbf1dd; color: #8a5b12; border-color: rgba(138, 91, 18, 0.18); }
+        .flash.error { background: #f9e3de; color: #8f3427; border-color: rgba(143, 52, 39, 0.18); }
+
+        .page-header {
+            display: flex;
+            gap: 18px;
+            align-items: flex-start;
+            justify-content: space-between;
+            margin-bottom: 18px;
+        }
+
+        .page-title {
+            display: grid;
+            gap: 8px;
+        }
+
+        .eyebrow {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.2em;
+            color: var(--accent);
+            font-weight: 700;
+        }
+
+        .page-title h1 {
+            margin: 0;
+            font-family: Georgia, serif;
+            font-size: clamp(2.2rem, 4vw, 3.2rem);
+            line-height: 0.96;
+            letter-spacing: -0.03em;
+        }
+
+        .header-meta {
+            color: var(--muted);
+            font-size: 0.92rem;
+            max-width: 760px;
+            line-height: 1.45;
+        }
+
+        .header-meta strong { color: var(--accent-deep); }
+
+        .nav-links {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .button,
+        .ghost-button,
+        .like-button,
+        .batch-toggle {
+            border: 0;
+            border-radius: 999px;
+            padding: 10px 17px;
+            font-size: 0.86rem;
+            font-weight: 700;
             cursor: pointer;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            transition: transform 0.16s ease, background 0.16s ease, border-color 0.16s ease;
         }
 
-        .video-card:hover {
-            transform: translateY(-8px);
-            box-shadow: 0 12px 25px rgba(0, 0, 0, 0.5);
+        .button {
+            background: linear-gradient(135deg, var(--accent), #cf7642);
+            color: #fff8f1;
+            box-shadow: 0 12px 24px rgba(187, 93, 46, 0.22);
         }
 
-        .cover-wrapper {
-            width: 100%;
-            aspect-ratio: 16 / 9;
+        .button:hover,
+        .ghost-button:hover,
+        .like-button:hover,
+        .batch-toggle:hover {
+            transform: translateY(-1px);
+        }
+
+        .ghost-button {
+            background: rgba(255, 253, 248, 0.7);
+            color: var(--ink);
+            border: 1px solid var(--line);
+        }
+
+        .hero-panel {
+            display: grid;
+            grid-template-columns: minmax(0, 1.4fr) minmax(300px, 0.9fr);
+            gap: 18px;
+            margin-bottom: 20px;
+        }
+
+        .hero-card,
+        .hero-metrics {
+            background: linear-gradient(180deg, rgba(255, 253, 248, 0.82), rgba(255, 248, 239, 0.72));
+            border: 1px solid rgba(71, 45, 21, 0.1);
+            border-radius: 28px;
+            box-shadow: var(--shadow);
+            backdrop-filter: blur(10px);
+        }
+
+        .hero-card {
+            position: relative;
             overflow: hidden;
-            background-color: #000;
+            padding: 28px;
+            display: grid;
+            gap: 22px;
         }
 
-        .cover-image {
+        .hero-card::before {
+            content: "";
+            position: absolute;
+            inset: auto -80px -90px auto;
+            width: 260px;
+            height: 260px;
+            background: radial-gradient(circle, rgba(187, 93, 46, 0.22) 0%, rgba(187, 93, 46, 0) 68%);
+            pointer-events: none;
+        }
+
+        .hero-copy {
+            position: relative;
+            z-index: 1;
+            display: grid;
+            gap: 12px;
+            max-width: 760px;
+        }
+
+        .hero-copy h2 {
+            margin: 0;
+            font-family: Georgia, serif;
+            font-size: clamp(1.8rem, 3vw, 2.8rem);
+            line-height: 1.02;
+        }
+
+        .hero-copy p {
+            margin: 0;
+            color: var(--muted);
+            line-height: 1.55;
+            font-size: 0.94rem;
+        }
+
+        .hero-ribbon {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .hero-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 12px;
+            border-radius: 999px;
+            background: rgba(255, 252, 246, 0.86);
+            border: 1px solid rgba(71, 45, 21, 0.08);
+            color: var(--muted);
+            font-size: 0.8rem;
+        }
+
+        .hero-pill strong { color: var(--ink); }
+
+        .hero-metrics {
+            padding: 18px;
+            display: grid;
+            gap: 12px;
+            align-content: start;
+        }
+
+        .metrics-title {
+            font-size: 0.76rem;
+            text-transform: uppercase;
+            letter-spacing: 0.2em;
+            color: var(--muted);
+            font-weight: 700;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+        }
+
+        .metric-tile {
+            padding: 16px 14px;
+            border-radius: 18px;
+            background: var(--panel-strong);
+            border: 1px solid rgba(71, 45, 21, 0.08);
+            box-shadow: var(--shadow-soft);
+        }
+
+        .metric-tile strong {
+            display: block;
+            font-size: 1.6rem;
+            line-height: 1.05;
+            margin-bottom: 4px;
+        }
+
+        .metric-tile small {
+            color: var(--muted);
+            font-size: 0.74rem;
+        }
+
+        .layout {
+            display: grid;
+            grid-template-columns: 290px minmax(0, 1fr);
+            gap: 20px;
+            align-items: start;
+        }
+
+        .sidebar {
+            position: sticky;
+            top: 20px;
+            display: grid;
+            gap: 16px;
+        }
+
+        .sidebar-panel,
+        .filter-bar,
+        .content-panel,
+        .pager,
+        .empty-state {
+            background: var(--panel);
+            border: 1px solid rgba(71, 45, 21, 0.1);
+            border-radius: 24px;
+            box-shadow: var(--shadow-soft);
+            backdrop-filter: blur(9px);
+        }
+
+        .sidebar-panel {
+            padding: 18px;
+        }
+
+        .sidebar-section + .sidebar-section {
+            margin-top: 16px;
+            padding-top: 16px;
+            border-top: 1px solid rgba(71, 45, 21, 0.08);
+        }
+
+        .sidebar h2,
+        .section-kicker {
+            margin: 0 0 10px;
+            font-size: 0.74rem;
+            text-transform: uppercase;
+            letter-spacing: 0.18em;
+            color: var(--muted);
+            font-weight: 700;
+        }
+
+        .sidebar-stats {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px;
+        }
+
+        .mini-stat {
+            padding: 12px 10px;
+            border-radius: 16px;
+            background: var(--panel-strong);
+            border: 1px solid rgba(71, 45, 21, 0.08);
+            text-align: center;
+        }
+
+        .mini-stat strong {
+            display: block;
+            font-size: 1.22rem;
+            line-height: 1.05;
+        }
+
+        .mini-stat small {
+            color: var(--muted);
+            font-size: 0.72rem;
+        }
+
+        .nav-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 10px 11px;
+            border-radius: 14px;
+            text-decoration: none;
+            color: var(--ink);
+            font-size: 0.88rem;
+            transition: background 0.14s ease, transform 0.14s ease;
+        }
+
+        .nav-item:hover {
+            background: rgba(187, 93, 46, 0.08);
+            transform: translateX(2px);
+        }
+
+        .nav-item.active {
+            background: rgba(187, 93, 46, 0.12);
+            color: var(--accent-deep);
+            font-weight: 700;
+        }
+
+        .nav-count {
+            flex-shrink: 0;
+            font-size: 0.74rem;
+            color: var(--muted);
+        }
+
+        .nav-item.active .nav-count { color: var(--accent-deep); }
+
+        .nav-meta {
+            display: grid;
+            gap: 3px;
+            min-width: 0;
+        }
+
+        .nav-meta small {
+            color: var(--muted);
+            font-size: 0.72rem;
+            line-height: 1.4;
+        }
+
+        .nav-meta .summary-line { white-space: normal; }
+        .nav-meta .error-line { color: #8f3427; }
+        .folder-link { padding-left: 24px; font-size: 0.82rem; }
+        .source-group + .source-group { margin-top: 4px; }
+
+        .main { min-width: 0; display: grid; gap: 16px; }
+
+        .filter-bar { padding: 18px; }
+
+        .filter-shell {
+            display: grid;
+            gap: 16px;
+        }
+
+        .search-row {
+            display: grid;
+            grid-template-columns: minmax(0, 1.9fr) minmax(180px, 0.7fr) auto;
+            gap: 12px;
+            align-items: end;
+        }
+
+        .field {
+            display: grid;
+            gap: 6px;
+        }
+
+        .field label {
+            font-size: 0.76rem;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            color: var(--muted);
+            font-weight: 700;
+        }
+
+        .field input,
+        .field select,
+        .batch-input {
+            width: 100%;
+            border: 1px solid rgba(71, 45, 21, 0.12);
+            background: rgba(255, 254, 250, 0.95);
+            border-radius: 16px;
+            padding: 12px 14px;
+            font-size: 0.92rem;
+            color: var(--ink);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.7);
+        }
+
+        .field input:focus,
+        .field select:focus,
+        .batch-input:focus {
+            outline: 2px solid rgba(187, 93, 46, 0.18);
+            border-color: rgba(187, 93, 46, 0.3);
+        }
+
+        .search-actions {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .filter-groups {
+            display: grid;
+            gap: 14px;
+        }
+
+        .filter-group {
+            display: grid;
+            gap: 8px;
+        }
+
+        .chip-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .filter-chip {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            min-height: 40px;
+            padding: 0 14px;
+            border-radius: 999px;
+            background: rgba(255, 252, 246, 0.74);
+            border: 1px solid rgba(71, 45, 21, 0.1);
+            color: var(--muted);
+            cursor: pointer;
+            transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease, transform 0.14s ease;
+            font-size: 0.84rem;
+            font-weight: 700;
+        }
+
+        .filter-chip:hover {
+            transform: translateY(-1px);
+            background: rgba(255, 252, 246, 0.96);
+        }
+
+        .filter-chip input {
+            position: absolute;
+            inset: 0;
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .filter-chip.is-active,
+        .filter-chip:has(input:checked) {
+            background: linear-gradient(135deg, var(--accent), #cf7642);
+            color: #fff8f0;
+            border-color: transparent;
+            box-shadow: 0 10px 20px rgba(187, 93, 46, 0.2);
+        }
+
+        .filter-chip.toggle-missing.is-active,
+        .filter-chip.toggle-missing:has(input:checked) {
+            background: linear-gradient(135deg, #a8502b, #8f3427);
+        }
+
+        .filter-chip .chip-count {
+            padding: 3px 8px;
+            border-radius: 999px;
+            background: rgba(27, 23, 19, 0.08);
+            font-size: 0.74rem;
+            line-height: 1;
+        }
+
+        .filter-chip.is-active .chip-count,
+        .filter-chip:has(input:checked) .chip-count {
+            background: rgba(255,255,255,0.18);
+            color: inherit;
+        }
+
+        .toolbar-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .results-meta {
+            color: var(--muted);
+            font-size: 0.86rem;
+        }
+
+        .results-meta strong { color: var(--ink); }
+
+        .batch-toggle {
+            background: rgba(60, 40, 24, 0.09);
+            color: #5a3a1a;
+        }
+
+        .batch-toggle.on {
+            background: var(--panel-deep);
+            color: #ffe8c8;
+        }
+
+        .content-panel { padding: 18px; }
+
+        .section-head {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            align-items: end;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+
+        .section-head h2 {
+            margin: 0;
+            font-family: Georgia, serif;
+            font-size: 1.45rem;
+        }
+
+        .section-head p {
+            margin: 6px 0 0;
+            color: var(--muted);
+            font-size: 0.88rem;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 16px;
+        }
+
+        .card {
+            position: relative;
+            overflow: hidden;
+            border-radius: 22px;
+            background: linear-gradient(180deg, rgba(255, 253, 248, 0.96), rgba(255, 249, 240, 0.88));
+            border: 1px solid rgba(71, 45, 21, 0.1);
+            box-shadow: var(--shadow-soft);
+            cursor: pointer;
+            transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 22px 40px rgba(63, 42, 23, 0.14);
+            border-color: rgba(187, 93, 46, 0.16);
+        }
+
+        .card::after {
+            content: "";
+            position: absolute;
+            inset: auto 0 0;
+            height: 3px;
+            background: linear-gradient(90deg, rgba(187, 93, 46, 0), rgba(187, 93, 46, 0.85), rgba(187, 93, 46, 0));
+            opacity: 0;
+            transition: opacity 0.18s ease;
+        }
+
+        .card:hover::after { opacity: 1; }
+
+        .card.return-focus {
+            border-color: rgba(187, 93, 46, 0.35);
+            box-shadow: 0 0 0 4px rgba(187, 93, 46, 0.12), 0 22px 40px rgba(63, 42, 23, 0.14);
+        }
+
+        .card-check {
+            position: absolute;
+            top: 12px;
+            left: 12px;
+            z-index: 12;
+            display: none;
+        }
+
+        .card-check input[type=checkbox] {
+            width: 19px;
+            height: 19px;
+            cursor: pointer;
+            accent-color: var(--accent);
+        }
+
+        body.batch-mode .card-check { display: block; }
+        body.batch-mode .card.selected {
+            border-color: rgba(187, 93, 46, 0.5);
+            box-shadow: 0 0 0 2px rgba(187, 93, 46, 0.18), 0 22px 40px rgba(63, 42, 23, 0.14);
+        }
+
+        .badge-row {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            z-index: 11;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            align-items: flex-end;
+            pointer-events: none;
+        }
+
+        .badge,
+        .warning-badge {
+            padding: 5px 10px;
+            border-radius: 999px;
+            font-size: 0.72rem;
+            font-weight: 700;
+            backdrop-filter: blur(8px);
+        }
+
+        .badge {
+            background: rgba(255, 250, 244, 0.88);
+            color: var(--ink);
+            border: 1px solid rgba(71, 45, 21, 0.08);
+        }
+
+        .warning-badge {
+            background: rgba(143, 52, 39, 0.9);
+            color: #fff9f0;
+        }
+
+        .preview {
+            position: relative;
+            aspect-ratio: 4 / 3;
+            background: linear-gradient(135deg, #d9c1a4, #b78156 54%, #7d5332 100%);
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .preview::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(180deg, rgba(13, 10, 8, 0) 30%, rgba(13, 10, 8, 0.12) 100%);
+            pointer-events: none;
+        }
+
+        .preview img {
             width: 100%;
             height: 100%;
             object-fit: cover;
-            transition: transform 0.5s ease;
-        }
-
-        .video-card:hover .cover-image {
-            transform: scale(1.05);
-        }
-
-        .info-area { padding: 16px; }
-        .video-title { font-size: 1rem; font-weight: 500; margin: 0 0 8px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .video-date { font-size: 0.8rem; color: var(--text-sub); margin: 0; }
-
-        /* ================= 新增：模态框（播放弹窗）样式 ================= */
-        .modal-overlay {
-            display: none; /* 默认隐藏 */
-            position: fixed;
-            top: 0; left: 0; width: 100%; height: 100%;
-            background-color: rgba(0, 0, 0, 0.9); /* 纯黑半透明遮罩 */
-            z-index: 1000;
-            justify-content: center;
-            align-items: center;
-            opacity: 0;
-            transition: opacity 0.3s ease;
-        }
-
-        /* 显示模态框时的类 */
-        .modal-overlay.active {
-            display: flex;
-            opacity: 1;
-        }
-
-        .video-container {
-            width: 80%;
-            max-width: 1200px;
-            box-shadow: 0 0 30px rgba(0,0,0,0.8);
-            border-radius: 8px;
-            overflow: hidden;
-            position: relative;
-        }
-
-        video {
-            width: 100%;
             display: block;
+        }
+
+        .preview-fallback {
+            position: relative;
+            z-index: 1;
+            padding: 18px;
+            text-align: center;
+            color: rgba(255, 250, 243, 0.94);
+        }
+
+        .preview-fallback strong {
+            display: block;
+            font-size: 1.4rem;
+            letter-spacing: 0.08em;
+            margin-bottom: 6px;
+        }
+
+        .card-body {
+            padding: 16px 16px 14px;
+            display: grid;
+            gap: 9px;
+        }
+
+        .card-title {
+            margin: 0;
+            font-size: 0.98rem;
+            line-height: 1.28;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            min-height: 2.5em;
+        }
+
+        .meta {
+            color: var(--muted);
+            font-size: 0.78rem;
+            line-height: 1.45;
+        }
+
+        .path {
+            color: var(--muted);
+            font-size: 0.78rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .tag-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            min-height: 28px;
+        }
+
+        .tag-chip {
+            padding: 4px 8px;
+            border-radius: 999px;
+            background: #f4e8d5;
+            color: #765538;
+            font-size: 0.72rem;
+            max-width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .card-actions {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            align-items: center;
+            padding-top: 2px;
+        }
+
+        .card-link {
+            color: var(--accent-deep);
+            font-size: 0.78rem;
+            font-weight: 700;
+        }
+
+        .like-button {
+            background: #fce8da;
+            color: #8c3f1b;
+            padding: 6px 12px;
+            font-size: 0.78rem;
+        }
+
+        .empty-state,
+        .pager {
+            padding: 22px;
+            text-align: center;
+            color: var(--muted);
+        }
+
+        .empty-state h3 {
+            margin: 0 0 8px;
+            font-family: Georgia, serif;
+            font-size: 1.5rem;
+            color: var(--ink);
+        }
+
+        .empty-state p {
+            margin: 0;
+            line-height: 1.55;
+        }
+
+        .pager {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            align-items: center;
+            gap: 18px;
+            text-align: left;
+        }
+
+        .pager-summary {
+            display: grid;
+            gap: 6px;
+        }
+
+        .pager-title {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            font-family: Georgia, serif;
+            font-size: 1.15rem;
+            color: var(--ink);
+        }
+
+        .pager-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 28px;
+            padding: 4px 10px;
+            border-radius: 999px;
+            background: rgba(187, 93, 46, 0.12);
+            color: var(--accent-deep);
+            font-size: 0.75rem;
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+        }
+
+        .pager-caption {
+            color: var(--muted);
+            font-size: 0.84rem;
+            line-height: 1.5;
+        }
+
+        .pager-nav {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .pager-jump {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            margin-left: 6px;
+            padding: 6px;
+            border-radius: 999px;
+            background: rgba(255, 253, 248, 0.78);
+            border: 1px solid rgba(71, 45, 21, 0.1);
+            box-shadow: var(--shadow-soft);
+        }
+
+        .pager-jump label {
+            color: var(--muted);
+            font-size: 0.8rem;
+            font-weight: 700;
+            white-space: nowrap;
+            padding-left: 8px;
+        }
+
+        .pager-jump input {
+            width: 72px;
+            min-height: 40px;
+            padding: 0 12px;
+            border-radius: 999px;
+            border: 1px solid rgba(71, 45, 21, 0.12);
+            background: rgba(255, 255, 255, 0.82);
+            color: var(--ink);
+            font-size: 0.86rem;
+            font-weight: 700;
+            text-align: center;
+        }
+
+        .pager-jump input:focus {
             outline: none;
+            border-color: rgba(187, 93, 46, 0.3);
+            box-shadow: 0 0 0 4px rgba(187, 93, 46, 0.08);
         }
 
-        .close-btn {
-            position: absolute;
-            top: 20px;
-            right: 30px;
-            color: white;
-            font-size: 40px;
-            font-weight: bold;
+        .pager-jump button {
+            min-height: 40px;
+            padding: 0 14px;
+            border-radius: 999px;
+            border: 0;
+            background: linear-gradient(135deg, rgba(187, 93, 46, 0.96), rgba(143, 67, 29, 0.96));
+            color: #fff8f1;
+            font-size: 0.82rem;
+            font-weight: 700;
             cursor: pointer;
-            z-index: 1001;
-            transition: color 0.2s;
         }
 
-        .close-btn:hover { color: var(--accent); }
+        .page-step,
+        .page-number,
+        .page-ellipsis {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 42px;
+            min-height: 42px;
+            padding: 0 14px;
+            border-radius: 999px;
+            font-size: 0.84rem;
+            font-weight: 700;
+            text-decoration: none;
+            border: 1px solid rgba(71, 45, 21, 0.1);
+            background: rgba(255, 253, 248, 0.8);
+            color: var(--ink);
+            box-shadow: var(--shadow-soft);
+            transition: transform 0.16s ease, background 0.16s ease, border-color 0.16s ease;
+        }
+
+        .page-step:hover,
+        .page-number:hover {
+            transform: translateY(-1px);
+            border-color: rgba(187, 93, 46, 0.2);
+            background: rgba(255, 249, 240, 0.96);
+        }
+
+        .page-number.is-current {
+            background: linear-gradient(135deg, var(--accent), #cf7642);
+            border-color: rgba(187, 93, 46, 0.28);
+            color: #fff8f1;
+            box-shadow: 0 12px 24px rgba(187, 93, 46, 0.2);
+        }
+
+        .page-step.is-disabled {
+            opacity: 0.48;
+            box-shadow: none;
+            pointer-events: none;
+        }
+
+        .page-ellipsis {
+            min-width: 36px;
+            padding-inline: 8px;
+            background: transparent;
+            box-shadow: none;
+            border-color: transparent;
+            color: var(--muted);
+        }
+
+        #batch-bar {
+            position: fixed;
+            left: 18px;
+            right: 18px;
+            bottom: 18px;
+            z-index: 300;
+            display: none;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            padding: 14px 18px;
+            border-radius: 22px;
+            background: rgba(39, 25, 14, 0.94);
+            color: #ffe8c8;
+            box-shadow: 0 22px 42px rgba(0, 0, 0, 0.25);
+            backdrop-filter: blur(12px);
+        }
+
+        #batch-bar.visible { display: flex; }
+        .batch-info { font-weight: 700; white-space: nowrap; }
+        .batch-sep { width: 1px; height: 22px; background: rgba(255,200,140,.25); flex-shrink: 0; }
+
+        .batch-input {
+            width: 150px;
+            background: rgba(255,255,255,0.1);
+            color: #ffe8c8;
+            border-color: rgba(255,200,140,.22);
+        }
+
+        .batch-input::placeholder { color: rgba(255,220,180,.45); }
+
+        .batch-btn {
+            border: 0;
+            border-radius: 999px;
+            padding: 8px 14px;
+            font-size: 0.82rem;
+            font-weight: 700;
+            cursor: pointer;
+            background: rgba(255,255,255,0.12);
+            color: #ffe8c8;
+            transition: background .14s ease;
+            white-space: nowrap;
+        }
+
+        .batch-btn:hover { background: rgba(255,255,255,0.22); }
+        #batch-bar .close-btn { margin-left: auto; }
+
+        @media (max-width: 1180px) {
+            .hero-panel,
+            .layout {
+                grid-template-columns: 1fr;
+            }
+
+            .sidebar { position: static; }
+        }
+
+        @media (max-width: 860px) {
+            .page-header,
+            .search-row,
+            .pager {
+                grid-template-columns: 1fr;
+                display: grid;
+            }
+
+            .page-header { justify-content: initial; }
+            .nav-links { justify-content: flex-start; }
+            .search-row { gap: 10px; }
+            .search-actions { justify-content: flex-start; }
+            .pager-nav { justify-content: flex-start; }
+            .toolbar-row,
+            .section-head { align-items: flex-start; }
+        }
+
+        @media (max-width: 640px) {
+            .shell { padding-inline: 14px; }
+            .metrics-grid,
+            .sidebar-stats { grid-template-columns: 1fr 1fr; }
+            .grid { grid-template-columns: 1fr; }
+            #batch-bar {
+                left: 10px;
+                right: 10px;
+                bottom: 10px;
+            }
+        }
     </style>
 </head>
 <body>
-
-    <div class="header">
-        <h1>VIDEO GALLERY</h1>
-        <p style="color: var(--text-sub);">已处理完成的视觉作品展示</p>
-    </div>
-
-    <div class="gallery-grid">
-        {% for video in videos %}
-        <div class="video-card" data-video-id="{{ video.id }}" title="{{ video.video_path }}">
-            <div class="cover-wrapper">
-                {% if video.cover_url %}
-                    <img src="{{ video.cover_url }}" alt="{{ video.title }}" class="cover-image">
-                {% else %}
-                    <div style="width:100%; height:100%; background:#333; display:flex; align-items:center; justify-content:center; color:#666;">No Cover</div>
-                {% endif %}
-            </div>
-            <div class="info-area">
-                <h3 class="video-title">{{ video.title }}</h3>
-                <p class="video-date">{{ video.created_at|date:"Y-m-d H:i" }}</p>
-            </div>
-        </div>
-        {% empty %}
-        <div style="grid-column: 1 / -1; text-align: center; color: var(--text-sub); padding: 50px;">
-            暂无已完成抽帧的视频，快去运行扫描脚本吧！
-        </div>
+<div class="shell">
+    {% if messages %}
+    <div class="flash-stack">
+        {% for message in messages %}
+        <div class="flash {{ message.tags|default:'info' }}">{{ message }}</div>
         {% endfor %}
     </div>
+    {% endif %}
 
-    <div class="modal-overlay" id="videoModal">
-        <span class="close-btn" id="closeBtn">&times;</span>
-        <div class="video-container">
-            <video id="player" controls controlsList="nodownload"></video>
+    <header class="page-header">
+        <div class="page-title">
+            <div class="eyebrow">Visuals Library</div>
+            <h1>把本地资源整理成可搜索的视觉工作台</h1>
+            <div class="header-meta">最近全局同步：{{ sync_summary.last_synced_label }} · 已启用资源源 {{ sync_summary.enabled_count }} 个{% if sync_summary.syncing_count %} · <strong>扫描中 {{ sync_summary.syncing_count }} 个</strong>{% endif %}{% if sync_summary.error_count %} · <strong>异常 {{ sync_summary.error_count }} 个</strong>{% endif %}</div>
         </div>
+        <div class="nav-links">
+            <a class="ghost-button" href="{% url 'visuals:sources' %}">资源源管理</a>
+            <a class="ghost-button" href="{% url 'visuals:duplicates' %}">重复文件检测</a>
+            <form method="post" action="{% url 'visuals:sync_all_sources_now' %}">
+                {% csrf_token %}
+                <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                <button class="button" type="submit">立即同步全部</button>
+            </form>
+        </div>
+    </header>
+
+    <div id="library-app">
+    <section class="hero-panel">
+        <div class="hero-card">
+            <div class="hero-copy">
+                <h2>从图片、GIF、视频到模型文件，现在都在一个统一入口里完成筛选、预览和二次整理。</h2>
+                <p>类型筛选和快捷入口已经并到搜索栏，首页保留目录树和合集导航，主区只负责检索与浏览，信息密度更高但不再拥挤。</p>
+            </div>
+            <div class="hero-ribbon">
+                <span class="hero-pill"><strong>{{ stats.ready }}</strong> 个资源已完成索引</span>
+                <span class="hero-pill"><strong>{{ stats.liked }}</strong> 个资源已加入收藏</span>
+                <span class="hero-pill"><strong>{{ stats.missing }}</strong> 个资源等待你处理缺失路径</span>
+            </div>
+        </div>
+        <aside class="hero-metrics">
+            <div class="metrics-title">当前概览</div>
+            <div class="metrics-grid">
+                <div class="metric-tile"><strong>{{ stats.total }}</strong><small>总资源数</small></div>
+                <div class="metric-tile"><strong>{{ stats.ready }}</strong><small>已就绪</small></div>
+                <div class="metric-tile"><strong>{{ stats.liked }}</strong><small>已收藏</small></div>
+                <div class="metric-tile"><strong>{{ stats.missing }}</strong><small>缺失文件</small></div>
+            </div>
+        </aside>
+    </section>
+
+    <div class="layout">
+        <aside class="sidebar">
+            <section class="sidebar-panel">
+                <div class="sidebar-section">
+                    <h2>资源速览</h2>
+                    <div class="sidebar-stats">
+                        <div class="mini-stat"><strong>{{ stats.total }}</strong><small>总计</small></div>
+                        <div class="mini-stat"><strong>{{ stats.ready }}</strong><small>已完成</small></div>
+                        <div class="mini-stat"><strong>{{ stats.liked }}</strong><small>收藏</small></div>
+                        <div class="mini-stat"><strong>{{ stats.missing }}</strong><small>缺失</small></div>
+                    </div>
+                </div>
+
+                <div class="sidebar-section">
+                    <h2>管理入口</h2>
+                    <a class="ghost-button" href="{% url 'visuals:sources' %}">打开资源源管理</a>
+                </div>
+
+                <div class="sidebar-section">
+                    <h2>资源源</h2>
+                    <a href="?{% if current_filters.q %}q={{ current_filters.q }}&{% endif %}{% if current_filters.collection %}collection={{ current_filters.collection }}&{% endif %}{% if current_filters.type %}type={{ current_filters.type }}&{% endif %}{% if current_filters.status %}status={{ current_filters.status }}&{% endif %}{% if current_filters.liked %}liked=1&{% endif %}{% if current_filters.missing %}missing=1&{% endif %}"
+                       class="nav-item {% if not current_filters.source %}active{% endif %}">
+                        <span>全部目录</span>
+                        <span class="nav-count">{{ stats.total }}</span>
+                    </a>
+                    {% for entry in source_tree %}
+                    <div class="source-group">
+                        <a href="?source={{ entry.source.id }}{% if current_filters.q %}&q={{ current_filters.q }}{% endif %}{% if current_filters.collection %}&collection={{ current_filters.collection }}{% endif %}{% if current_filters.type %}&type={{ current_filters.type }}{% endif %}{% if current_filters.status %}&status={{ current_filters.status }}{% endif %}{% if current_filters.liked %}&liked=1{% endif %}{% if current_filters.missing %}&missing=1{% endif %}"
+                           class="nav-item {% if current_filters.source == entry.source.id|stringformat:'s' %}active{% endif %}">
+                            <span class="nav-meta">
+                                <span>{{ entry.source.name }}</span>
+                                <small>{{ entry.status.last_synced_label }} · {{ entry.status.label }}</small>
+                                {% if entry.source.is_syncing %}
+                                <small class="summary-line">{{ entry.source.sync_phase|default:'扫描中' }}：{{ entry.source.sync_progress_scanned }} / {{ entry.source.sync_progress_total|default:0 }}{% if entry.source.sync_progress_total %} · {{ entry.progress_percent }}%{% endif %}</small>
+                                {% endif %}
+                                <small class="summary-line">上次扫描：新增 {{ entry.source.last_sync_created }} · 更新 {{ entry.source.last_sync_updated }} · 缺失 {{ entry.source.last_sync_missing }}</small>
+                                {% if entry.source.last_sync_error %}
+                                <small class="summary-line error-line">错误：{{ entry.source.last_sync_error }}</small>
+                                {% endif %}
+                            </span>
+                            <span class="nav-count">{{ entry.total }}</span>
+                        </a>
+                        {% if current_filters.source == entry.source.id|stringformat:'s' %}
+                            {% for folder_name, folder_count in entry.folders %}
+                            <a href="?source={{ entry.source.id }}&folder={{ folder_name }}{% if current_filters.q %}&q={{ current_filters.q }}{% endif %}{% if current_filters.collection %}&collection={{ current_filters.collection }}{% endif %}{% if current_filters.type %}&type={{ current_filters.type }}{% endif %}{% if current_filters.status %}&status={{ current_filters.status }}{% endif %}{% if current_filters.liked %}&liked=1{% endif %}{% if current_filters.missing %}&missing=1{% endif %}"
+                               class="nav-item folder-link {% if current_filters.folder == folder_name %}active{% endif %}">
+                                {{ folder_name }}
+                                <span class="nav-count">{{ folder_count }}</span>
+                            </a>
+                            {% endfor %}
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+
+                {% if collections %}
+                <div class="sidebar-section">
+                    <h2>合集导航</h2>
+                    <a href="?{% if current_filters.q %}q={{ current_filters.q }}&{% endif %}{% if current_filters.source %}source={{ current_filters.source }}&{% endif %}{% if current_filters.folder %}folder={{ current_filters.folder }}&{% endif %}{% if current_filters.type %}type={{ current_filters.type }}&{% endif %}{% if current_filters.status %}status={{ current_filters.status }}&{% endif %}{% if current_filters.liked %}liked=1&{% endif %}{% if current_filters.missing %}missing=1&{% endif %}"
+                       class="nav-item {% if not current_filters.collection %}active{% endif %}">
+                        <span>全部合集</span>
+                    </a>
+                    {% for col in collections %}
+                    <a href="?collection={{ col.id }}{% if current_filters.q %}&q={{ current_filters.q }}{% endif %}{% if current_filters.source %}&source={{ current_filters.source }}{% endif %}{% if current_filters.folder %}&folder={{ current_filters.folder }}{% endif %}{% if current_filters.type %}&type={{ current_filters.type }}{% endif %}{% if current_filters.status %}&status={{ current_filters.status }}{% endif %}{% if current_filters.liked %}&liked=1{% endif %}{% if current_filters.missing %}&missing=1{% endif %}"
+                       class="nav-item {% if current_filters.collection == col.id|stringformat:'s' %}active{% endif %}">
+                        <span>{{ col.name }}</span>
+                        <span class="nav-count">{{ col.resource_count }}</span>
+                    </a>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </section>
+        </aside>
+
+        <main class="main">
+            <section class="filter-bar">
+                <form method="get" id="filter-form">
+                    {% if current_filters.source %}<input type="hidden" name="source" value="{{ current_filters.source }}">{% endif %}
+                    {% if current_filters.folder %}<input type="hidden" name="folder" value="{{ current_filters.folder }}">{% endif %}
+                    <div class="filter-shell">
+                        <div class="search-row">
+                            <div class="field">
+                                <label for="q">关键词搜索</label>
+                                <input id="q" type="text" name="q" value="{{ current_filters.q }}" placeholder="标题、路径、标签、合集名...">
+                            </div>
+                            <div class="field">
+                                <label for="collection-sel">合集</label>
+                                <select id="collection-sel" name="collection" class="quick-submit">
+                                    <option value="">全部合集</option>
+                                    {% for col in collections %}
+                                    <option value="{{ col.id }}" {% if current_filters.collection == col.id|stringformat:"s" %}selected{% endif %}>{{ col.name }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="search-actions">
+                                <button class="button" type="submit">搜索</button>
+                                <a class="ghost-button" href="{% url 'visuals:home' %}">清空</a>
+                            </div>
+                        </div>
+
+                        <div class="filter-groups">
+                            <div class="filter-group">
+                                <div class="section-kicker">资源类型</div>
+                                <div class="chip-row">
+                                    <label class="filter-chip {% if not current_filters.type %}is-active{% endif %}">
+                                        <input type="radio" name="type" value="" {% if not current_filters.type %}checked{% endif %}>
+                                        <span>全部</span>
+                                        <span class="chip-count">{{ stats.total }}</span>
+                                    </label>
+                                    {% for t in type_list %}
+                                    <label class="filter-chip {% if current_filters.type == t.value %}is-active{% endif %}">
+                                        <input type="radio" name="type" value="{{ t.value }}" {% if current_filters.type == t.value %}checked{% endif %}>
+                                        <span>{{ t.label }}</span>
+                                        <span class="chip-count">{{ t.count }}</span>
+                                    </label>
+                                    {% endfor %}
+                                </div>
+                            </div>
+
+                            <div class="filter-group">
+                                <div class="section-kicker">快捷入口</div>
+                                <div class="chip-row">
+                                    <label class="filter-chip {% if not current_filters.status %}is-active{% endif %}">
+                                        <input type="radio" name="status" value="" {% if not current_filters.status %}checked{% endif %}>
+                                        <span>全部状态</span>
+                                    </label>
+                                    <label class="filter-chip {% if current_filters.status == 'pending' %}is-active{% endif %}">
+                                        <input type="radio" name="status" value="pending" {% if current_filters.status == 'pending' %}checked{% endif %}>
+                                        <span>等待索引</span>
+                                    </label>
+                                    <label class="filter-chip {% if current_filters.status == 'failed' %}is-active{% endif %}">
+                                        <input type="radio" name="status" value="failed" {% if current_filters.status == 'failed' %}checked{% endif %}>
+                                        <span>处理失败</span>
+                                    </label>
+                                    <label class="filter-chip {% if current_filters.liked %}is-active{% endif %}">
+                                        <input type="checkbox" name="liked" value="1" {% if current_filters.liked %}checked{% endif %}>
+                                        <span>已收藏</span>
+                                        <span class="chip-count">{{ stats.liked }}</span>
+                                    </label>
+                                    <label class="filter-chip toggle-missing {% if current_filters.missing %}is-active{% endif %}">
+                                        <input type="checkbox" name="missing" value="1" {% if current_filters.missing %}checked{% endif %}>
+                                        <span>缺失文件</span>
+                                        <span class="chip-count">{{ stats.missing }}</span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="toolbar-row">
+                            <div class="results-meta">
+                                当前展示 <strong>{{ page_obj.paginator.count }}</strong> 条结果。
+                                {% if current_filters.source %} 已锁定目录筛选。{% endif %}
+                                {% if current_filters.folder %} 当前文件夹：<strong>{{ current_filters.folder }}</strong>。{% endif %}
+                            </div>
+                            <button type="button" class="batch-toggle" id="batch-btn" onclick="toggleBatch()">批量操作</button>
+                        </div>
+                    </div>
+                </form>
+            </section>
+
+            <form id="batch-form" method="post" action="{% url 'visuals:batch_action' %}">
+                {% csrf_token %}
+                <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                <input type="hidden" name="action" id="batch-action">
+                <input type="hidden" name="tag_name" id="batch-tag">
+                <input type="hidden" name="collection_name" id="batch-col">
+            </form>
+
+            {% if resources %}
+            <section class="content-panel">
+                <div class="section-head">
+                    <div>
+                        <div class="section-kicker">Resource Browser</div>
+                        <h2>资源浏览区</h2>
+                        <p>点击卡片进入详情页，顶部搜索栏负责类型与快捷筛选，侧边保留目录树与合集切换。</p>
+                    </div>
+                </div>
+
+                <section class="grid">
+                    {% for resource in resources %}
+                    <article class="card" id="card-{{ resource.id }}" data-detail-url="{{ resource.detail_url }}" onclick="cardClick(event, {{ resource.id }})" tabindex="0" role="link" onkeydown="cardKeydown(event, {{ resource.id }})">
+                        <div class="card-check">
+                            <input type="checkbox" name="resource_ids" value="{{ resource.id }}" id="chk-{{ resource.id }}" form="batch-form" onclick="updateBar()">
+                        </div>
+                        <div class="badge-row">
+                            <span class="badge">{{ resource.get_resource_type_display }}</span>
+                            {% if resource.is_missing %}
+                            <span class="warning-badge">缺失</span>
+                            {% elif resource.status != 'completed' %}
+                            <span class="warning-badge">{{ resource.get_status_display }}</span>
+                            {% endif %}
+                        </div>
+                        <div class="preview">
+                            {% if resource.has_preview %}
+                            <img src="{% url 'visuals:preview_resource' resource.id %}?variant=card" loading="lazy" alt="{{ resource.title }}">
+                            {% else %}
+                            <div class="preview-fallback">
+                                <strong>{{ resource.extension|default:'FILE'|upper }}</strong>
+                                <div>{{ resource.mime_type|default:'无法预览' }}</div>
+                            </div>
+                            {% endif %}
+                        </div>
+                        <div class="card-body">
+                            <h2 class="card-title" title="{{ resource.title }}">{{ resource.title }}</h2>
+                            <div class="meta">
+                                {{ resource.source_root.name|default:"未分配" }}
+                                {% if resource.file_size %} · {{ resource.file_size|filesizeformat }}{% endif %}
+                                {% if resource.duration_seconds %} · {{ resource.duration_seconds|floatformat:0 }}s{% endif %}
+                                {% if resource.width and resource.height %} · {{ resource.width }}x{{ resource.height }}{% endif %}
+                            </div>
+                            <div class="path" title="{{ resource.relative_path|default:resource.file_path }}">{{ resource.relative_path|default:resource.file_path }}</div>
+                            <div class="tag-list">
+                                {% for tag in resource.tags.all|slice:":4" %}
+                                <span class="tag-chip">{{ tag.name }}</span>
+                                {% endfor %}
+                            </div>
+                            <div class="card-actions">
+                                <span class="card-link">查看详情</span>
+                                <form method="post" action="{% url 'visuals:toggle_like' resource.id %}">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                                    <button class="like-button" type="submit">{% if resource.is_liked %}♥ 取消{% else %}♡ 收藏{% endif %}</button>
+                                </form>
+                            </div>
+                        </div>
+                    </article>
+                    {% endfor %}
+                </section>
+            </section>
+            {% else %}
+            <div class="empty-state">
+                <h3>暂无匹配资源</h3>
+                <p>可以切换上面的类型和快捷入口，或者运行 python manage.py scan_visuals 路径 把本地目录继续导入资源库。</p>
+            </div>
+            {% endif %}
+
+            {% if page_obj.paginator.num_pages > 1 %}
+            <div class="pager">
+                <div class="pager-summary">
+                    <div class="pager-title">
+                        <span class="pager-badge">Pagination</span>
+                        <span>第 {{ page_obj.number }} / {{ page_obj.paginator.num_pages }} 页</span>
+                    </div>
+                    <div class="pager-caption">共 {{ page_obj.paginator.count }} 项，每页 24 项。可以直接点页码跳转，筛选条件会保留。</div>
+                </div>
+                <nav class="pager-nav" aria-label="分页导航">
+                    {% if page_obj.has_previous %}
+                    <a class="page-step" href="?q={{ current_filters.q }}&type={{ current_filters.type }}&source={{ current_filters.source }}&collection={{ current_filters.collection }}&status={{ current_filters.status }}&folder={{ current_filters.folder }}{% if current_filters.liked %}&liked=1{% endif %}{% if current_filters.missing %}&missing=1{% endif %}&page=1">首页</a>
+                    <a class="page-step" href="?q={{ current_filters.q }}&type={{ current_filters.type }}&source={{ current_filters.source }}&collection={{ current_filters.collection }}&status={{ current_filters.status }}&folder={{ current_filters.folder }}{% if current_filters.liked %}&liked=1{% endif %}{% if current_filters.missing %}&missing=1{% endif %}&page={{ page_obj.previous_page_number }}">上一页</a>
+                    {% else %}
+                    <span class="page-step is-disabled">首页</span>
+                    <span class="page-step is-disabled">上一页</span>
+                    {% endif %}
+
+                    {% for num in page_obj.paginator.page_range %}
+                        {% if num == 1 or num == page_obj.paginator.num_pages or num >= page_obj.number|add:'-1' and num <= page_obj.number|add:'1' %}
+                            {% if num == page_obj.number %}
+                            <span class="page-number is-current" aria-current="page">{{ num }}</span>
+                            {% else %}
+                            <a class="page-number" href="?q={{ current_filters.q }}&type={{ current_filters.type }}&source={{ current_filters.source }}&collection={{ current_filters.collection }}&status={{ current_filters.status }}&folder={{ current_filters.folder }}{% if current_filters.liked %}&liked=1{% endif %}{% if current_filters.missing %}&missing=1{% endif %}&page={{ num }}">{{ num }}</a>
+                            {% endif %}
+                        {% elif num == page_obj.number|add:'-2' or num == page_obj.number|add:'2' %}
+                            <span class="page-ellipsis" aria-hidden="true">…</span>
+                        {% endif %}
+                    {% endfor %}
+
+                    {% if page_obj.has_next %}
+                    <a class="page-step" href="?q={{ current_filters.q }}&type={{ current_filters.type }}&source={{ current_filters.source }}&collection={{ current_filters.collection }}&status={{ current_filters.status }}&folder={{ current_filters.folder }}{% if current_filters.liked %}&liked=1{% endif %}{% if current_filters.missing %}&missing=1{% endif %}&page={{ page_obj.next_page_number }}">下一页</a>
+                    <a class="page-step" href="?q={{ current_filters.q }}&type={{ current_filters.type }}&source={{ current_filters.source }}&collection={{ current_filters.collection }}&status={{ current_filters.status }}&folder={{ current_filters.folder }}{% if current_filters.liked %}&liked=1{% endif %}{% if current_filters.missing %}&missing=1{% endif %}&page={{ page_obj.paginator.num_pages }}">末页</a>
+                    {% else %}
+                    <span class="page-step is-disabled">下一页</span>
+                    <span class="page-step is-disabled">末页</span>
+                    {% endif %}
+
+                    <form class="pager-jump" method="get" action="{% url 'visuals:home' %}" data-pagination-jump data-total-pages="{{ page_obj.paginator.num_pages }}">
+                        <input type="hidden" name="q" value="{{ current_filters.q }}">
+                        <input type="hidden" name="type" value="{{ current_filters.type }}">
+                        <input type="hidden" name="source" value="{{ current_filters.source }}">
+                        <input type="hidden" name="collection" value="{{ current_filters.collection }}">
+                        <input type="hidden" name="status" value="{{ current_filters.status }}">
+                        <input type="hidden" name="folder" value="{{ current_filters.folder }}">
+                        {% if current_filters.liked %}<input type="hidden" name="liked" value="1">{% endif %}
+                        {% if current_filters.missing %}<input type="hidden" name="missing" value="1">{% endif %}
+                        <label for="pagination-jump-input">跳到</label>
+                        <input id="pagination-jump-input" type="number" name="page" min="1" max="{{ page_obj.paginator.num_pages }}" value="{{ page_obj.number }}" inputmode="numeric" aria-label="输入页码跳转">
+                        <button type="submit">跳转</button>
+                    </form>
+                </nav>
+            </div>
+            {% endif %}
+        </main>
     </div>
+    </div>
+</div>
 
-    <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            const cards = document.querySelectorAll('.video-card');
-            const modal = document.getElementById('videoModal');
-            const player = document.getElementById('player');
-            const closeBtn = document.getElementById('closeBtn');
+<div id="batch-bar">
+    <span class="batch-info" id="batch-count">已选 0 项</span>
+    <div class="batch-sep"></div>
+    <button class="batch-btn" type="button" onclick="doBatch('like')">批量收藏</button>
+    <button class="batch-btn" type="button" onclick="doBatch('unlike')">取消收藏</button>
+    <div class="batch-sep"></div>
+    <input class="batch-input" id="tag-in" placeholder="标签名">
+    <button class="batch-btn" type="button" onclick="doBatch('add_tag')">加标签</button>
+    <button class="batch-btn" type="button" onclick="doBatch('remove_tag')">删标签</button>
+    <div class="batch-sep"></div>
+    <input class="batch-input" id="col-in" placeholder="合集名">
+    <button class="batch-btn" type="button" onclick="doBatch('add_collection')">加入合集</button>
+    <div class="batch-sep"></div>
+    <button class="batch-btn" type="button" onclick="doBatch('reindex')">重新索引</button>
+    <button class="batch-btn" type="button" onclick="doBatch('remove_from_library')">移出资源库</button>
+    <button class="batch-btn close-btn" type="button" onclick="toggleBatch()">退出批量</button>
+</div>
 
-            // 1. 点击卡片，打开弹窗并播放
-            cards.forEach(card => {
-                card.addEventListener('click', () => {
-                    const videoId = card.getAttribute('data-video-id');
-                    
-                    // 拼接我们在 urls.py 里配置的流媒体地址
-                    const streamUrl = `/visuals/stream/${videoId}/`;
-                    
-                    // 设置播放器地址并播放
-                    player.src = streamUrl;
-                    modal.classList.add('active');
-                    player.play();
-                });
-            });
+<script>
+const libraryReturnContextKey = 'visuals-library-return-context';
 
-            // 2. 关闭弹窗的统一函数
-            const closeModal = () => {
-                modal.classList.remove('active');
-                player.pause();  // 暂停播放
-                player.src = ""; // 清空地址，释放浏览器内存
-            };
+function toggleBatch() {
+    const on = document.body.classList.toggle('batch-mode');
+    const btn = document.getElementById('batch-btn');
+    btn.textContent = on ? '退出批量' : '批量操作';
+    btn.classList.toggle('on', on);
+    if (!on) {
+        document.querySelectorAll('.card-check input').forEach((cb) => { cb.checked = false; });
+        document.querySelectorAll('.card.selected').forEach((card) => card.classList.remove('selected'));
+        document.getElementById('batch-bar').classList.remove('visible');
+    }
+}
 
-            // 3. 点击右上角 X 关闭
-            closeBtn.addEventListener('click', closeModal);
+function cardClick(evt, id) {
+    const card = document.getElementById('card-' + id);
+    if (!card) {
+        return;
+    }
+    if (evt.target.closest('a, button, input, form, label')) {
+        return;
+    }
+    if (!document.body.classList.contains('batch-mode')) {
+        const detailUrl = card.dataset.detailUrl;
+        if (detailUrl) {
+            try {
+                sessionStorage.setItem(libraryReturnContextKey, JSON.stringify({
+                    url: window.location.pathname + window.location.search,
+                    resourceId: id,
+                    scrollY: window.scrollY,
+                    savedAt: Date.now(),
+                }));
+            } catch (error) {
+                // Ignore storage failures and fall back to normal navigation.
+            }
+            window.location.href = detailUrl;
+        }
+        return;
+    }
+    const cb = document.getElementById('chk-' + id);
+    cb.checked = !cb.checked;
+    card.classList.toggle('selected', cb.checked);
+    updateBar();
+}
 
-            // 4. 点击遮罩层空白处关闭
-            modal.addEventListener('click', (e) => {
-                if (e.target === modal) {
-                    closeModal();
-                }
-            });
+function cardKeydown(evt, id) {
+    if (evt.key !== 'Enter' && evt.key !== ' ') {
+        return;
+    }
+    evt.preventDefault();
+    cardClick(evt, id);
+}
 
-            // 5. 按 ESC 键关闭
-            document.addEventListener('keydown', (e) => {
-                if (e.key === 'Escape' && modal.classList.contains('active')) {
-                    closeModal();
-                }
-            });
+function updateBar() {
+    const checked = document.querySelectorAll('.card-check input:checked');
+    document.getElementById('batch-count').textContent = '已选 ' + checked.length + ' 项';
+    document.getElementById('batch-bar').classList.toggle('visible', checked.length > 0);
+    document.querySelectorAll('.card').forEach((card) => {
+        const cb = card.querySelector('.card-check input');
+        if (cb) {
+            card.classList.toggle('selected', cb.checked);
+        }
+    });
+}
+
+function doBatch(action) {
+    const checked = document.querySelectorAll('.card-check input:checked');
+    if (!checked.length) {
+        alert('请先勾选资源');
+        return;
+    }
+    if ((action === 'add_tag' || action === 'remove_tag') && !document.getElementById('tag-in').value.trim()) {
+        alert('请输入标签名');
+        return;
+    }
+    if (action === 'add_collection' && !document.getElementById('col-in').value.trim()) {
+        alert('请输入合集名');
+        return;
+    }
+    if (action === 'remove_from_library' && !confirm('确定移除这 ' + checked.length + ' 条索引记录吗？本地文件不会删除。')) {
+        return;
+    }
+    document.getElementById('batch-action').value = action;
+    document.getElementById('batch-tag').value = document.getElementById('tag-in').value;
+    document.getElementById('batch-col').value = document.getElementById('col-in').value;
+    document.getElementById('batch-form').submit();
+}
+
+function resetBatchSelection() {
+    document.body.classList.remove('batch-mode');
+    const btn = document.getElementById('batch-btn');
+    if (btn) {
+        btn.textContent = '批量操作';
+        btn.classList.remove('on');
+    }
+    document.querySelectorAll('.card-check input').forEach((cb) => {
+        cb.checked = false;
+    });
+    document.querySelectorAll('.card.selected').forEach((card) => {
+        card.classList.remove('selected');
+    });
+    const batchBar = document.getElementById('batch-bar');
+    if (batchBar) {
+        batchBar.classList.remove('visible');
+    }
+}
+
+function restoreLibraryReturnContext() {
+    let rawContext = null;
+    try {
+        rawContext = sessionStorage.getItem(libraryReturnContextKey);
+    } catch (error) {
+        return;
+    }
+    if (!rawContext) {
+        return;
+    }
+
+    let context = null;
+    try {
+        context = JSON.parse(rawContext);
+    } catch (error) {
+        sessionStorage.removeItem(libraryReturnContextKey);
+        return;
+    }
+
+    const currentUrl = window.location.pathname + window.location.search;
+    if (!context || context.url !== currentUrl || (Date.now() - (context.savedAt || 0)) > 10 * 60 * 1000) {
+        return;
+    }
+
+    const restorePosition = function () {
+        if (Number.isFinite(context.scrollY)) {
+            window.scrollTo({ top: context.scrollY, behavior: 'auto' });
+        }
+        if (context.resourceId) {
+            const card = document.getElementById('card-' + context.resourceId);
+            if (card) {
+                card.classList.add('return-focus');
+                window.setTimeout(() => card.classList.remove('return-focus'), 1600);
+            }
+        }
+    };
+
+    window.requestAnimationFrame(() => {
+        restorePosition();
+        window.setTimeout(restorePosition, 120);
+    });
+    window.setTimeout(() => {
+        try {
+            sessionStorage.removeItem(libraryReturnContextKey);
+        } catch (error) {
+            // Ignore storage cleanup failures.
+        }
+    }, 1800);
+}
+
+function buildFilterUrl(form) {
+    const url = new URL(form.action || window.location.href, window.location.origin);
+    const formData = new FormData(form);
+    const params = new URLSearchParams();
+    for (const [key, value] of formData.entries()) {
+        if (typeof value !== 'string') {
+            continue;
+        }
+        const trimmedValue = value.trim();
+        if (!trimmedValue) {
+            continue;
+        }
+        params.append(key, trimmedValue);
+    }
+    url.search = params.toString();
+    return url.toString();
+}
+
+function buildPaginationJumpUrl(form) {
+    const url = new URL(form.action || window.location.href, window.location.origin);
+    const formData = new FormData(form);
+    const params = new URLSearchParams();
+    const maxPages = Number(form.dataset.totalPages || 1);
+
+    for (const [key, value] of formData.entries()) {
+        if (typeof value !== 'string') {
+            continue;
+        }
+        const trimmedValue = value.trim();
+        if (!trimmedValue) {
+            continue;
+        }
+        if (key === 'page') {
+            const numericPage = Number(trimmedValue);
+            if (!Number.isFinite(numericPage)) {
+                params.set('page', '1');
+                continue;
+            }
+            const clampedPage = Math.min(Math.max(Math.round(numericPage), 1), Math.max(maxPages, 1));
+            params.set('page', String(clampedPage));
+            continue;
+        }
+        params.append(key, trimmedValue);
+    }
+
+    if (!params.has('page')) {
+        params.set('page', '1');
+    }
+
+    url.search = params.toString();
+    return url.toString();
+}
+
+let activeLibraryRequest = null;
+
+async function updateLibraryApp(url, options = {}) {
+    const { pushState = true } = options;
+    const libraryApp = document.getElementById('library-app');
+    if (!libraryApp) {
+        window.location.href = url;
+        return;
+    }
+
+    if (activeLibraryRequest) {
+        activeLibraryRequest.abort();
+    }
+    activeLibraryRequest = new AbortController();
+    libraryApp.classList.add('is-loading');
+
+    try {
+        const response = await fetch(url, {
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            signal: activeLibraryRequest.signal,
         });
-    </script>
+        if (!response.ok) {
+            throw new Error('request failed');
+        }
+
+        const html = await response.text();
+        const parser = new DOMParser();
+        const nextDocument = parser.parseFromString(html, 'text/html');
+        const nextLibraryApp = nextDocument.getElementById('library-app');
+        if (!nextLibraryApp) {
+            throw new Error('library app not found');
+        }
+
+        resetBatchSelection();
+        libraryApp.replaceWith(nextLibraryApp);
+        document.title = nextDocument.title || document.title;
+        if (pushState) {
+            window.history.pushState({}, '', url);
+        }
+    } catch (error) {
+        if (error.name !== 'AbortError') {
+            window.location.href = url;
+        }
+    } finally {
+        activeLibraryRequest = null;
+        const currentLibraryApp = document.getElementById('library-app');
+        if (currentLibraryApp) {
+            currentLibraryApp.classList.remove('is-loading');
+        }
+    }
+}
+
+document.addEventListener('submit', (event) => {
+    const form = event.target;
+    if (!form) {
+        return;
+    }
+    if (form.id === 'filter-form') {
+        event.preventDefault();
+        updateLibraryApp(buildFilterUrl(form));
+        return;
+    }
+    if (form.matches('[data-pagination-jump]')) {
+        event.preventDefault();
+        updateLibraryApp(buildPaginationJumpUrl(form));
+    }
+});
+
+document.addEventListener('change', (event) => {
+    const target = event.target;
+    if (!target) {
+        return;
+    }
+    if (!target.closest('#filter-form')) {
+        return;
+    }
+    if (target.matches('input[type=checkbox], input[type=radio], select.quick-submit')) {
+        const form = document.getElementById('filter-form');
+        if (form) {
+            updateLibraryApp(buildFilterUrl(form));
+        }
+    }
+});
+
+document.addEventListener('click', (event) => {
+    const link = event.target.closest('#library-app a[href]');
+    if (!link) {
+        return;
+    }
+    if (link.target || link.hasAttribute('download')) {
+        return;
+    }
+    const url = new URL(link.href, window.location.origin);
+    if (url.origin !== window.location.origin || url.pathname !== window.location.pathname) {
+        return;
+    }
+    event.preventDefault();
+    updateLibraryApp(url.toString());
+});
+
+window.addEventListener('popstate', () => {
+    updateLibraryApp(window.location.href, { pushState: false });
+});
+
+restoreLibraryReturnContext();
+</script>
 </body>
 </html>

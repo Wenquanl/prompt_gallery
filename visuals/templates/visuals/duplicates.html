@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>重复文件检测 | Visuals</title>
+    <style>
+        :root {
+            --bg-top: #f7efe1;
+            --bg-bottom: #e7dbc9;
+            --panel: rgba(255, 250, 242, 0.86);
+            --panel-strong: rgba(255, 252, 247, 0.95);
+            --ink: #211913;
+            --muted: #6f6256;
+            --line: rgba(75, 51, 27, 0.13);
+            --accent: #b2572a;
+            --accent-deep: #7f3412;
+            --shadow-lg: 0 24px 68px rgba(66, 45, 24, 0.12);
+            --shadow-md: 0 14px 34px rgba(66, 45, 24, 0.1);
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            color: var(--ink);
+            font-family: "Bahnschrift", "Segoe UI", sans-serif;
+            background:
+                radial-gradient(circle at top left, rgba(255, 255, 255, 0.6), transparent 26%),
+                radial-gradient(circle at 85% 15%, rgba(178, 87, 42, 0.16), transparent 24%),
+                linear-gradient(180deg, var(--bg-top) 0%, var(--bg-bottom) 100%);
+        }
+
+        .shell {
+            max-width: 1420px;
+            margin: 0 auto;
+            padding: 30px 22px 72px;
+        }
+
+        .hero {
+            display: grid;
+            grid-template-columns: minmax(0, 1.28fr) minmax(290px, 0.72fr);
+            gap: 18px;
+            margin-bottom: 22px;
+        }
+
+        .hero-main,
+        .hero-side,
+        .group,
+        .empty,
+        .summary-strip {
+            border: 1px solid var(--line);
+            background: var(--panel);
+            backdrop-filter: blur(12px);
+            box-shadow: var(--shadow-lg);
+        }
+
+        .hero-main {
+            position: relative;
+            overflow: hidden;
+            border-radius: 32px;
+            padding: 28px;
+            background:
+                radial-gradient(circle at top right, rgba(178, 87, 42, 0.14), transparent 26%),
+                linear-gradient(135deg, rgba(255, 252, 247, 0.95), rgba(244, 232, 214, 0.88));
+        }
+
+        .hero-main::after {
+            content: "";
+            position: absolute;
+            inset: auto -90px -90px auto;
+            width: 260px;
+            height: 260px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(178, 87, 42, 0.14), transparent 72%);
+            pointer-events: none;
+        }
+
+        .eyebrow {
+            display: inline-flex;
+            align-items: center;
+            padding: 6px 11px;
+            border-radius: 999px;
+            background: rgba(255, 246, 234, 0.96);
+            color: var(--accent-deep);
+            font-size: 0.76rem;
+            font-weight: 700;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+        }
+
+        .hero-main h1 {
+            margin: 16px 0 12px;
+            font-family: Georgia, serif;
+            font-size: clamp(2rem, 3.8vw, 3.4rem);
+            line-height: 1;
+        }
+
+        .hero-copy {
+            max-width: 780px;
+            margin: 0;
+            color: var(--muted);
+            line-height: 1.72;
+            font-size: 1rem;
+        }
+
+        .hero-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 22px;
+        }
+
+        .button-link {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 42px;
+            padding: 10px 16px;
+            border-radius: 999px;
+            text-decoration: none;
+            font-size: 0.88rem;
+            font-weight: 700;
+            transition: transform .18s ease;
+        }
+
+        .button-link:hover,
+        .actions a:hover {
+            transform: translateY(-1px);
+        }
+
+        .button-link.primary {
+            background: linear-gradient(135deg, #c46533, #8d3d16);
+            color: #fff9f3;
+        }
+
+        .button-link.ghost {
+            background: rgba(255, 252, 246, 0.94);
+            border: 1px solid var(--line);
+            color: var(--ink);
+        }
+
+        .hero-side {
+            border-radius: 32px;
+            padding: 22px;
+            display: grid;
+            gap: 16px;
+            align-content: start;
+            background: linear-gradient(180deg, rgba(255, 252, 246, 0.96), rgba(245, 233, 214, 0.88));
+        }
+
+        .hero-side h2,
+        .summary-label,
+        .group-label,
+        .meta-label {
+            margin: 0;
+            color: var(--muted);
+            font-size: 0.78rem;
+            letter-spacing: 0.16em;
+            text-transform: uppercase;
+        }
+
+        .hero-side strong {
+            display: block;
+            margin-top: 8px;
+            font-size: 2.4rem;
+            line-height: 1;
+        }
+
+        .hero-side p,
+        .summary-metric span,
+        .path-value {
+            color: var(--muted);
+            line-height: 1.6;
+        }
+
+        .summary-strip {
+            border-radius: 26px;
+            padding: 18px 20px;
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 12px;
+            margin-bottom: 18px;
+        }
+
+        .summary-metric,
+        .hash-block,
+        .path-card {
+            padding: 14px 15px;
+            border-radius: 18px;
+            background: rgba(255, 252, 246, 0.8);
+            border: 1px solid rgba(75, 51, 27, 0.08);
+        }
+
+        .summary-metric strong {
+            display: block;
+            margin-top: 6px;
+            font-size: 1.65rem;
+            line-height: 1;
+        }
+
+        .group-list,
+        .resource-list {
+            display: grid;
+            gap: 16px;
+        }
+
+        .group {
+            border-radius: 28px;
+            padding: 20px;
+            background: linear-gradient(180deg, rgba(255, 252, 246, 0.95), rgba(244, 234, 220, 0.9));
+        }
+
+        .group-head,
+        .resource-item {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 16px;
+            align-items: start;
+        }
+
+        .group-title {
+            margin: 8px 0 0;
+            font-family: Georgia, serif;
+            font-size: 1.4rem;
+        }
+
+        .hash {
+            margin-top: 8px;
+            font-family: Consolas, monospace;
+            font-size: 0.94rem;
+            color: var(--accent-deep);
+            word-break: break-all;
+            line-height: 1.75;
+        }
+
+        .group-count,
+        .meta-chip {
+            display: inline-flex;
+            align-items: center;
+            min-height: 30px;
+            border-radius: 999px;
+            padding: 6px 10px;
+            font-size: 0.8rem;
+        }
+
+        .group-count {
+            justify-content: center;
+            min-height: 38px;
+            padding: 8px 14px;
+            background: rgba(242, 228, 208, 0.96);
+            color: #6a4a2f;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .resource-item {
+            align-items: center;
+            padding: 16px;
+            border-radius: 20px;
+            border: 1px solid rgba(75, 51, 27, 0.09);
+            background: var(--panel-strong);
+            box-shadow: var(--shadow-md);
+        }
+
+        .resource-title {
+            margin: 0;
+            font-size: 1rem;
+        }
+
+        .meta-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .meta-chip {
+            background: rgba(242, 228, 208, 0.72);
+            color: var(--muted);
+        }
+
+        .path-card { margin-top: 12px; }
+
+        .actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .actions a {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 40px;
+            padding: 9px 14px;
+            border-radius: 999px;
+            background: rgba(243, 225, 208, 0.96);
+            color: #7a4825;
+            text-decoration: none;
+            font-weight: 700;
+        }
+
+        .empty {
+            border-radius: 28px;
+            padding: 56px 24px;
+            text-align: center;
+            color: var(--muted);
+            line-height: 1.8;
+        }
+
+        @media (max-width: 1120px) {
+            .hero,
+            .summary-strip,
+            .group-head,
+            .resource-item { grid-template-columns: 1fr; }
+        }
+
+        @media (max-width: 720px) {
+            .shell { padding-inline: 14px; }
+            .hero-main,
+            .hero-side,
+            .summary-strip,
+            .group,
+            .empty { border-radius: 24px; padding: 18px; }
+            .hero-actions,
+            .actions { display: grid; }
+            .button-link,
+            .actions a { width: 100%; }
+        }
+    </style>
+</head>
+<body>
+<div class="shell">
+    <section class="hero">
+        <div class="hero-main">
+            <div class="eyebrow">Duplicate Signature Radar</div>
+            <h1>重复文件检测</h1>
+            <p class="hero-copy">按文件哈希聚合同内容资源，方便你快速看清哪些文件只是被复制到了不同目录、不同资源源或不同命名下。这里不改动数据，只把重复关系和跳转入口展开得更直观。</p>
+            <div class="hero-actions">
+                <a class="button-link ghost" href="{% url 'visuals:home' %}">返回资源库</a>
+                <a class="button-link primary" href="{% url 'visuals:sources' %}">前往资源源管理</a>
+            </div>
+        </div>
+
+        <aside class="hero-side">
+            <div>
+                <h2>Current Snapshot</h2>
+                <strong>{{ total_groups }}</strong>
+                <p>检测到的重复文件组数。每一组至少包含两个拥有同一文件哈希的资源。</p>
+            </div>
+            <div>
+                <h2>Usage Hint</h2>
+                <p>先看哈希组内是否跨资源源重复，再决定是保留一个主版本、回收冗余副本，还是仅保留索引用于比对。</p>
+            </div>
+        </aside>
+    </section>
+
+    <section class="summary-strip">
+        <article class="summary-metric"><div class="summary-label">Groups</div><strong>{{ total_groups }}</strong><span>当前检测到的重复哈希组数量。</span></article>
+        <article class="summary-metric"><div class="summary-label">Coverage</div><strong>{% if groups %}{{ groups|length }}{% else %}0{% endif %}</strong><span>本页已展开展示的重复组数量，最多展示前 100 组。</span></article>
+        <article class="summary-metric"><div class="summary-label">Action</div><strong>详情跳转</strong><span>每条记录都保留详情入口，便于进入详情页进一步核对路径、哈希和来源。</span></article>
+    </section>
+
+    <div class="group-list">
+        {% for group in groups %}
+        <section class="group">
+            <div class="group-head">
+                <div>
+                    <div class="group-label">Duplicate Group</div>
+                    <div class="group-title">重复哈希组 {{ forloop.counter }}</div>
+                    <div class="hash-block">
+                        <div class="meta-label">重复哈希</div>
+                        <div class="hash">{{ group.hash }}</div>
+                    </div>
+                </div>
+                <div class="group-count">共 {{ group.count }} 个资源</div>
+            </div>
+
+            <div class="resource-list">
+                {% for resource in group.resources %}
+                <article class="resource-item">
+                    <div>
+                        <h3 class="resource-title">{{ resource.title }}</h3>
+                        <div class="meta-grid">
+                            <span class="meta-chip">类型 {{ resource.get_resource_type_display }}</span>
+                            <span class="meta-chip">状态 {{ resource.get_status_display }}</span>
+                            {% if resource.source_root %}<span class="meta-chip">资源源 {{ resource.source_root.name }}</span>{% endif %}
+                            {% if resource.file_size %}<span class="meta-chip">大小 {{ resource.file_size|filesizeformat }}</span>{% endif %}
+                        </div>
+                        <div class="path-card">
+                            <div class="meta-label">路径</div>
+                            <div class="path-value">{{ resource.relative_path|default:resource.file_path }}</div>
+                        </div>
+                    </div>
+                    <div class="actions">
+                        <a href="{% url 'visuals:resource_detail' resource.id %}">详情</a>
+                    </div>
+                </article>
+                {% endfor %}
+            </div>
+        </section>
+        {% empty %}
+        <div class="empty">当前没有检测到重复文件。</div>
+        {% endfor %}
+    </div>
+</div>
+</body>
+</html>
