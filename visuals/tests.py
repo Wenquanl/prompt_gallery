@@ -245,18 +245,22 @@ class VisualsLibraryTests(TestCase):
 
 	def test_duplicates_view_groups_same_hash(self):
 		source = SourceRoot.objects.create(name='媒体库', root_path=str(self.temp_dir))
+		first_path = self.temp_dir / 'a.jpg'
+		second_path = self.temp_dir / 'b.jpg'
+		first_path.write_bytes(b'fake-image-a')
+		second_path.write_bytes(b'fake-image-b')
 		VisualResource.objects.create(
 			title='A',
-			file_path=str(self.temp_dir / 'a.jpg'),
+			file_path=str(first_path),
 			relative_path='shots/a.jpg',
 			source_root=source,
 			resource_type='image',
 			status='completed',
 			file_hash='dup-001',
 		)
-		VisualResource.objects.create(
+		second_resource = VisualResource.objects.create(
 			title='B',
-			file_path=str(self.temp_dir / 'b.jpg'),
+			file_path=str(second_path),
 			relative_path='shots/b.jpg',
 			source_root=source,
 			resource_type='image',
@@ -270,6 +274,43 @@ class VisualsLibraryTests(TestCase):
 		self.assertContains(response, 'dup-001')
 		self.assertContains(response, 'A')
 		self.assertContains(response, 'B')
+		self.assertContains(response, f'{reverse("visuals:preview_resource", args=[second_resource.id])}?variant=card')
+
+	@patch('visuals.models._sync_visual_to_meili')
+	def test_duplicates_view_uses_home_style_pagination(self, _mock_meili_sync):
+		source = SourceRoot.objects.create(name='重复源', root_path=str(self.temp_dir))
+		for index in range(11):
+			for suffix in ('a', 'b'):
+				file_path = self.temp_dir / f'dupe-{index}-{suffix}.jpg'
+				file_path.write_bytes(f'group-{index}-{suffix}'.encode('utf-8'))
+				VisualResource.objects.create(
+					title=f'Dupe {index} {suffix.upper()}',
+					file_path=str(file_path),
+					relative_path=f'duplicates/{index}/{suffix}.jpg',
+					source_root=source,
+					resource_type='image',
+					status='completed',
+					file_hash=f'dup-{index:03d}',
+				)
+
+		first_page = self.client.get(reverse('visuals:duplicates'))
+
+		self.assertEqual(first_page.status_code, 200)
+		self.assertContains(first_page, 'aria-label="分页导航"')
+		self.assertContains(first_page, '第 1 / 2 页')
+		self.assertContains(first_page, '每页 10 组')
+		self.assertContains(first_page, 'class="page-number is-current"')
+		self.assertContains(first_page, '?page=2')
+		self.assertContains(first_page, 'data-pagination-jump')
+		self.assertContains(first_page, 'dup-009')
+		self.assertNotContains(first_page, 'dup-010')
+
+		second_page = self.client.get(reverse('visuals:duplicates'), {'page': 2})
+
+		self.assertEqual(second_page.status_code, 200)
+		self.assertContains(second_page, '第 2 / 2 页')
+		self.assertContains(second_page, 'dup-010')
+		self.assertNotContains(second_page, 'dup-000')
 
 	def test_sidebar_source_folder_filter(self):
 		source = SourceRoot.objects.create(name='归档盘', root_path=str(self.temp_dir))

@@ -893,31 +893,43 @@ def sync_resource_now(request, resource_id):
 
 
 def duplicates(request):
+    page_size = 10
     dupe_hashes = (
         VisualResource.objects
         .filter(file_hash__gt='')
         .values('file_hash')
         .annotate(count=Count('id'), first_id=Min('id'))
         .filter(count__gt=1)
-        .order_by('-count')
+        .order_by('-count', 'first_id')
     )
-    total_groups = dupe_hashes.count()
-    groups = []
-    for entry in dupe_hashes[:100]:
-        group_resources = list(
+    paginator = Paginator(dupe_hashes, page_size)
+    page_obj = paginator.get_page(request.GET.get('page'))
+    page_entries = list(page_obj.object_list)
+
+    page_hashes = [entry['file_hash'] for entry in page_entries]
+    resources_by_hash = {file_hash: [] for file_hash in page_hashes}
+    if page_hashes:
+        for resource in (
             VisualResource.objects
             .select_related('source_root')
-            .filter(file_hash=entry['file_hash'])
-            .order_by('created_at')
-        )
+            .filter(file_hash__in=page_hashes)
+            .order_by('file_hash', 'created_at')
+        ):
+            resources_by_hash.setdefault(resource.file_hash, []).append(resource)
+
+    groups = []
+    for index, entry in enumerate(page_entries, start=page_obj.start_index()):
         groups.append({
+            'display_index': index,
             'hash': entry['file_hash'],
             'count': entry['count'],
-            'resources': group_resources,
+            'resources': resources_by_hash.get(entry['file_hash'], []),
         })
 
     return render(request, 'visuals/duplicates.html', {
         'groups': groups,
-        'total_groups': total_groups,
+        'total_groups': paginator.count,
+        'page_obj': page_obj,
+        'page_size': page_size,
     })
 
