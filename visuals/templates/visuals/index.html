@@ -1,9 +1,11 @@
+{% load static %}
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Visuals 本地资源库</title>
+    <link rel="stylesheet" href="{% static 'visuals/site-nav.css' %}">
     <style>
         :root {
             --bg-cream: #f5efe3;
@@ -279,7 +281,8 @@
 
         .sidebar {
             position: sticky;
-            top: 20px;
+            top: var(--visuals-sticky-top, 96px);
+            align-self: start;
             display: grid;
             gap: 16px;
         }
@@ -298,6 +301,23 @@
 
         .sidebar-panel {
             padding: 18px;
+            max-height: calc(100vh - var(--visuals-sticky-top, 96px) - 20px);
+            overflow: hidden;
+            scrollbar-gutter: stable;
+            overscroll-behavior: contain;
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+
+        @media (hover: hover) and (pointer: fine) {
+            .sidebar-panel:hover {
+                overflow-y: auto;
+            }
+
+            .sidebar-panel::-webkit-scrollbar {
+                width: 0;
+                height: 0;
+            }
         }
 
         .sidebar-section + .sidebar-section {
@@ -401,7 +421,7 @@
 
         .search-row {
             display: grid;
-            grid-template-columns: minmax(0, 1.9fr) minmax(180px, 0.7fr) auto;
+            grid-template-columns: minmax(0, 1.8fr) minmax(170px, 0.72fr) minmax(170px, 0.72fr) auto;
             gap: 12px;
             align-items: end;
         }
@@ -482,6 +502,10 @@
         .filter-chip:hover {
             transform: translateY(-1px);
             background: rgba(255, 252, 246, 0.96);
+        }
+
+        .filter-chip-link {
+            text-decoration: none;
         }
 
         .filter-chip input {
@@ -1027,7 +1051,7 @@
         }
     </style>
 </head>
-<body>
+<body class="visuals-nav-scope">
 <div class="shell">
     {% if messages %}
     <div class="flash-stack">
@@ -1037,15 +1061,15 @@
     </div>
     {% endif %}
 
+    {% include 'visuals/components/site_nav.html' %}
+
     <header class="page-header">
         <div class="page-title">
-            <div class="eyebrow">Visuals Library</div>
-            <h1>把本地资源整理成可搜索的视觉工作台</h1>
+            <div class="eyebrow">资源库</div>
+            <h1>Visuals 资源库</h1>
             <div class="header-meta">最近全局同步：{{ sync_summary.last_synced_label }} · 已启用资源源 {{ sync_summary.enabled_count }} 个{% if sync_summary.syncing_count %} · <strong>扫描中 {{ sync_summary.syncing_count }} 个</strong>{% endif %}{% if sync_summary.error_count %} · <strong>异常 {{ sync_summary.error_count }} 个</strong>{% endif %}</div>
         </div>
         <div class="nav-links">
-            <a class="ghost-button" href="{% url 'visuals:sources' %}">资源源管理</a>
-            <a class="ghost-button" href="{% url 'visuals:duplicates' %}">重复文件检测</a>
             <form method="post" action="{% url 'visuals:sync_all_sources_now' %}">
                 {% csrf_token %}
                 <input type="hidden" name="next" value="{{ request.get_full_path }}">
@@ -1058,8 +1082,8 @@
     <section class="hero-panel">
         <div class="hero-card">
             <div class="hero-copy">
-                <h2>从图片、GIF、视频到模型文件，现在都在一个统一入口里完成筛选、预览和二次整理。</h2>
-                <p>类型筛选和快捷入口已经并到搜索栏，首页保留目录树和合集导航，主区只负责检索与浏览，信息密度更高但不再拥挤。</p>
+                <h2>统一搜索、预览和整理本地资源。</h2>
+                <p>支持图片、GIF、视频和模型文件。</p>
             </div>
             <div class="hero-ribbon">
                 <span class="hero-pill"><strong>{{ stats.ready }}</strong> 个资源已完成索引</span>
@@ -1079,8 +1103,8 @@
     </section>
 
     <div class="layout">
-        <aside class="sidebar">
-            <section class="sidebar-panel">
+        <aside class="sidebar visuals-sticky-below-nav">
+            <section class="sidebar-panel visuals-sticky-viewport">
                 <div class="sidebar-section">
                     <h2>资源速览</h2>
                     <div class="sidebar-stats">
@@ -1098,14 +1122,14 @@
 
                 <div class="sidebar-section">
                     <h2>资源源</h2>
-                    <a href="?{% if current_filters.q %}q={{ current_filters.q }}&{% endif %}{% if current_filters.collection %}collection={{ current_filters.collection }}&{% endif %}{% if current_filters.type %}type={{ current_filters.type }}&{% endif %}{% if current_filters.status %}status={{ current_filters.status }}&{% endif %}{% if current_filters.liked %}liked=1&{% endif %}{% if current_filters.missing %}missing=1&{% endif %}"
+                    <a href="?{% if current_filters.q %}q={{ current_filters.q }}&{% endif %}{% if current_filters.type_querystring %}{{ current_filters.type_querystring }}&{% endif %}{% if current_filters.tag %}tag={{ current_filters.tag }}&{% endif %}{% if current_filters.collection %}collection={{ current_filters.collection }}&{% endif %}{% if current_filters.status %}status={{ current_filters.status }}&{% endif %}{% if current_filters.liked %}liked=1&{% endif %}{% if current_filters.missing %}missing=1&{% endif %}"
                        class="nav-item {% if not current_filters.source %}active{% endif %}">
                         <span>全部目录</span>
                         <span class="nav-count">{{ stats.total }}</span>
                     </a>
                     {% for entry in source_tree %}
                     <div class="source-group">
-                        <a href="?source={{ entry.source.id }}{% if current_filters.q %}&q={{ current_filters.q }}{% endif %}{% if current_filters.collection %}&collection={{ current_filters.collection }}{% endif %}{% if current_filters.type %}&type={{ current_filters.type }}{% endif %}{% if current_filters.status %}&status={{ current_filters.status }}{% endif %}{% if current_filters.liked %}&liked=1{% endif %}{% if current_filters.missing %}&missing=1{% endif %}"
+                                <a href="?source={{ entry.source.id }}{% if current_filters.q %}&q={{ current_filters.q }}{% endif %}{% if current_filters.type_querystring %}&{{ current_filters.type_querystring }}{% endif %}{% if current_filters.tag %}&tag={{ current_filters.tag }}{% endif %}{% if current_filters.collection %}&collection={{ current_filters.collection }}{% endif %}{% if current_filters.status %}&status={{ current_filters.status }}{% endif %}{% if current_filters.liked %}&liked=1{% endif %}{% if current_filters.missing %}&missing=1{% endif %}"
                            class="nav-item {% if current_filters.source == entry.source.id|stringformat:'s' %}active{% endif %}">
                             <span class="nav-meta">
                                 <span>{{ entry.source.name }}</span>
@@ -1122,7 +1146,7 @@
                         </a>
                         {% if current_filters.source == entry.source.id|stringformat:'s' %}
                             {% for folder_name, folder_count in entry.folders %}
-                            <a href="?source={{ entry.source.id }}&folder={{ folder_name }}{% if current_filters.q %}&q={{ current_filters.q }}{% endif %}{% if current_filters.collection %}&collection={{ current_filters.collection }}{% endif %}{% if current_filters.type %}&type={{ current_filters.type }}{% endif %}{% if current_filters.status %}&status={{ current_filters.status }}{% endif %}{% if current_filters.liked %}&liked=1{% endif %}{% if current_filters.missing %}&missing=1{% endif %}"
+                                     <a href="?source={{ entry.source.id }}&folder={{ folder_name }}{% if current_filters.q %}&q={{ current_filters.q }}{% endif %}{% if current_filters.type_querystring %}&{{ current_filters.type_querystring }}{% endif %}{% if current_filters.tag %}&tag={{ current_filters.tag }}{% endif %}{% if current_filters.collection %}&collection={{ current_filters.collection }}{% endif %}{% if current_filters.status %}&status={{ current_filters.status }}{% endif %}{% if current_filters.liked %}&liked=1{% endif %}{% if current_filters.missing %}&missing=1{% endif %}"
                                class="nav-item folder-link {% if current_filters.folder == folder_name %}active{% endif %}">
                                 {{ folder_name }}
                                 <span class="nav-count">{{ folder_count }}</span>
@@ -1133,15 +1157,32 @@
                     {% endfor %}
                 </div>
 
+                {% if tags %}
+                <div class="sidebar-section">
+                    <h2>标签快捷筛选</h2>
+                          <a href="?{% if current_filters.q %}q={{ current_filters.q }}&{% endif %}{% if current_filters.source %}source={{ current_filters.source }}&{% endif %}{% if current_filters.folder %}folder={{ current_filters.folder }}&{% endif %}{% if current_filters.type_querystring %}{{ current_filters.type_querystring }}&{% endif %}{% if current_filters.collection %}collection={{ current_filters.collection }}&{% endif %}{% if current_filters.status %}status={{ current_filters.status }}&{% endif %}{% if current_filters.liked %}liked=1&{% endif %}{% if current_filters.missing %}missing=1&{% endif %}"
+                       class="nav-item {% if not current_filters.tag %}active{% endif %}">
+                        <span>全部标签</span>
+                    </a>
+                    {% for tag in tags|slice:":16" %}
+                          <a href="?tag={{ tag.id }}{% if current_filters.q %}&q={{ current_filters.q }}{% endif %}{% if current_filters.source %}&source={{ current_filters.source }}{% endif %}{% if current_filters.folder %}&folder={{ current_filters.folder }}{% endif %}{% if current_filters.type_querystring %}&{{ current_filters.type_querystring }}{% endif %}{% if current_filters.collection %}&collection={{ current_filters.collection }}{% endif %}{% if current_filters.status %}&status={{ current_filters.status }}{% endif %}{% if current_filters.liked %}&liked=1{% endif %}{% if current_filters.missing %}&missing=1{% endif %}"
+                       class="nav-item {% if current_filters.tag == tag.id|stringformat:'s' %}active{% endif %}">
+                        <span>{{ tag.name }}</span>
+                        <span class="nav-count">{{ tag.resource_count }}</span>
+                    </a>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
                 {% if collections %}
                 <div class="sidebar-section">
                     <h2>合集导航</h2>
-                    <a href="?{% if current_filters.q %}q={{ current_filters.q }}&{% endif %}{% if current_filters.source %}source={{ current_filters.source }}&{% endif %}{% if current_filters.folder %}folder={{ current_filters.folder }}&{% endif %}{% if current_filters.type %}type={{ current_filters.type }}&{% endif %}{% if current_filters.status %}status={{ current_filters.status }}&{% endif %}{% if current_filters.liked %}liked=1&{% endif %}{% if current_filters.missing %}missing=1&{% endif %}"
+                          <a href="?{% if current_filters.q %}q={{ current_filters.q }}&{% endif %}{% if current_filters.source %}source={{ current_filters.source }}&{% endif %}{% if current_filters.folder %}folder={{ current_filters.folder }}&{% endif %}{% if current_filters.tag %}tag={{ current_filters.tag }}&{% endif %}{% if current_filters.type_querystring %}{{ current_filters.type_querystring }}&{% endif %}{% if current_filters.status %}status={{ current_filters.status }}&{% endif %}{% if current_filters.liked %}liked=1&{% endif %}{% if current_filters.missing %}missing=1&{% endif %}"
                        class="nav-item {% if not current_filters.collection %}active{% endif %}">
                         <span>全部合集</span>
                     </a>
                     {% for col in collections %}
-                    <a href="?collection={{ col.id }}{% if current_filters.q %}&q={{ current_filters.q }}{% endif %}{% if current_filters.source %}&source={{ current_filters.source }}{% endif %}{% if current_filters.folder %}&folder={{ current_filters.folder }}{% endif %}{% if current_filters.type %}&type={{ current_filters.type }}{% endif %}{% if current_filters.status %}&status={{ current_filters.status }}{% endif %}{% if current_filters.liked %}&liked=1{% endif %}{% if current_filters.missing %}&missing=1{% endif %}"
+                          <a href="?collection={{ col.id }}{% if current_filters.q %}&q={{ current_filters.q }}{% endif %}{% if current_filters.source %}&source={{ current_filters.source }}{% endif %}{% if current_filters.folder %}&folder={{ current_filters.folder }}{% endif %}{% if current_filters.tag %}&tag={{ current_filters.tag }}{% endif %}{% if current_filters.type_querystring %}&{{ current_filters.type_querystring }}{% endif %}{% if current_filters.status %}&status={{ current_filters.status }}{% endif %}{% if current_filters.liked %}&liked=1{% endif %}{% if current_filters.missing %}&missing=1{% endif %}"
                        class="nav-item {% if current_filters.collection == col.id|stringformat:'s' %}active{% endif %}">
                         <span>{{ col.name }}</span>
                         <span class="nav-count">{{ col.resource_count }}</span>
@@ -1164,6 +1205,15 @@
                                 <input id="q" type="text" name="q" value="{{ current_filters.q }}" placeholder="标题、路径、标签、合集名...">
                             </div>
                             <div class="field">
+                                <label for="tag-sel">标签</label>
+                                <select id="tag-sel" name="tag" class="quick-submit">
+                                    <option value="">全部标签</option>
+                                    {% for tag in tags %}
+                                    <option value="{{ tag.id }}" {% if current_filters.tag == tag.id|stringformat:"s" %}selected{% endif %}>{{ tag.name }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="field">
                                 <label for="collection-sel">合集</label>
                                 <select id="collection-sel" name="collection" class="quick-submit">
                                     <option value="">全部合集</option>
@@ -1182,14 +1232,13 @@
                             <div class="filter-group">
                                 <div class="section-kicker">资源类型</div>
                                 <div class="chip-row">
-                                    <label class="filter-chip {% if not current_filters.type %}is-active{% endif %}">
-                                        <input type="radio" name="type" value="" {% if not current_filters.type %}checked{% endif %}>
+                                    <a class="filter-chip filter-chip-link {% if not current_filters.types %}is-active{% endif %}" href="{% url 'visuals:home' %}{% if clear_type_querystring %}?{{ clear_type_querystring }}{% endif %}">
                                         <span>全部</span>
                                         <span class="chip-count">{{ stats.total }}</span>
-                                    </label>
+                                    </a>
                                     {% for t in type_list %}
-                                    <label class="filter-chip {% if current_filters.type == t.value %}is-active{% endif %}">
-                                        <input type="radio" name="type" value="{{ t.value }}" {% if current_filters.type == t.value %}checked{% endif %}>
+                                    <label class="filter-chip {% if t.value in current_filters.types %}is-active{% endif %}">
+                                        <input type="checkbox" name="type" value="{{ t.value }}" {% if t.value in current_filters.types %}checked{% endif %}>
                                         <span>{{ t.label }}</span>
                                         <span class="chip-count">{{ t.count }}</span>
                                     </label>
@@ -1230,6 +1279,7 @@
                             <div class="results-meta">
                                 当前展示 <strong>{{ page_obj.paginator.count }}</strong> 条结果。
                                 {% if current_filters.source %} 已锁定目录筛选。{% endif %}
+                                {% if current_filters.tag %} 已启用标签筛选。{% endif %}
                                 {% if current_filters.folder %} 当前文件夹：<strong>{{ current_filters.folder }}</strong>。{% endif %}
                             </div>
                             <button type="button" class="batch-toggle" id="batch-btn" onclick="toggleBatch()">批量操作</button>
@@ -1250,9 +1300,9 @@
             <section class="content-panel">
                 <div class="section-head">
                     <div>
-                        <div class="section-kicker">Resource Browser</div>
+                        <div class="section-kicker">浏览区</div>
                         <h2>资源浏览区</h2>
-                        <p>点击卡片进入详情页，顶部搜索栏负责类型与快捷筛选，侧边保留目录树与合集切换。</p>
+                        <p>点击卡片进入详情。</p>
                     </div>
                 </div>
 
@@ -1325,8 +1375,8 @@
                 </div>
                 <nav class="pager-nav" aria-label="分页导航">
                     {% if page_obj.has_previous %}
-                    <a class="page-step" href="?q={{ current_filters.q }}&type={{ current_filters.type }}&source={{ current_filters.source }}&collection={{ current_filters.collection }}&status={{ current_filters.status }}&folder={{ current_filters.folder }}{% if current_filters.liked %}&liked=1{% endif %}{% if current_filters.missing %}&missing=1{% endif %}&page=1">首页</a>
-                    <a class="page-step" href="?q={{ current_filters.q }}&type={{ current_filters.type }}&source={{ current_filters.source }}&collection={{ current_filters.collection }}&status={{ current_filters.status }}&folder={{ current_filters.folder }}{% if current_filters.liked %}&liked=1{% endif %}{% if current_filters.missing %}&missing=1{% endif %}&page={{ page_obj.previous_page_number }}">上一页</a>
+                    <a class="page-step" href="?{% if filter_querystring %}{{ filter_querystring }}&{% endif %}page=1">首页</a>
+                    <a class="page-step" href="?{% if filter_querystring %}{{ filter_querystring }}&{% endif %}page={{ page_obj.previous_page_number }}">上一页</a>
                     {% else %}
                     <span class="page-step is-disabled">首页</span>
                     <span class="page-step is-disabled">上一页</span>
@@ -1337,7 +1387,7 @@
                             {% if num == page_obj.number %}
                             <span class="page-number is-current" aria-current="page">{{ num }}</span>
                             {% else %}
-                            <a class="page-number" href="?q={{ current_filters.q }}&type={{ current_filters.type }}&source={{ current_filters.source }}&collection={{ current_filters.collection }}&status={{ current_filters.status }}&folder={{ current_filters.folder }}{% if current_filters.liked %}&liked=1{% endif %}{% if current_filters.missing %}&missing=1{% endif %}&page={{ num }}">{{ num }}</a>
+                            <a class="page-number" href="?{% if filter_querystring %}{{ filter_querystring }}&{% endif %}page={{ num }}">{{ num }}</a>
                             {% endif %}
                         {% elif num == page_obj.number|add:'-2' or num == page_obj.number|add:'2' %}
                             <span class="page-ellipsis" aria-hidden="true">…</span>
@@ -1345,8 +1395,8 @@
                     {% endfor %}
 
                     {% if page_obj.has_next %}
-                    <a class="page-step" href="?q={{ current_filters.q }}&type={{ current_filters.type }}&source={{ current_filters.source }}&collection={{ current_filters.collection }}&status={{ current_filters.status }}&folder={{ current_filters.folder }}{% if current_filters.liked %}&liked=1{% endif %}{% if current_filters.missing %}&missing=1{% endif %}&page={{ page_obj.next_page_number }}">下一页</a>
-                    <a class="page-step" href="?q={{ current_filters.q }}&type={{ current_filters.type }}&source={{ current_filters.source }}&collection={{ current_filters.collection }}&status={{ current_filters.status }}&folder={{ current_filters.folder }}{% if current_filters.liked %}&liked=1{% endif %}{% if current_filters.missing %}&missing=1{% endif %}&page={{ page_obj.paginator.num_pages }}">末页</a>
+                    <a class="page-step" href="?{% if filter_querystring %}{{ filter_querystring }}&{% endif %}page={{ page_obj.next_page_number }}">下一页</a>
+                    <a class="page-step" href="?{% if filter_querystring %}{{ filter_querystring }}&{% endif %}page={{ page_obj.paginator.num_pages }}">末页</a>
                     {% else %}
                     <span class="page-step is-disabled">下一页</span>
                     <span class="page-step is-disabled">末页</span>
@@ -1354,8 +1404,9 @@
 
                     <form class="pager-jump" method="get" action="{% url 'visuals:home' %}" data-pagination-jump data-total-pages="{{ page_obj.paginator.num_pages }}">
                         <input type="hidden" name="q" value="{{ current_filters.q }}">
-                        <input type="hidden" name="type" value="{{ current_filters.type }}">
+                        {% for type_value in current_filters.types %}<input type="hidden" name="type" value="{{ type_value }}">{% endfor %}
                         <input type="hidden" name="source" value="{{ current_filters.source }}">
+                        <input type="hidden" name="tag" value="{{ current_filters.tag }}">
                         <input type="hidden" name="collection" value="{{ current_filters.collection }}">
                         <input type="hidden" name="status" value="{{ current_filters.status }}">
                         <input type="hidden" name="folder" value="{{ current_filters.folder }}">

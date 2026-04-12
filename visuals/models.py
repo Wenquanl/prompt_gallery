@@ -9,6 +9,13 @@ class SourceRoot(models.Model):
     root_path = models.CharField(max_length=1000, unique=True, verbose_name="根目录路径")
     is_enabled = models.BooleanField(default=True, verbose_name="启用扫描")
     is_syncing = models.BooleanField(default=False, verbose_name="扫描中")
+    metadata_task_state = models.CharField(max_length=16, blank=True, verbose_name="整源设置任务状态")
+    metadata_task_action = models.CharField(max_length=32, blank=True, verbose_name="整源设置任务动作")
+    metadata_task_target = models.CharField(max_length=120, blank=True, verbose_name="整源设置任务目标")
+    metadata_task_total = models.PositiveIntegerField(default=0, verbose_name="整源设置任务数量")
+    metadata_task_started_at = models.DateTimeField(null=True, blank=True, verbose_name="整源设置任务开始时间")
+    metadata_task_finished_at = models.DateTimeField(null=True, blank=True, verbose_name="整源设置任务结束时间")
+    metadata_task_message = models.CharField(max_length=255, blank=True, verbose_name="整源设置任务提示")
     sync_phase = models.CharField(max_length=64, blank=True, verbose_name="扫描阶段")
     sync_progress_total = models.PositiveIntegerField(default=0, verbose_name="扫描总数")
     sync_progress_scanned = models.PositiveIntegerField(default=0, verbose_name="已扫描数量")
@@ -161,25 +168,47 @@ except Exception:
 VISUALS_MEILI_INDEX = 'visuals_resources'
 
 
+def _build_visual_meili_doc(instance):
+    return {
+        'id': instance.id,
+        'title': instance.title,
+        'file_path': instance.file_path,
+        'relative_path': instance.relative_path,
+        'resource_type': instance.resource_type,
+        'extension': instance.extension,
+        'tags': [t.name for t in instance.tags.all()],
+        'collections': [c.name for c in instance.collections.all()],
+        'is_liked': instance.is_liked,
+        'is_missing': instance.is_missing,
+        'status': instance.status,
+        'source_name': instance.source_root.name if instance.source_root else '',
+    }
+
+
 def _sync_visual_to_meili(instance):
     if _VISUALS_MEILI_CLIENT is None or not instance.pk:
         return
     try:
-        doc = {
-            'id': instance.id,
-            'title': instance.title,
-            'file_path': instance.file_path,
-            'relative_path': instance.relative_path,
-            'resource_type': instance.resource_type,
-            'extension': instance.extension,
-            'tags': [t.name for t in instance.tags.all()],
-            'collections': [c.name for c in instance.collections.all()],
-            'is_liked': instance.is_liked,
-            'is_missing': instance.is_missing,
-            'status': instance.status,
-            'source_name': instance.source_root.name if instance.source_root else '',
-        }
-        _VISUALS_MEILI_CLIENT.index(VISUALS_MEILI_INDEX).add_documents([doc])
+        _VISUALS_MEILI_CLIENT.index(VISUALS_MEILI_INDEX).add_documents([_build_visual_meili_doc(instance)])
+    except Exception as exc:
+        print(f"Visuals Meilisearch sync failed: {exc}")
+
+
+def _sync_visuals_to_meili(instances, batch_size=200):
+    if _VISUALS_MEILI_CLIENT is None:
+        return
+
+    docs = []
+    try:
+        for instance in instances:
+            if not instance.pk:
+                continue
+            docs.append(_build_visual_meili_doc(instance))
+            if len(docs) >= batch_size:
+                _VISUALS_MEILI_CLIENT.index(VISUALS_MEILI_INDEX).add_documents(docs)
+                docs = []
+        if docs:
+            _VISUALS_MEILI_CLIENT.index(VISUALS_MEILI_INDEX).add_documents(docs)
     except Exception as exc:
         print(f"Visuals Meilisearch sync failed: {exc}")
 

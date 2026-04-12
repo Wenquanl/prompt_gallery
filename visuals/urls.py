@@ -12,6 +12,7 @@ urlpatterns = [
     path('sources/create/', views.create_source_root, name='create_source_root'),
     path('sources/pick/', views.pick_source_root, name='pick_source_root'),
     path('sources/<int:source_id>/update/', views.update_source_root, name='update_source_root'),
+    path('sources/<int:source_id>/resource-action/', views.source_root_resource_action, name='source_root_resource_action'),
     path('sources/<int:source_id>/delete/', views.delete_source_root, name='delete_source_root'),
     path('resource/<int:resource_id>/', views.resource_detail, name='resource_detail'),
     path('resource/<int:resource_id>/open-explorer/', views.open_resource_in_explorer, name='open_resource_in_explorer'),

@@ -1,0 +1,92 @@
+.visuals-nav-scope {
+    --visuals-site-nav-offset: 12px;
+    --visuals-site-nav-clearance: 96px;
+    --visuals-sticky-top: 96px;
+}
+
+.visuals-sticky-below-nav {
+    top: var(--visuals-sticky-top, 96px);
+}
+
+.visuals-sticky-viewport {
+    max-height: calc(100vh - var(--visuals-sticky-top, 96px) - 20px);
+}
+
+.site-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    flex-wrap: wrap;
+    position: sticky;
+    top: var(--visuals-site-nav-offset, 12px);
+    z-index: 40;
+    margin-bottom: 18px;
+    padding: 12px 14px;
+    border-radius: 22px;
+    border: 1px solid var(--line, rgba(75, 51, 27, 0.12));
+    background: linear-gradient(135deg, var(--panel-strong, rgba(255, 252, 247, 0.96)), var(--panel, rgba(255, 250, 242, 0.9)));
+    backdrop-filter: blur(12px);
+    box-shadow: var(--shadow-soft, var(--shadow-md, 0 12px 28px rgba(63, 42, 23, 0.08)));
+}
+
+.site-nav-brand {
+    text-decoration: none;
+    color: var(--ink, #1b1713);
+    font-size: 1.02rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.site-nav-links {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.site-nav-link {
+    text-decoration: none;
+    color: var(--muted, #776b60);
+    padding: 10px 14px;
+    border-radius: 999px;
+    border: 1px solid rgba(127, 52, 18, 0.1);
+    background: rgba(255, 255, 255, 0.42);
+    font-size: 0.9rem;
+    font-weight: 700;
+    transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease, border-color 0.18s ease;
+}
+
+.site-nav-link:hover {
+    color: var(--accent-deep, #7f3412);
+    border-color: rgba(127, 52, 18, 0.18);
+    background: rgba(255, 248, 239, 0.9);
+    transform: translateY(-1px);
+}
+
+.site-nav-link.is-active {
+    color: var(--accent-deep, #7f3412);
+    border-color: rgba(127, 52, 18, 0.22);
+    background: rgba(255, 244, 229, 0.96);
+}
+
+.site-nav-link.is-external {
+    color: var(--accent-deep, #7f3412);
+    background: rgba(255, 241, 226, 0.9);
+}
+
+@media (max-width: 720px) {
+    .site-nav {
+        padding: 12px;
+    }
+
+    .site-nav-links {
+        width: 100%;
+    }
+
+    .site-nav-link {
+        flex: 1 1 auto;
+        text-align: center;
+    }
+}

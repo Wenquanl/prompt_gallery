@@ -16,10 +16,12 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 
+from gallery.models import Tag
+
 from .forms import SourceRootCreateForm, SourceRootUpdateForm
 from .models import Collection, SourceRoot, VisualResource
 from .sync import record_source_sync_failure
-from .tasks import _open_pillow_image, enqueue_source_sync, run_index_visual_resource, run_sync_source_root
+from .tasks import _apply_metadata_action_to_resources, _open_pillow_image, enqueue_source_metadata_action, enqueue_source_sync, run_index_visual_resource, run_sync_source_root
 
 try:
     from PIL import Image, ImageOps, ImageSequence, UnidentifiedImageError
@@ -41,14 +43,80 @@ def _guess_content_type(path):
     return content_type or 'application/octet-stream'
 
 
-def _build_source_tree(enabled_only=True):
-    """Build source root + top-level folder groups for sidebar navigation."""
-    tree = []
+_SOURCE_STATUS_SORT_ORDER = {
+    'syncing': 0,
+    'missing': 1,
+    'error': 2,
+    'never': 3,
+    'stale': 4,
+    'healthy': 5,
+    'disabled': 6,
+}
+
+_SOURCE_METADATA_STATE_LABELS = {
+    'queued': ('等待处理', 'warning'),
+    'running': ('处理中', 'warning'),
+    'done': ('已完成', 'ok'),
+    'failed': ('处理失败', 'danger'),
+}
+
+
+def _get_source_activity_dt(source):
+    return source.sync_started_at or source.last_synced_at or source.updated_at or source.created_at
+
+
+def _get_sorted_source_status_pairs(enabled_only=False):
     source_roots = SourceRoot.objects.all()
     if enabled_only:
         source_roots = source_roots.filter(is_enabled=True)
 
-    for source in source_roots.order_by('name'):
+    pairs = []
+    for source in source_roots:
+        status = _get_source_status(source)
+        pairs.append((source, status))
+
+    def sort_key(item):
+        source, status = item
+        activity_dt = _get_source_activity_dt(source)
+        return (
+            _SOURCE_STATUS_SORT_ORDER.get(status['code'], len(_SOURCE_STATUS_SORT_ORDER)),
+            1 if activity_dt is None else 0,
+            -(activity_dt.timestamp()) if activity_dt else 0,
+            source.name.casefold(),
+            source.id,
+        )
+
+    pairs.sort(key=sort_key)
+    return pairs
+
+
+def _get_source_metadata_task(source):
+    state = (source.metadata_task_state or '').strip()
+    if not state:
+        return {
+            'visible': False,
+            'active': False,
+            'state': '',
+            'label': '',
+            'tone': 'muted',
+            'message': '',
+        }
+
+    label, tone = _SOURCE_METADATA_STATE_LABELS.get(state, ('处理中', 'warning'))
+    return {
+        'visible': True,
+        'active': state in {'queued', 'running'},
+        'state': state,
+        'label': label,
+        'tone': tone,
+        'message': source.metadata_task_message or '',
+    }
+
+
+def _build_source_tree(enabled_only=True):
+    """Build source root + top-level folder groups for sidebar navigation."""
+    tree = []
+    for source, status in _get_sorted_source_status_pairs(enabled_only=enabled_only):
         total = source.resources.count()
         rel_paths = list(source.resources.values_list('relative_path', flat=True).distinct()[:500])
         folder_counts = {}
@@ -63,7 +131,8 @@ def _build_source_tree(enabled_only=True):
             'source': source,
             'total': total,
             'folders': sorted(folder_counts.items()),
-            'status': _get_source_status(source),
+            'status': status,
+            'metadata_task': _get_source_metadata_task(source),
             'progress_percent': int((source.sync_progress_scanned / source.sync_progress_total) * 100) if source.is_syncing and source.sync_progress_total else 0,
             'index_progress_percent': int((source.index_progress_processed / source.index_progress_total) * 100) if source.is_syncing and source.index_progress_total else 0,
         })
@@ -132,9 +201,34 @@ def _get_source_status(source):
     }
 
 
-def _open_local_directory_picker():
+def _normalize_directory_picker_initial_path(initial_path):
+    raw_path = (initial_path or '').strip()
+    if not raw_path:
+        return None
+
+    try:
+        resolved_path = Path(raw_path).expanduser().resolve()
+    except OSError:
+        return None
+
+    if resolved_path.exists() and resolved_path.is_dir():
+        return str(resolved_path)
+
+    parent_path = resolved_path.parent
+    if parent_path.exists() and parent_path.is_dir():
+        return str(parent_path)
+    return None
+
+
+def _open_local_directory_picker(initial_path=None):
     if platform.system() != 'Windows':
         raise RuntimeError('当前目录选择器只支持 Windows 本地部署环境。')
+
+    normalized_initial_path = _normalize_directory_picker_initial_path(initial_path)
+    initial_path_command = ''
+    if normalized_initial_path:
+        escaped_initial_path = normalized_initial_path.replace("'", "''")
+        initial_path_command = f"$dialog.SelectedPath = '{escaped_initial_path}'; "
 
     command = [
         'powershell',
@@ -142,16 +236,18 @@ def _open_local_directory_picker():
         '-STA',
         '-Command',
         (
+            "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); "
             "Add-Type -AssemblyName System.Windows.Forms; "
             "$dialog = New-Object System.Windows.Forms.FolderBrowserDialog; "
             "$dialog.Description = '选择要加入 visuals 的本地目录'; "
             "$dialog.UseDescriptionForTitle = $true; "
             "$dialog.ShowNewFolderButton = $false; "
+            f"{initial_path_command}"
             "$result = $dialog.ShowDialog(); "
             "if ($result -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::Out.Write($dialog.SelectedPath) }"
         ),
     ]
-    result = subprocess.run(command, capture_output=True, text=True, timeout=120, check=False)
+    result = subprocess.run(command, capture_output=True, text=True, encoding='utf-8', timeout=120, check=False)
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or '目录选择器启动失败。')
     selected_path = (result.stdout or '').strip()
@@ -199,10 +295,18 @@ def _get_post_next_url(request, default_url):
 
 
 def _get_home_filters(request):
+    valid_types = {value for value, _label in VisualResource.RESOURCE_TYPE_CHOICES}
+    selected_types = []
+    for raw_value in request.GET.getlist('type'):
+        for value in str(raw_value or '').split(','):
+            normalized = value.strip()
+            if normalized and normalized in valid_types and normalized not in selected_types:
+                selected_types.append(normalized)
     return {
         'q': (request.GET.get('q') or '').strip(),
-        'type': (request.GET.get('type') or '').strip(),
+        'types': selected_types,
         'source': (request.GET.get('source') or '').strip(),
+        'tag': (request.GET.get('tag') or '').strip(),
         'collection': (request.GET.get('collection') or '').strip(),
         'liked': request.GET.get('liked') == '1',
         'missing': request.GET.get('missing') == '1',
@@ -213,8 +317,9 @@ def _get_home_filters(request):
 
 def _build_home_queryset(filters):
     query = filters['q']
-    resource_type = filters['type']
+    resource_types = filters['types']
     source_id = filters['source']
+    tag_id = filters['tag']
     collection_id = filters['collection']
     liked_only = filters['liked']
     missing_only = filters['missing']
@@ -258,10 +363,12 @@ def _build_home_queryset(filters):
             | Q(collections__name__icontains=query)
         )
 
-    if resource_type:
-        resources = resources.filter(resource_type=resource_type)
+    if resource_types:
+        resources = resources.filter(resource_type__in=resource_types)
     if source_id:
         resources = resources.filter(source_root_id=source_id)
+    if tag_id:
+        resources = resources.filter(tags__id=tag_id)
     if collection_id:
         resources = resources.filter(collections__id=collection_id)
     if liked_only:
@@ -280,7 +387,9 @@ def _build_home_queryset(filters):
 
 def _build_home_querystring(filters, page=None, extra_params=None):
     params = []
-    ordered_keys = ['q', 'type', 'source', 'collection', 'status', 'folder']
+    for value in filters.get('types', []):
+        params.append(('type', value))
+    ordered_keys = ['q', 'source', 'tag', 'collection', 'status', 'folder']
     for key in ordered_keys:
         value = filters.get(key)
         if value:
@@ -296,7 +405,7 @@ def _build_home_querystring(filters, page=None, extra_params=None):
             if value is None or value == '':
                 continue
             params.append((key, str(value)))
-    return urlencode(params)
+    return urlencode(params, doseq=True)
 
 
 def _build_home_url(filters, page=None, anchor=None):
@@ -428,20 +537,28 @@ def _build_home_context(request, source_form=None, edit_form=None, edit_source=N
         {'value': value, 'label': label, 'count': type_count_map.get(value, 0)}
         for value, label in VisualResource.RESOURCE_TYPE_CHOICES
     ]
+    tags = Tag.objects.annotate(resource_count=Count('visual_resources', distinct=True)).filter(resource_count__gt=0).order_by('-resource_count', 'name')
+    current_filter_querystring = _build_home_querystring(filters)
+    clear_type_filters = {**filters, 'types': []}
 
     return {
         'page_obj': page_obj,
         'resources': page_obj.object_list,
-        'sources': SourceRoot.objects.filter(is_enabled=True).order_by('name'),
+        'sources': [source for source, _status in _get_sorted_source_status_pairs(enabled_only=True)],
+        'tags': tags,
         'collections': Collection.objects.annotate(resource_count=Count('resources')).order_by('name'),
         'resource_type_choices': VisualResource.RESOURCE_TYPE_CHOICES,
         'status_choices': VisualResource.STATUS_CHOICES,
         'source_tree': _build_source_tree(enabled_only=True),
         'type_list': type_list,
+        'filter_querystring': current_filter_querystring,
+        'clear_type_querystring': _build_home_querystring(clear_type_filters),
         'current_filters': {
             'q': filters['q'],
-            'type': filters['type'],
+            'types': filters['types'],
+            'type_querystring': urlencode([('type', value) for value in filters['types']], doseq=True),
             'source': filters['source'],
+            'tag': filters['tag'],
             'collection': filters['collection'],
             'edit_source': edit_source_id,
             'liked': filters['liked'],
@@ -516,8 +633,8 @@ def sources_progress(request):
         return HttpResponseNotAllowed(['GET'])
 
     source_entries = []
-    for source in SourceRoot.objects.all().order_by('name'):
-        status = _get_source_status(source)
+    for source, status in _get_sorted_source_status_pairs(enabled_only=False):
+        metadata_task = _get_source_metadata_task(source)
         progress_percent = int((source.sync_progress_scanned / source.sync_progress_total) * 100) if source.is_syncing and source.sync_progress_total else 0
         source_entries.append({
             'id': source.id,
@@ -539,6 +656,11 @@ def sources_progress(request):
             'last_sync_updated': source.last_sync_updated,
             'last_sync_missing': source.last_sync_missing,
             'last_sync_error': source.last_sync_error or '',
+            'metadata_task_state': metadata_task['state'],
+            'metadata_task_label': metadata_task['label'],
+            'metadata_task_tone': metadata_task['tone'],
+            'metadata_task_message': metadata_task['message'],
+            'metadata_task_active': metadata_task['active'],
         })
 
     return JsonResponse({
@@ -556,36 +678,77 @@ def create_source_root(request):
         messages.error(request, '资源源未创建，请先修正目录信息。')
         return render(request, 'visuals/sources.html', _build_sources_context(request, source_form=form), status=400)
 
-    resolved_path = form.cleaned_data['root_path']
-    source_name = form.cleaned_data['name'] or Path(resolved_path).name
+    resolved_paths = form.cleaned_data['root_paths']
+    custom_name = form.cleaned_data['name']
     is_enabled = form.cleaned_data['is_enabled']
 
-    existing_by_name = SourceRoot.objects.filter(name=source_name).exclude(root_path=resolved_path).first()
-    if existing_by_name:
-        form.add_error('name', '这个资源源名称已经被其他目录占用。')
+    source_specs = []
+    for resolved_path in resolved_paths:
+        source_specs.append(
+            {
+                'root_path': resolved_path,
+                'name': custom_name or Path(resolved_path).name,
+            }
+        )
+
+    duplicate_names = []
+    seen_names = set()
+    for spec in source_specs:
+        if spec['name'] in seen_names and spec['name'] not in duplicate_names:
+            duplicate_names.append(spec['name'])
+        seen_names.add(spec['name'])
+    if duplicate_names:
+        form.add_error('root_path', f"以下目录生成了重复显示名称，请分别单独添加或先重命名目录：{'、'.join(duplicate_names)}")
         return render(request, 'visuals/sources.html', _build_sources_context(request, source_form=form), status=400)
 
-    source_root, created = SourceRoot.objects.get_or_create(
-        root_path=resolved_path,
-        defaults={'name': source_name, 'is_enabled': is_enabled},
+    existing_conflicts = set(
+        SourceRoot.objects.filter(name__in=[spec['name'] for spec in source_specs])
+        .exclude(root_path__in=resolved_paths)
+        .values_list('name', flat=True)
     )
-    changed_fields = []
-    if source_root.name != source_name:
-        source_root.name = source_name
-        changed_fields.append('name')
-    if source_root.is_enabled != is_enabled:
-        source_root.is_enabled = is_enabled
-        changed_fields.append('is_enabled')
-    if changed_fields:
-        changed_fields.append('updated_at')
-        source_root.save(update_fields=changed_fields)
+    if existing_conflicts:
+        form.add_error('name', f"以下显示名称已被其他目录占用：{'、'.join(sorted(existing_conflicts))}")
+        return render(request, 'visuals/sources.html', _build_sources_context(request, source_form=form), status=400)
 
-    verb = '已新增' if created else '已更新'
-    if is_enabled:
-        enqueue_source_sync(source_root, queue_index=True)
-        messages.success(request, f'{verb}资源源 {source_root.name}，后台扫描已开始。')
+    created_count = 0
+    updated_count = 0
+    queued_count = 0
+    for spec in source_specs:
+        source_root, created = SourceRoot.objects.get_or_create(
+            root_path=spec['root_path'],
+            defaults={'name': spec['name'], 'is_enabled': is_enabled},
+        )
+        changed_fields = []
+        if source_root.name != spec['name']:
+            source_root.name = spec['name']
+            changed_fields.append('name')
+        if source_root.is_enabled != is_enabled:
+            source_root.is_enabled = is_enabled
+            changed_fields.append('is_enabled')
+        if changed_fields:
+            changed_fields.append('updated_at')
+            source_root.save(update_fields=changed_fields)
+
+        if created:
+            created_count += 1
+        else:
+            updated_count += 1
+        if is_enabled:
+            enqueue_source_sync(source_root, queue_index=True)
+            queued_count += 1
+
+    if len(source_specs) == 1:
+        source_name = source_specs[0]['name']
+        verb = '已新增' if created_count else '已更新'
+        if is_enabled:
+            messages.success(request, f'{verb}资源源 {source_name}，后台扫描已开始。')
+        else:
+            messages.success(request, f'{verb}资源源 {source_name}，当前为停用状态，未执行扫描。')
     else:
-        messages.success(request, f'{verb}资源源 {source_root.name}，当前为停用状态，未执行扫描。')
+        if is_enabled:
+            messages.success(request, f'已处理 {len(source_specs)} 个资源源：新增 {created_count}，更新 {updated_count}，后台扫描已为 {queued_count} 个目录启动。')
+        else:
+            messages.success(request, f'已处理 {len(source_specs)} 个资源源：新增 {created_count}，更新 {updated_count}，当前均为停用状态，未执行扫描。')
     return redirect(_get_post_next_url(request, reverse('visuals:sources')))
 
 
@@ -660,13 +823,13 @@ def pick_source_root(request):
         return HttpResponseNotAllowed(['GET'])
 
     try:
-        selected_path = _open_local_directory_picker()
+        selected_path = _open_local_directory_picker(initial_path=request.GET.get('initial_path'))
     except RuntimeError as exc:
         return JsonResponse({'ok': False, 'message': str(exc)}, status=500)
 
     if not selected_path:
         return JsonResponse({'ok': False, 'message': '已取消选择。'}, status=400)
-    return JsonResponse({'ok': True, 'path': selected_path})
+    return JsonResponse({'ok': True, 'path': selected_path, 'name': Path(selected_path).name})
 
 
 def delete_source_root(request, source_id):
@@ -787,30 +950,28 @@ def batch_action(request):
         resources.update(is_liked=False)
 
     elif action == 'add_tag':
-        from gallery.models import Tag
-        tag_name = (request.POST.get('tag_name') or '').strip()
-        if tag_name:
-            tag, _ = Tag.objects.get_or_create(name=tag_name)
-            for r in resources:
-                r.tags.add(tag)
+        try:
+            _apply_metadata_action_to_resources(resources, action, tag_name=(request.POST.get('tag_name') or ''))
+        except ValueError:
+            pass
 
     elif action == 'remove_tag':
-        from gallery.models import Tag
-        tag_name = (request.POST.get('tag_name') or '').strip()
-        if tag_name:
-            try:
-                tag = Tag.objects.get(name=tag_name)
-                for r in resources:
-                    r.tags.remove(tag)
-            except Tag.DoesNotExist:
-                pass
+        try:
+            _apply_metadata_action_to_resources(resources, action, tag_name=(request.POST.get('tag_name') or ''))
+        except ValueError:
+            pass
 
     elif action == 'add_collection':
-        collection_name = (request.POST.get('collection_name') or '').strip()
-        if collection_name:
-            collection, _ = Collection.objects.get_or_create(name=collection_name)
-            for r in resources:
-                r.collections.add(collection)
+        try:
+            _apply_metadata_action_to_resources(resources, action, collection_name=(request.POST.get('collection_name') or ''))
+        except ValueError:
+            pass
+
+    elif action == 'remove_collection':
+        try:
+            _apply_metadata_action_to_resources(resources, action, collection_name=(request.POST.get('collection_name') or ''))
+        except ValueError:
+            pass
 
     elif action == 'reindex':
         from .tasks import index_visual_resource_task
@@ -824,6 +985,41 @@ def batch_action(request):
         resources.delete()
         messages.success(request, f'已从资源库移除 {removed_count} 条索引记录，本地文件未删除。')
 
+    return redirect(next_url)
+
+
+def source_root_resource_action(request, source_id):
+    if request.method != 'POST':
+        return HttpResponseNotAllowed(['POST'])
+
+    source_root = get_object_or_404(SourceRoot, id=source_id)
+    next_url = _get_post_next_url(request, reverse('visuals:sources'))
+    action = (request.POST.get('action') or '').strip()
+    if action not in {'add_tag', 'remove_tag', 'add_collection', 'remove_collection'}:
+        messages.error(request, '不支持的整源设置动作。')
+        return redirect(next_url)
+
+    target_name = ((request.POST.get('tag_name') or '') if 'tag' in action else (request.POST.get('collection_name') or '')).strip()
+    if not target_name:
+        messages.error(request, '请输入标签名或合集名。')
+        return redirect(next_url)
+
+    if source_root.metadata_task_state in {'queued', 'running'}:
+        messages.warning(request, f'资源源 {source_root.name} 已有整源设置任务在处理中，请稍后再试。')
+        return redirect(next_url)
+
+    queued = enqueue_source_metadata_action(source_root, action, target_name)
+    if not queued:
+        messages.warning(request, f'资源源 {source_root.name} 已有整源设置任务在处理中，请稍后再试。')
+        return redirect(next_url)
+
+    action_labels = {
+        'add_tag': '添加标签',
+        'remove_tag': '移除标签',
+        'add_collection': '加入合集',
+        'remove_collection': '移出合集',
+    }
+    messages.success(request, f'已提交后台任务：{source_root.name} 正在{action_labels[action]} {target_name}。')
     return redirect(next_url)
 
 

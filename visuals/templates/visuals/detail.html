@@ -1,9 +1,11 @@
+{% load static %}
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ resource.title }} | Visuals</title>
+    <link rel="stylesheet" href="{% static 'visuals/site-nav.css' %}">
     <style>
         :root {
             --bg-cream: #f5efe3;
@@ -522,7 +524,7 @@
         }
     </style>
 </head>
-<body>
+<body class="visuals-nav-scope">
     <div class="shell">
         {% if messages %}
         <div class="flash-stack">
@@ -532,10 +534,11 @@
         </div>
         {% endif %}
 
+        {% include 'visuals/components/site_nav.html' %}
+
         <div class="topbar">
             <div class="crumbs">
-                <a class="back" href="{{ back_url }}">返回资源库</a>
-                <a class="back" href="{{ sources_page_url }}">资源源管理</a>
+                <a class="back" href="{{ back_url }}">返回当前列表</a>
             </div>
             <div class="nav-strip">
                 {% if previous_resource_url %}
@@ -553,7 +556,7 @@
 
         <section class="hero">
             <div class="hero-panel">
-                <div class="eyebrow">Resource Detail</div>
+                <div class="eyebrow">资源详情</div>
                 <h1>{{ resource.title }}</h1>
                 <p class="hero-subtitle">{{ resource.get_resource_type_display }} · {{ resource.get_status_display }}{% if resource.mime_type %} · {{ resource.mime_type }}{% endif %}{% if resource.file_size %} · {{ resource.file_size|filesizeformat }}{% endif %}</p>
                 <div class="hero-tags">
@@ -593,18 +596,18 @@
 
         <div class="layout">
             <section class="preview-panel">
-                <div class="section-kicker">Preview</div>
+                <div class="section-kicker">预览</div>
                 <div class="preview-wrap">
                     {% if resource.resource_type == 'video' and not resource.is_missing %}
                         <video controls src="{% url 'visuals:stream_video' resource.id %}"></video>
                     {% elif resource.has_preview and not resource.is_missing %}
                         <img src="{% url 'visuals:preview_resource' resource.id %}" alt="{{ resource.title }}">
                     {% else %}
-                        <div class="preview-empty">当前资源没有可用预览。可以检查同步状态、文件路径或重新触发索引。</div>
+                        <div class="preview-empty">当前资源没有可用预览。</div>
                     {% endif %}
                 </div>
                 <div class="preview-footer">
-                    <div class="preview-note">预览区优先展示原图、封面或视频流。若文件缺失或索引失败，这里会退回到空状态提示。</div>
+                    <div class="preview-note">优先显示原图、封面或视频流。</div>
                     {% if preview_modal_url %}
                     <button
                         class="ghost"
@@ -631,7 +634,7 @@
             </section>
 
             <aside class="info-panel">
-                <div class="section-kicker">Metadata</div>
+                <div class="section-kicker">信息</div>
                 <div class="meta-grid">
                     <div class="meta-card">
                         <strong>资源源</strong>

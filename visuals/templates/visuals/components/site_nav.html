@@ -1,0 +1,28 @@
+<nav class="site-nav" data-visuals-site-nav aria-label="Visuals 公共导航">
+    <a class="site-nav-brand" href="{% url 'visuals:home' %}">Visuals</a>
+    <div class="site-nav-links">
+        <a class="site-nav-link {% if request.resolver_match.url_name == 'home' or request.resolver_match.url_name == 'resource_detail' %}is-active{% endif %}" href="{% url 'visuals:home' %}">资源库</a>
+        <a class="site-nav-link {% if request.resolver_match.url_name == 'sources' %}is-active{% endif %}" href="{% url 'visuals:sources' %}">资源源</a>
+        <a class="site-nav-link {% if request.resolver_match.url_name == 'duplicates' %}is-active{% endif %}" href="{% url 'visuals:duplicates' %}">重复检测</a>
+        <a class="site-nav-link is-external" href="{% url 'home' %}">前往 Gallery</a>
+    </div>
+</nav>
+<script>
+(function () {
+    const nav = document.querySelector('[data-visuals-site-nav]');
+    if (!nav) {
+        return;
+    }
+
+    const root = document.documentElement;
+    const updateClearance = () => {
+        const navHeight = Math.ceil(nav.getBoundingClientRect().height);
+        const stickyTop = `${navHeight + 26}px`;
+        root.style.setProperty('--visuals-site-nav-clearance', stickyTop);
+        root.style.setProperty('--visuals-sticky-top', stickyTop);
+    };
+
+    updateClearance();
+    window.addEventListener('resize', updateClearance, { passive: true });
+})();
+</script>

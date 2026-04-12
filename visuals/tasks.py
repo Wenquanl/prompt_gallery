@@ -13,7 +13,7 @@ from django.utils import timezone
 from huey import crontab
 from huey.contrib.djhuey import db_task, periodic_task
 
-from .models import SourceRoot, VisualResource
+from .models import Collection, SourceRoot, VisualResource, _sync_visuals_to_meili
 from .sync import mark_source_sync_started, record_source_index_progress, record_source_sync_failure, sync_source_root
 
 
@@ -24,6 +24,164 @@ except ImportError:
 
 
 _PIL_IMAGE_OPEN_LOCK = threading.Lock()
+_SOURCE_METADATA_ACTION_LABELS = {
+    'add_tag': '添加标签',
+    'remove_tag': '移除标签',
+    'add_collection': '加入合集',
+    'remove_collection': '移出合集',
+}
+
+
+def _mark_source_metadata_task_queued(source_root, action, target_name):
+    SourceRoot.objects.filter(id=source_root.id).update(
+        metadata_task_state='queued',
+        metadata_task_action=action,
+        metadata_task_target=target_name[:120],
+        metadata_task_total=0,
+        metadata_task_started_at=None,
+        metadata_task_finished_at=None,
+        metadata_task_message='等待后台任务',
+        updated_at=timezone.now(),
+    )
+
+
+def _mark_source_metadata_task_running(source_root, action, target_name, total):
+    started_at = timezone.now()
+    SourceRoot.objects.filter(id=source_root.id).update(
+        metadata_task_state='running',
+        metadata_task_action=action,
+        metadata_task_target=target_name[:120],
+        metadata_task_total=total,
+        metadata_task_started_at=started_at,
+        metadata_task_finished_at=None,
+        metadata_task_message=f'处理中 · {total} 项',
+        updated_at=started_at,
+    )
+    return started_at
+
+
+def _mark_source_metadata_task_done(source_root, action, target_name, total, message):
+    finished_at = timezone.now()
+    SourceRoot.objects.filter(id=source_root.id).update(
+        metadata_task_state='done',
+        metadata_task_action=action,
+        metadata_task_target=target_name[:120],
+        metadata_task_total=total,
+        metadata_task_finished_at=finished_at,
+        metadata_task_message=(message or '已完成')[:255],
+        updated_at=finished_at,
+    )
+
+
+def _mark_source_metadata_task_failed(source_root, action, target_name, message):
+    finished_at = timezone.now()
+    SourceRoot.objects.filter(id=source_root.id).update(
+        metadata_task_state='failed',
+        metadata_task_action=action,
+        metadata_task_target=target_name[:120],
+        metadata_task_finished_at=finished_at,
+        metadata_task_message=(message or '处理失败')[:255],
+        updated_at=finished_at,
+    )
+
+
+def _apply_metadata_action_to_resources(resources, action, *, tag_name='', collection_name=''):
+    resource_ids = list(resources.values_list('id', flat=True))
+    resource_total = len(resource_ids)
+    if not resource_total:
+        return {'resource_total': 0, 'applied': False, 'kind': '', 'name': '', 'message': '当前资源源没有可处理资源。'}
+
+    if action in {'add_tag', 'remove_tag'}:
+        from gallery.models import Tag
+
+        field = VisualResource._meta.get_field('tags')
+        through_model = field.remote_field.through
+        source_fk = field.m2m_field_name()
+        target_fk = field.m2m_reverse_field_name()
+
+        target_name = tag_name.strip()
+        if not target_name:
+            raise ValueError('请输入标签名。')
+
+        if action == 'add_tag':
+            tag, _created = Tag.objects.get_or_create(name=target_name)
+            filter_kwargs = {f'{source_fk}_id__in': resource_ids, f'{target_fk}_id': tag.id}
+            existing_ids = set(through_model.objects.filter(**filter_kwargs).values_list(f'{source_fk}_id', flat=True))
+            pending_ids = [resource_id for resource_id in resource_ids if resource_id not in existing_ids]
+            if pending_ids:
+                through_model.objects.bulk_create(
+                    [through_model(**{f'{source_fk}_id': resource_id, f'{target_fk}_id': tag.id}) for resource_id in pending_ids],
+                    batch_size=1000,
+                    ignore_conflicts=True,
+                )
+                _sync_visuals_to_meili(
+                    VisualResource.objects.filter(id__in=pending_ids).select_related('source_root').prefetch_related('tags', 'collections').order_by('id')
+                )
+            if not pending_ids:
+                return {'resource_total': resource_total, 'applied': False, 'kind': '标签', 'name': target_name, 'message': f'全部资源已包含标签 {target_name}。'}
+            return {'resource_total': resource_total, 'applied': True, 'kind': '标签', 'name': target_name, 'message': f'已为 {len(pending_ids)} 项添加标签 {target_name}。'}
+
+        try:
+            tag = Tag.objects.get(name=target_name)
+        except Tag.DoesNotExist:
+            return {'resource_total': resource_total, 'applied': False, 'kind': '标签', 'name': target_name, 'message': f'标签 {target_name} 不存在。'}
+
+        filter_kwargs = {f'{source_fk}_id__in': resource_ids, f'{target_fk}_id': tag.id}
+        existing_ids = list(through_model.objects.filter(**filter_kwargs).values_list(f'{source_fk}_id', flat=True))
+        if existing_ids:
+            through_model.objects.filter(**filter_kwargs).delete()
+            _sync_visuals_to_meili(
+                VisualResource.objects.filter(id__in=existing_ids).select_related('source_root').prefetch_related('tags', 'collections').order_by('id')
+            )
+        if not existing_ids:
+            return {'resource_total': resource_total, 'applied': False, 'kind': '标签', 'name': target_name, 'message': f'资源中没有标签 {target_name}。'}
+        return {'resource_total': resource_total, 'applied': True, 'kind': '标签', 'name': target_name, 'message': f'已从 {len(existing_ids)} 项移除标签 {target_name}。'}
+
+    if action in {'add_collection', 'remove_collection'}:
+        field = VisualResource._meta.get_field('collections')
+        through_model = field.remote_field.through
+        source_fk = field.m2m_field_name()
+        target_fk = field.m2m_reverse_field_name()
+
+        target_name = collection_name.strip()
+        if not target_name:
+            raise ValueError('请输入合集名。')
+
+        if action == 'add_collection':
+            collection, _created = Collection.objects.get_or_create(name=target_name)
+            filter_kwargs = {f'{source_fk}_id__in': resource_ids, f'{target_fk}_id': collection.id}
+            existing_ids = set(through_model.objects.filter(**filter_kwargs).values_list(f'{source_fk}_id', flat=True))
+            pending_ids = [resource_id for resource_id in resource_ids if resource_id not in existing_ids]
+            if pending_ids:
+                through_model.objects.bulk_create(
+                    [through_model(**{f'{source_fk}_id': resource_id, f'{target_fk}_id': collection.id}) for resource_id in pending_ids],
+                    batch_size=1000,
+                    ignore_conflicts=True,
+                )
+                _sync_visuals_to_meili(
+                    VisualResource.objects.filter(id__in=pending_ids).select_related('source_root').prefetch_related('tags', 'collections').order_by('id')
+                )
+            if not pending_ids:
+                return {'resource_total': resource_total, 'applied': False, 'kind': '合集', 'name': target_name, 'message': f'全部资源已在合集 {target_name} 中。'}
+            return {'resource_total': resource_total, 'applied': True, 'kind': '合集', 'name': target_name, 'message': f'已将 {len(pending_ids)} 项加入合集 {target_name}。'}
+
+        try:
+            collection = Collection.objects.get(name=target_name)
+        except Collection.DoesNotExist:
+            return {'resource_total': resource_total, 'applied': False, 'kind': '合集', 'name': target_name, 'message': f'合集 {target_name} 不存在。'}
+
+        filter_kwargs = {f'{source_fk}_id__in': resource_ids, f'{target_fk}_id': collection.id}
+        existing_ids = list(through_model.objects.filter(**filter_kwargs).values_list(f'{source_fk}_id', flat=True))
+        if existing_ids:
+            through_model.objects.filter(**filter_kwargs).delete()
+            _sync_visuals_to_meili(
+                VisualResource.objects.filter(id__in=existing_ids).select_related('source_root').prefetch_related('tags', 'collections').order_by('id')
+            )
+        if not existing_ids:
+            return {'resource_total': resource_total, 'applied': False, 'kind': '合集', 'name': target_name, 'message': f'资源中没有合集 {target_name}。'}
+        return {'resource_total': resource_total, 'applied': True, 'kind': '合集', 'name': target_name, 'message': f'已从 {len(existing_ids)} 项移出合集 {target_name}。'}
+
+    raise ValueError('不支持的资源设置动作。')
 
 
 def _get_preview_root():
@@ -248,6 +406,44 @@ def enqueue_source_sync(source_root, queue_index=True):
         return False
     mark_source_sync_started(source_root)
     sync_source_root_task(source_root.id, queue_index=queue_index)
+    return True
+
+
+def run_source_metadata_action(source_root_id, action, target_name):
+    try:
+        source_root = SourceRoot.objects.get(id=source_root_id)
+    except SourceRoot.DoesNotExist:
+        return None
+
+    action_label = _SOURCE_METADATA_ACTION_LABELS.get(action, '整源设置')
+    total = source_root.resources.count()
+    _mark_source_metadata_task_running(source_root, action, target_name, total)
+
+    try:
+        result = _apply_metadata_action_to_resources(
+            source_root.resources.all(),
+            action,
+            tag_name=target_name if 'tag' in action else '',
+            collection_name=target_name if 'collection' in action else '',
+        )
+    except Exception as exc:
+        _mark_source_metadata_task_failed(source_root, action, target_name, f'{action_label}失败：{str(exc)[:220]}')
+        raise
+
+    _mark_source_metadata_task_done(source_root, action, target_name, result['resource_total'], result['message'])
+    return result
+
+
+@db_task()
+def source_root_metadata_action_task(source_root_id, action, target_name):
+    return run_source_metadata_action(source_root_id, action, target_name)
+
+
+def enqueue_source_metadata_action(source_root, action, target_name):
+    if source_root.metadata_task_state in {'queued', 'running'}:
+        return False
+    _mark_source_metadata_task_queued(source_root, action, target_name)
+    source_root_metadata_action_task(source_root.id, action, target_name)
     return True
 
 

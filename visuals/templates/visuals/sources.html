@@ -1,9 +1,11 @@
+{% load static %}
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>资源源管理 | Visuals</title>
+    <link rel="stylesheet" href="{% static 'visuals/site-nav.css' %}">
     <style>
         :root {
             --bg-top: #f6efe2;
@@ -246,12 +248,43 @@
             display: grid;
             gap: 18px;
             position: sticky;
-            top: 18px;
+            top: var(--visuals-sticky-top, 96px);
         }
 
         .panel {
             border-radius: 28px;
             padding: 22px;
+        }
+
+        .add-source-panel {
+            position: relative;
+            overflow: hidden;
+            background:
+                radial-gradient(circle at top right, rgba(178, 87, 42, 0.18), transparent 30%),
+                linear-gradient(145deg, rgba(255, 250, 242, 0.98), rgba(244, 229, 205, 0.96));
+            border-color: rgba(127, 52, 18, 0.16);
+        }
+
+        .add-source-panel::before {
+            content: "";
+            position: absolute;
+            inset: -60px -60px auto auto;
+            width: 220px;
+            height: 220px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(127, 52, 18, 0.12), transparent 70%);
+            pointer-events: none;
+        }
+
+        .add-source-panel::after {
+            content: "";
+            position: absolute;
+            inset: auto auto -90px -70px;
+            width: 240px;
+            height: 240px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(255, 255, 255, 0.35), transparent 72%);
+            pointer-events: none;
         }
 
         .panel-title,
@@ -280,6 +313,54 @@
             gap: 12px;
         }
 
+        .add-source-shell {
+            position: relative;
+            z-index: 1;
+            display: grid;
+            gap: 16px;
+        }
+
+        .add-source-header {
+            display: grid;
+            gap: 12px;
+        }
+
+        .add-source-flag {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            width: fit-content;
+            min-height: 34px;
+            padding: 7px 12px;
+            border-radius: 999px;
+            background: rgba(255, 245, 231, 0.96);
+            border: 1px solid rgba(127, 52, 18, 0.10);
+            color: var(--accent-deep);
+            font-size: 0.78rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .add-source-metrics {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .add-metric {
+            display: inline-flex;
+            align-items: center;
+            min-height: 34px;
+            padding: 7px 12px;
+            border-radius: 999px;
+            background: rgba(255, 252, 247, 0.82);
+            border: 1px solid rgba(127, 52, 18, 0.08);
+            color: var(--accent-deep);
+            font-size: 0.8rem;
+            font-weight: 700;
+        }
+
         .field {
             display: grid;
             gap: 6px;
@@ -290,7 +371,8 @@
             color: var(--muted);
         }
 
-        .field input {
+        .field input,
+        .field textarea {
             width: 100%;
             border: 1px solid rgba(75, 51, 27, 0.14);
             border-radius: 14px;
@@ -298,12 +380,41 @@
             background: rgba(255, 254, 249, 0.95);
             color: var(--ink);
             font-size: 0.92rem;
+            font: inherit;
+            transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease;
+        }
+
+        .field textarea {
+            min-height: 124px;
+            resize: vertical;
+            line-height: 1.6;
+        }
+
+        .field input:focus,
+        .field textarea:focus {
+            outline: none;
+            border-color: rgba(178, 87, 42, 0.42);
+            box-shadow: 0 0 0 4px rgba(178, 87, 42, 0.10);
+            transform: translateY(-1px);
         }
 
         .source-path-row {
             display: grid;
             grid-template-columns: 1fr auto;
             gap: 8px;
+            align-items: stretch;
+        }
+
+        .source-path-row textarea {
+            border-radius: 18px;
+            background:
+                linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(252, 247, 239, 0.92));
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+        }
+
+        .source-path-row .mini-button {
+            min-width: 118px;
+            align-self: stretch;
         }
 
         .field-error {
@@ -315,6 +426,16 @@
             color: var(--muted);
             font-size: 0.84rem;
             line-height: 1.65;
+        }
+
+        .add-source-actions {
+            display: grid;
+            gap: 8px;
+        }
+
+        .add-source-actions .button {
+            min-height: 48px;
+            padding-inline: 18px;
         }
 
         .inline-check {
@@ -367,6 +488,11 @@
             background: rgba(249, 227, 222, 0.96);
             border-color: rgba(143, 52, 39, 0.18);
             color: var(--danger);
+        }
+
+        .add-source-panel .mini-button {
+            background: rgba(255, 247, 236, 0.96);
+            border-color: rgba(127, 52, 18, 0.10);
         }
 
         .quick-card,
@@ -476,6 +602,62 @@
             gap: 8px;
         }
 
+        .source-scope-form {
+            display: grid;
+            gap: 8px;
+        }
+
+        .metadata-task-shell {
+            display: grid;
+            gap: 8px;
+        }
+
+        .metadata-task-chip {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: fit-content;
+            min-height: 32px;
+            padding: 6px 11px;
+            border-radius: 999px;
+            font-size: 0.78rem;
+            font-weight: 700;
+        }
+
+        .metadata-task-chip.ok { background: rgba(223, 243, 231, 0.95); color: var(--good); }
+        .metadata-task-chip.warning { background: rgba(248, 230, 200, 0.95); color: var(--warn); }
+        .metadata-task-chip.danger { background: rgba(244, 214, 209, 0.95); color: var(--danger); }
+        .metadata-task-chip.muted { background: rgba(236, 231, 223, 0.95); color: var(--muted); }
+
+        .source-scope-row {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto auto;
+            gap: 8px;
+            align-items: stretch;
+        }
+
+        .source-scope-row input {
+            width: 100%;
+            border: 1px solid rgba(75, 51, 27, 0.14);
+            border-radius: 14px;
+            padding: 10px 12px;
+            background: rgba(255, 254, 249, 0.95);
+            color: var(--ink);
+            font: inherit;
+        }
+
+        .source-scope-row input:focus {
+            outline: none;
+            border-color: rgba(178, 87, 42, 0.42);
+            box-shadow: 0 0 0 4px rgba(178, 87, 42, 0.10);
+        }
+
+        .source-scope-tip {
+            color: var(--muted);
+            font-size: 0.78rem;
+            line-height: 1.55;
+        }
+
         .metric-chip,
         .folder-chip {
             display: inline-flex;
@@ -555,7 +737,8 @@
             .shell { padding-inline: 14px; }
             .summary-grid,
             .metric-grid,
-            .source-path-row { grid-template-columns: 1fr; }
+            .source-path-row,
+            .source-scope-row { grid-template-columns: 1fr; }
             .hero-panel,
             .hero-side,
             .panel,
@@ -569,10 +752,11 @@
             .sources-head,
             .source-head,
             .progress-head { flex-direction: column; }
+            .add-source-metrics { gap: 6px; }
         }
     </style>
 </head>
-<body>
+<body class="visuals-nav-scope">
 <div class="shell">
     {% if messages %}
     <div class="flash-stack">
@@ -582,11 +766,13 @@
     </div>
     {% endif %}
 
+    {% include 'visuals/components/site_nav.html' %}
+
     <section class="hero">
         <div class="hero-panel">
-            <div class="eyebrow">Source Control Surface</div>
+            <div class="eyebrow">资源源</div>
             <h1>资源源管理</h1>
-            <p class="hero-copy">把本地目录、同步状态和索引结果集中放在一页里处理。这里保留添加、编辑、立即同步和移除索引等原有能力，但把信息拆成更清晰的控制台视图，减少你在大批量资源源之间来回扫视的负担。</p>
+            <p class="hero-copy">集中管理目录、同步状态和索引结果。</p>
             <div class="hero-badges">
                 <span class="hero-badge"><strong>最近全局同步</strong>{{ sync_summary.last_synced_label }}</span>
                 <span class="hero-badge"><strong>已启用</strong>{{ sync_summary.enabled_count }} / {{ sync_summary.total_count }} 个</span>
@@ -594,8 +780,6 @@
                 {% if sync_summary.error_count %}<span class="hero-badge"><strong>异常</strong>{{ sync_summary.error_count }} 个</span>{% endif %}
             </div>
             <div class="hero-actions">
-                <a class="ghost-button" href="{% url 'visuals:home' %}">返回资源库</a>
-                <a class="ghost-button" href="{% url 'visuals:duplicates' %}">查看重复文件检测</a>
                 <form method="post" action="{% url 'visuals:sync_all_sources_now' %}">
                     {% csrf_token %}
                     <input type="hidden" name="next" value="{{ sources_page_url }}">
@@ -606,66 +790,84 @@
 
         <aside class="hero-side">
             <div>
-                <h2>Control Snapshot</h2>
+                <h2>概览</h2>
                 <strong>{{ library_stats.total_resources }}</strong>
-                <p>当前已索引资源总数，缺失资源 {{ library_stats.missing_resources }}。新增资源源后会立即进入扫描与索引流程。</p>
+                <p>已索引资源总数，缺失 {{ library_stats.missing_resources }}。</p>
             </div>
             <div class="quick-grid">
                 <div class="quick-card">
                     <strong>进度可见</strong>
-                    <span>目录扫描和索引处理拆成两段显示，sources/progress/ 会持续回刷卡片状态。</span>
+                    <span>扫描和索引进度分开显示。</span>
                 </div>
                 <div class="quick-card">
                     <strong>直接操作</strong>
-                    <span>保留 保存并立即扫描、保存更新、立即同步、移除索引 等动作，不改变现有后端行为。</span>
+                    <span>支持新增、编辑、同步和移除索引。</span>
                 </div>
             </div>
         </aside>
     </section>
 
     <section class="summary-grid">
-        <article class="summary-card"><strong>{{ sync_summary.total_count }}</strong><small>资源源总数。包括启用、停用和最近出现异常的目录映射。</small></article>
-        <article class="summary-card"><strong>{{ sync_summary.enabled_count }}</strong><small>当前启用中的资源源。只有启用项会进入自动或手动同步队列。</small></article>
-        <article class="summary-card"><strong>{{ library_stats.total_resources }}</strong><small>全库索引资源总数，用来判断资源源扩展后是否已经落到索引层。</small></article>
-        <article class="summary-card"><strong>{{ library_stats.missing_resources }}</strong><small>已经建立索引但文件不可达的资源，建议优先回查其所属资源源。</small></article>
+        <article class="summary-card"><strong>{{ sync_summary.total_count }}</strong><small>资源源总数</small></article>
+        <article class="summary-card"><strong>{{ sync_summary.enabled_count }}</strong><small>已启用</small></article>
+        <article class="summary-card"><strong>{{ library_stats.total_resources }}</strong><small>索引资源</small></article>
+        <article class="summary-card"><strong>{{ library_stats.missing_resources }}</strong><small>缺失文件</small></article>
     </section>
 
     <div class="workspace">
-        <aside class="sidebar">
-            <section class="panel">
-                <h2>Add Source</h2>
-                <div class="panel-title">添加资源源</div>
-                <p class="panel-subtitle">把本地目录接入 visuals 的轻索引层。保存并立即扫描 后会开始同步并把新内容暴露给首页。</p>
-                <form class="source-form" method="post" action="{% url 'visuals:create_source_root' %}">
-                    {% csrf_token %}
-                    <input type="hidden" name="next" value="{{ sources_page_url }}">
-                    <div class="field">
-                        <label for="source-name">显示名称</label>
-                        <input id="source-name" type="text" name="name" value="{{ source_form.name.value|default:'' }}" placeholder="例如：素材盘 / 模型库">
-                        {% if source_form.name.errors %}<div class="field-error">{{ source_form.name.errors|join:' ' }}</div>{% endif %}
-                    </div>
-                    <div class="field">
-                        <label for="source-root-path">本地目录路径</label>
-                        <div class="source-path-row">
-                            <input id="source-root-path" type="text" name="root_path" value="{{ source_form.root_path.value|default:'' }}" placeholder="例如：E:/Assets 或 D:\\Models">
-                            <button class="mini-button" type="button" id="pick-source-root-btn" onclick="pickSourceRoot('source-root-path', 'source-name', 'pick-source-root-btn')">选择文件夹</button>
+        <aside class="sidebar visuals-sticky-below-nav">
+            <section class="panel add-source-panel">
+                <div class="add-source-shell">
+                    <div class="add-source-header">
+                        <div class="add-source-flag">快速添加</div>
+                        <div>
+                            <h2>添加</h2>
+                            <div class="panel-title">添加资源源</div>
+                            <p class="panel-subtitle">支持单目录和批量添加。</p>
                         </div>
-                        {% if source_form.root_path.errors %}<div class="field-error">{{ source_form.root_path.errors|join:' ' }}</div>{% endif %}
+                        <div class="add-source-metrics">
+                            <div class="add-metric">多目录</div>
+                            <div class="add-metric">记忆位置</div>
+                            <div class="add-metric">自动扫描</div>
+                        </div>
                     </div>
-                    <label class="inline-check">
-                        <input type="checkbox" name="is_enabled" value="1" {% if source_form.is_enabled.value or source_form.is_enabled.value == None %}checked{% endif %}>
-                        加入后启用同步
-                    </label>
-                    <button class="button" type="submit">保存并立即扫描</button>
-                    <div class="help-text">这里维护本地目录到 visuals 轻索引层的映射。目录名会自动带入显示名称，但你仍然可以手动覆盖。</div>
-                </form>
+
+                    <form class="source-form" method="post" action="{% url 'visuals:create_source_root' %}">
+                        {% csrf_token %}
+                        <input type="hidden" name="next" value="{{ sources_page_url }}">
+                        <div class="field">
+                            <label for="source-name">显示名称</label>
+                            <input id="source-name" type="text" name="name" value="{{ source_form.name.value|default:'' }}" placeholder="单目录可选填">
+                            {% if source_form.name.errors %}<div class="field-error">{{ source_form.name.errors|join:' ' }}</div>{% endif %}
+                        </div>
+                        <div class="field">
+                            <label for="source-root-path">本地目录路径</label>
+                            <div class="source-path-row">
+                                <textarea id="source-root-path" name="root_path" rows="4" placeholder="每行一个目录，例如：&#10;E:/Assets&#10;D:\\Models">{{ source_form.root_path.value|default:'' }}</textarea>
+                                <button class="mini-button" type="button" id="pick-source-root-btn" onclick="pickSourceRoot('source-root-path', 'source-name', 'pick-source-root-btn', true)">追加文件夹</button>
+                            </div>
+                            {% if source_form.root_path.errors %}<div class="field-error">{{ source_form.root_path.errors|join:' ' }}</div>{% endif %}
+                        </div>
+
+                        <div class="help-text">多目录时请留空显示名称，一行一个路径。</div>
+
+                        <label class="inline-check">
+                            <input type="checkbox" name="is_enabled" value="1" {% if source_form.is_enabled.value or source_form.is_enabled.value == None %}checked{% endif %}>
+                            加入后启用同步
+                        </label>
+
+                        <div class="add-source-actions">
+                            <button class="button" type="submit">保存并立即扫描</button>
+                        </div>
+                    </form>
+                </div>
             </section>
 
             {% if edit_source and edit_source_form %}
             <section class="panel">
-                <h2>Edit Source</h2>
+                <h2>编辑</h2>
                 <div class="panel-title">编辑资源源</div>
-                <p class="panel-subtitle">更新名称、目录路径或启用状态。保存更新 后会按当前开关决定是否重新入队同步。</p>
+                <p class="panel-subtitle">更新名称、路径和启用状态。</p>
                 <form class="source-form" method="post" action="{% url 'visuals:update_source_root' edit_source.id %}">
                     {% csrf_token %}
                     <input type="hidden" name="next" value="{{ sources_page_url }}">
@@ -678,7 +880,7 @@
                         <label for="edit-source-root-path">本地目录路径</label>
                         <div class="source-path-row">
                             <input id="edit-source-root-path" type="text" name="root_path" value="{{ edit_source_form.root_path.value|default:'' }}">
-                            <button class="mini-button" type="button" id="pick-edit-source-root-btn" onclick="pickSourceRoot('edit-source-root-path', 'edit-source-name', 'pick-edit-source-root-btn')">选择文件夹</button>
+                            <button class="mini-button" type="button" id="pick-edit-source-root-btn" onclick="pickSourceRoot('edit-source-root-path', 'edit-source-name', 'pick-edit-source-root-btn', false)">选择文件夹</button>
                         </div>
                         {% if edit_source_form.root_path.errors %}<div class="field-error">{{ edit_source_form.root_path.errors|join:' ' }}</div>{% endif %}
                     </div>
@@ -698,18 +900,18 @@
         <section class="sources-section">
             <div class="sources-head">
                 <div>
-                    <h2>Source Directory Atlas</h2>
+                    <h2>列表</h2>
                     <div class="sources-title">现有资源源</div>
-                    <p class="sources-subtitle">每张卡片聚合了目录状态、最近同步结果、当前扫描进度和常用动作。扫描中的卡片会自动轮询刷新，不需要手动刷新页面。</p>
+                    <p class="sources-subtitle">查看状态、进度和常用操作。</p>
                 </div>
             </div>
 
-            <div class="source-list">
+            <div class="source-list" data-role="source-list">
                 {% for entry in source_tree %}
-                <article class="source-card" data-source-id="{{ entry.source.id }}" {% if entry.source.is_syncing %}data-syncing="1"{% endif %}>
+                <article class="source-card" data-source-id="{{ entry.source.id }}" {% if entry.source.is_syncing %}data-syncing="1"{% endif %}{% if entry.metadata_task.active %} data-metadata-pending="1"{% endif %}>
                     <div class="source-head">
                         <div>
-                            <div class="source-kicker">Mapped Directory</div>
+                            <div class="source-kicker">目录</div>
                             <h3>{{ entry.source.name }}</h3>
                             <div class="source-path">{{ entry.source.root_path }}</div>
                         </div>
@@ -725,7 +927,7 @@
                             </div>
 
                             <div class="info-shell">
-                                <p class="section-label">Recent Sync Summary</p>
+                                <p class="section-label">最近同步</p>
                                 <div class="source-meta">
                                     <span class="metric-chip" data-role="created-count">新增 {{ entry.source.last_sync_created }}</span>
                                     <span class="metric-chip" data-role="updated-count">更新 {{ entry.source.last_sync_updated }}</span>
@@ -735,7 +937,7 @@
 
                             {% if entry.folders %}
                             <div class="info-shell">
-                                <p class="section-label">Top Folders</p>
+                                <p class="section-label">顶层目录</p>
                                 <div class="folder-list">
                                     {% for folder_name, folder_count in entry.folders|slice:":12" %}
                                     <span class="folder-chip">{{ folder_name }} · {{ folder_count }}</span>
@@ -747,7 +949,7 @@
 
                         <div class="stack">
                             <div class="progress-shell" data-role="progress-block" {% if not entry.source.is_syncing %}hidden{% endif %}>
-                                <p class="section-label">Live Progress</p>
+                                <p class="section-label">实时进度</p>
                                 <div class="progress-head">
                                     <span data-role="progress-phase">{{ entry.source.sync_phase|default:'扫描中' }}</span>
                                     <span data-role="progress-count">{% if entry.source.is_syncing and not entry.source.sync_progress_total and not entry.source.sync_progress_scanned %}等待后台任务{% else %}目录 {{ entry.source.sync_progress_scanned }} / {{ entry.source.sync_progress_total|default:0 }}{% if entry.source.sync_progress_total %} · {{ entry.progress_percent }}%{% endif %}{% endif %}</span>
@@ -764,6 +966,35 @@
                             </div>
 
                             <div class="error-box" data-role="error-box" {% if not entry.source.last_sync_error %}hidden{% endif %}>{% if entry.source.last_sync_error %}错误：{{ entry.source.last_sync_error }}{% endif %}</div>
+
+                            <div class="info-shell metadata-task-shell" data-role="metadata-task-block" {% if not entry.metadata_task.visible %}hidden{% endif %}>
+                                <p class="section-label">设置任务</p>
+                                <span class="metadata-task-chip {{ entry.metadata_task.tone }}" data-role="metadata-task-chip">{{ entry.metadata_task.label }}</span>
+                                <div class="source-scope-tip" data-role="metadata-task-message">{{ entry.metadata_task.message }}</div>
+                            </div>
+
+                            <div class="info-shell">
+                                <p class="section-label">整源设置</p>
+                                <form class="source-scope-form" method="post" action="{% url 'visuals:source_root_resource_action' entry.source.id %}">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="next" value="{{ sources_page_url }}">
+                                    <div class="source-scope-row">
+                                        <input type="text" name="tag_name" placeholder="标签名">
+                                        <button class="mini-button" type="submit" name="action" value="add_tag" data-role="source-metadata-button" {% if entry.metadata_task.active %}disabled{% endif %}>加标签</button>
+                                        <button class="mini-button" type="submit" name="action" value="remove_tag" data-role="source-metadata-button" {% if entry.metadata_task.active %}disabled{% endif %}>删标签</button>
+                                    </div>
+                                </form>
+                                <form class="source-scope-form" method="post" action="{% url 'visuals:source_root_resource_action' entry.source.id %}">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="next" value="{{ sources_page_url }}">
+                                    <div class="source-scope-row">
+                                        <input type="text" name="collection_name" placeholder="合集名">
+                                        <button class="mini-button" type="submit" name="action" value="add_collection" data-role="source-metadata-button" {% if entry.metadata_task.active %}disabled{% endif %}>加合集</button>
+                                        <button class="mini-button" type="submit" name="action" value="remove_collection" data-role="source-metadata-button" {% if entry.metadata_task.active %}disabled{% endif %}>移合集</button>
+                                    </div>
+                                </form>
+                                <div class="source-scope-tip">对该资源源下的全部资源生效。</div>
+                            </div>
 
                             <div class="source-actions">
                                 <a class="ghost-button" href="{{ sources_page_url }}?edit_source={{ entry.source.id }}">编辑</a>
@@ -783,7 +1014,7 @@
                     </div>
                 </article>
                 {% empty %}
-                <article class="empty-card">还没有资源源。先在左侧添加一个本地目录，再开始扫描。</article>
+                <article class="empty-card">还没有资源源。</article>
                 {% endfor %}
             </div>
         </section>
@@ -791,7 +1022,49 @@
 </div>
 
 <script>
-async function pickSourceRoot(inputId, nameId, buttonId) {
+function mergeSourcePaths(currentValue, nextPath, appendMode) {
+    if (!appendMode) {
+        return [nextPath];
+    }
+
+    const paths = currentValue
+        .split(/\r?\n/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+    if (!paths.includes(nextPath)) {
+        paths.push(nextPath);
+    }
+    return paths;
+}
+
+function getStoredSourceRootPath() {
+    try {
+        return localStorage.getItem('visuals.lastSourceRootPath') || '';
+    } catch (error) {
+        return '';
+    }
+}
+
+function setStoredSourceRootPath(path) {
+    try {
+        localStorage.setItem('visuals.lastSourceRootPath', path);
+    } catch (error) {
+        // Ignore storage failures.
+    }
+}
+
+function getPickerInitialPath(inputValue) {
+    const currentPaths = inputValue
+        .split(/\r?\n/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+    if (currentPaths.length) {
+        return currentPaths[currentPaths.length - 1];
+    }
+    return getStoredSourceRootPath();
+}
+
+async function pickSourceRoot(inputId, nameId, buttonId, appendMode) {
     const button = document.getElementById(buttonId);
     const input = document.getElementById(inputId);
     const nameInput = document.getElementById(nameId);
@@ -803,17 +1076,35 @@ async function pickSourceRoot(inputId, nameId, buttonId) {
     const previousLabel = button.textContent;
     button.textContent = '打开中...';
     try {
-        const response = await fetch('{% url "visuals:pick_source_root" %}', {
+        const pickerUrl = new URL('{% url "visuals:pick_source_root" %}', window.location.origin);
+        const initialPath = getPickerInitialPath(input.value);
+        if (initialPath) {
+            pickerUrl.searchParams.set('initial_path', initialPath);
+        }
+        const response = await fetch(pickerUrl, {
             method: 'GET',
             headers: { 'X-Requested-With': 'XMLHttpRequest' },
         });
         const payload = await response.json();
         if (payload.ok && payload.path) {
-            input.value = payload.path;
-            if (nameInput && !nameInput.value.trim()) {
-                const parts = payload.path.replace(/\\/g, '/').split('/').filter(Boolean);
-                if (parts.length) {
-                    nameInput.value = parts[parts.length - 1];
+            const mergedPaths = mergeSourcePaths(input.value, payload.path, appendMode);
+            input.value = mergedPaths.join('\n');
+            setStoredSourceRootPath(payload.path);
+            if (nameInput) {
+                const trimmedName = nameInput.value.trim();
+                if (!trimmedName && payload.name && mergedPaths.length === 1) {
+                    nameInput.value = payload.name;
+                    nameInput.dataset.autoFilled = '1';
+                    nameInput.dataset.autoFilledValue = payload.name;
+                } else if (
+                    appendMode
+                    && mergedPaths.length > 1
+                    && nameInput.dataset.autoFilled === '1'
+                    && trimmedName === nameInput.dataset.autoFilledValue
+                ) {
+                    nameInput.value = '';
+                    delete nameInput.dataset.autoFilled;
+                    delete nameInput.dataset.autoFilledValue;
                 }
             }
         } else if (payload.message && payload.message !== '已取消选择。') {
@@ -827,7 +1118,7 @@ async function pickSourceRoot(inputId, nameId, buttonId) {
     }
 }
 
-if (document.querySelector('[data-syncing="1"]')) {
+if (document.querySelector('[data-syncing="1"], [data-metadata-pending="1"]')) {
     pollSyncProgress();
 }
 
@@ -855,6 +1146,26 @@ function renderIndexProgressCount(entry) {
     return entry.index_processed + ' / ' + entry.index_total + ' · ' + entry.index_percent + '% · 成功 ' + entry.index_completed + ' · 失败 ' + entry.index_failed;
 }
 
+function metadataToneClass(tone) {
+    return ['ok', 'warning', 'danger', 'muted'].includes(tone) ? tone : 'muted';
+}
+
+function reorderSourceCards(entries) {
+    const sourceList = document.querySelector('[data-role="source-list"]');
+    if (!sourceList) {
+        return;
+    }
+
+    const fragment = document.createDocumentFragment();
+    entries.forEach((entry) => {
+        const card = sourceList.querySelector('[data-source-id="' + entry.id + '"]');
+        if (card) {
+            fragment.appendChild(card);
+        }
+    });
+    sourceList.appendChild(fragment);
+}
+
 async function pollSyncProgress() {
     try {
         const response = await fetch('{{ sources_progress_url }}', {
@@ -872,6 +1183,7 @@ async function pollSyncProgress() {
         }
 
         let hasSyncing = false;
+        let hasMetadataPending = false;
         payload.sources.forEach((entry) => {
             const card = document.querySelector('[data-source-id="' + entry.id + '"]');
             if (!card) {
@@ -939,15 +1251,40 @@ async function pollSyncProgress() {
                 errorBox.textContent = entry.last_sync_error ? '错误：' + entry.last_sync_error : '';
             }
 
+            const metadataTaskBlock = card.querySelector('[data-role="metadata-task-block"]');
+            const metadataTaskChip = card.querySelector('[data-role="metadata-task-chip"]');
+            const metadataTaskMessage = card.querySelector('[data-role="metadata-task-message"]');
+            if (metadataTaskBlock) {
+                metadataTaskBlock.hidden = !entry.metadata_task_state;
+            }
+            if (metadataTaskChip) {
+                metadataTaskChip.className = 'metadata-task-chip ' + metadataToneClass(entry.metadata_task_tone);
+                metadataTaskChip.textContent = entry.metadata_task_label || '';
+            }
+            if (metadataTaskMessage) {
+                metadataTaskMessage.textContent = entry.metadata_task_message || '';
+            }
+            card.querySelectorAll('[data-role="source-metadata-button"]').forEach((button) => {
+                button.disabled = !!entry.metadata_task_active;
+            });
+
             if (entry.is_syncing) {
                 card.setAttribute('data-syncing', '1');
                 hasSyncing = true;
             } else {
                 card.removeAttribute('data-syncing');
             }
+            if (entry.metadata_task_active) {
+                card.setAttribute('data-metadata-pending', '1');
+                hasMetadataPending = true;
+            } else {
+                card.removeAttribute('data-metadata-pending');
+            }
         });
 
-        if (hasSyncing) {
+        reorderSourceCards(payload.sources);
+
+        if (hasSyncing || hasMetadataPending) {
             window.setTimeout(pollSyncProgress, 1000);
         }
     } catch (error) {

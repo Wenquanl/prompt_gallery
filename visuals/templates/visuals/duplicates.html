@@ -1,9 +1,11 @@
+{% load static %}
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>重复文件检测 | Visuals</title>
+    <link rel="stylesheet" href="{% static 'visuals/site-nav.css' %}">
     <style>
         :root {
             --bg-top: #f7efe1;
@@ -613,47 +615,45 @@
         }
     </style>
 </head>
-<body>
+<body class="visuals-nav-scope">
 <div class="shell">
+    {% include 'visuals/components/site_nav.html' %}
+
     <section class="hero">
         <div class="hero-main">
-            <div class="eyebrow">Duplicate Signature Radar</div>
+            <div class="eyebrow">重复检测</div>
             <h1>重复文件检测</h1>
-            <p class="hero-copy">按文件哈希聚合重复资源，并用更适合大数据量浏览的密集卡片视图展示。可预览资源会直接给出缩略图，同时接入和首页一致的分页组件，方便分批处理重复组。</p>
-            <div class="hero-actions">
-                <a class="button-link ghost" href="{% url 'visuals:home' %}">返回资源库</a>
-                <a class="button-link primary" href="{% url 'visuals:sources' %}">前往资源源管理</a>
-            </div>
+            <p class="hero-copy">按文件哈希聚合重复资源，便于分批处理。</p>
         </div>
 
         <aside class="hero-side">
             <div>
-                <h2>Current Snapshot</h2>
+                <h2>当前</h2>
                 <strong>{{ total_groups }}</strong>
-                <p>检测到的重复文件组数。每组至少包含两个拥有相同文件哈希的资源。</p>
+                <p>重复文件组数。</p>
             </div>
             <div>
-                <h2>Usage Hint</h2>
-                <p>优先观察缩略图和路径差异，再决定是保留主版本、回收副本，还是只清理冗余索引。</p>
+                <h2>处理建议</h2>
+                <p>先看缩略图和路径，再决定保留哪份。</p>
             </div>
         </aside>
     </section>
 
     <section class="summary-strip">
         <article class="summary-metric">
-            <div class="summary-label">Groups</div>
+            <div class="summary-label">重复组</div>
             <strong>{{ total_groups }}</strong>
-            <span>当前检测到的重复哈希组数量。</span>
+            <span>当前总数</span>
         </article>
         <article class="summary-metric">
-            <div class="summary-label">Coverage</div>
+            <div class="summary-label">本页</div>
             <strong>{% if groups %}{{ groups|length }}{% else %}0{% endif %}</strong>
-            <span>当前页展示组数，每页固定 {{ page_size }} 组。</span>
+            <span>每页 {{ page_size }} 组</span>
         </article>
         <article class="summary-metric">
-            <div class="summary-label">Preview</div>
-            <strong>缩略图就地查看</strong>
-            <span>重复图片和其他可预览资源会直接显示卡片缩略图。</span>
+            <div class="summary-label">预览</div>
+            <strong>就地查看</strong>
+            <span>可预览资源直接显示缩略图</span>
         </article>
     </section>
 
@@ -662,7 +662,7 @@
         <section class="group">
             <div class="group-head">
                 <div>
-                    <div class="group-label">Duplicate Group</div>
+                    <div class="group-label">重复组</div>
                     <div class="group-title">重复哈希组 {{ group.display_index }}</div>
                     <div class="hash-inline">
                         <div class="hash-label">重复哈希</div>
