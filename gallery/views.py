@@ -1711,34 +1711,58 @@ def remove_tag_from_group(request, pk):
 @require_GET
 def group_list_api(request):
     """【升级版】提供去重后的列表，并附带组内数量"""
-    query = request.GET.get('q', '')
+    query = request.GET.get('q', '').strip()
     page_num = request.GET.get('page', 1)
+    include_variants = request.GET.get('include_variants') == '1'
     
     qs = PromptGroup.objects.all()
+    count_map = {}
     
     if query:
-        matching_group_ids = qs.filter(
+        search_filter = (
             Q(title__icontains=query) |
             Q(prompt_text__icontains=query) |
             Q(prompt_text_zh__icontains=query) |
+            Q(negative_prompt__icontains=query) |
             Q(model_info__icontains=query) |       # 加上模型搜索
             Q(characters__name__icontains=query) | # 加上人物搜索
             Q(tags__name__icontains=query)
-        ).values_list('group_id', flat=True).distinct()
-        
-        qs = qs.filter(group_id__in=matching_group_ids)
-    
-    group_stats = qs.values('group_id').annotate(
-        main_id=Max(Case(When(is_main_variant=True, then='id'), output_field=IntegerField())),
-        max_id=Max('id'),     
-        count=Count('id')     
-    )
-    
-    # 优先取 main_id
-    target_ids = [ (item['main_id'] or item['max_id']) for item in group_stats ]
-    # 建立 ID -> Count 映射
-    count_map = { (item['main_id'] or item['max_id']): item['count'] for item in group_stats }
-    final_qs = PromptGroup.objects.filter(id__in=target_ids).order_by('-id')
+        )
+        matching_group_ids = list(
+            qs.filter(search_filter).values_list('group_id', flat=True).distinct()
+        )
+
+        if include_variants:
+            final_qs = PromptGroup.objects.filter(group_id__in=matching_group_ids).order_by('-id')
+            count_map = {
+                item['group_id']: item['count']
+                for item in PromptGroup.objects.filter(group_id__in=matching_group_ids)
+                .values('group_id')
+                .annotate(count=Count('id'))
+            }
+        else:
+            qs = qs.filter(group_id__in=matching_group_ids)
+            group_stats = qs.values('group_id').annotate(
+                main_id=Max(Case(When(is_main_variant=True, then='id'), output_field=IntegerField())),
+                max_id=Max('id'),
+                count=Count('id')
+            )
+
+            target_ids = [(item['main_id'] or item['max_id']) for item in group_stats]
+            count_map = {(item['main_id'] or item['max_id']): item['count'] for item in group_stats}
+            final_qs = PromptGroup.objects.filter(id__in=target_ids).order_by('-id')
+    else:
+        group_stats = qs.values('group_id').annotate(
+            main_id=Max(Case(When(is_main_variant=True, then='id'), output_field=IntegerField())),
+            max_id=Max('id'),
+            count=Count('id')
+        )
+
+        target_ids = [(item['main_id'] or item['max_id']) for item in group_stats]
+        count_map = {(item['main_id'] or item['max_id']): item['count'] for item in group_stats}
+        final_qs = PromptGroup.objects.filter(id__in=target_ids).order_by('-id')
+
+    final_qs = final_qs.select_related('cover_image').prefetch_related('images', 'characters')
     
     paginator = Paginator(final_qs, 20)
     page = paginator.get_page(page_num)
@@ -1777,8 +1801,9 @@ def group_list_api(request):
             'created_at': group.created_at.strftime('%Y-%m-%d'),
             'cover_url': cover_url,
             'model_info': group.model_info or '',
+            'characters': [char.name for char in group.characters.all()],
             'group_id': str(group.group_id),
-            'count': count_map.get(group.id, 1) 
+            'count': count_map.get(group.group_id, count_map.get(group.id, 1))
         })
         
     return JsonResponse({
@@ -2325,53 +2350,118 @@ def api_get_similar_groups_by_prompt(request):
     try:
         data = json.loads(request.body)
         prompt_text = data.get('prompt', '').strip().lower()
+        field_labels = {
+            'prompt_text': '主提示词',
+            'prompt_text_zh': '中文提示词',
+            'negative_prompt': '负向提示词',
+        }
+
+        def pick_display_field(main_text, zh_text, negative_text):
+            for field_name, raw_text in [
+                ('prompt_text', main_text),
+                ('prompt_text_zh', zh_text),
+                ('negative_prompt', negative_text),
+            ]:
+                normalized_text = (raw_text or '').strip()
+                if normalized_text:
+                    return field_name, normalized_text
+            return 'prompt_text', ''
         
-        # 1. 直接获取前 2000 条的 ID 和文本
-        candidates_data = list(PromptGroup.objects.values_list('id', 'prompt_text').order_by('-id')[:2000])
-        
-        recommendations = []
+        # 1. 直接获取前 2000 条的核心提示词字段
+        candidates_data = list(
+            PromptGroup.objects.values_list(
+                'id', 'prompt_text', 'prompt_text_zh', 'negative_prompt'
+            ).order_by('-id')[:2000]
+        )
         
         if not prompt_text:
             # 如果没传提示词，直接按最新时间返回兜底数据
-            top_recs = [(0.0, item[0]) for item in candidates_data[:15]]
+            top_recs = []
+            for db_id, main_text, zh_text, negative_text in candidates_data[:15]:
+                matched_field, matched_text = pick_display_field(main_text, zh_text, negative_text)
+                top_recs.append({
+                    'ratio': 0.0,
+                    'group_id': db_id,
+                    'matched_field': matched_field,
+                    'matched_text': matched_text,
+                })
         else:
-            # 2. 构建供 rapidfuzz 使用的字典映射: { ID: 文本 }
-            prompt_len = len(prompt_text)
+            # 2. 将主提示词、中文提示词、负向提示词全部纳入匹配池
             valid_choices = {}
-            for db_id, text in candidates_data:
-                text = (text or "").strip().lower()
-                if not text: continue
-                # 预过滤长度差异过大的
-                if abs(prompt_len - len(text)) <= max(prompt_len, len(text)) * 0.7:
-                    valid_choices[db_id] = text
+            choice_meta = {}
+            for db_id, main_text, zh_text, negative_text in candidates_data:
+                candidate_fields = {
+                    'prompt_text': main_text,
+                    'prompt_text_zh': zh_text,
+                    'negative_prompt': negative_text,
+                }
+                for field_name, raw_text in candidate_fields.items():
+                    normalized_text = (raw_text or '').strip().lower()
+                    if normalized_text:
+                        choice_key = f'{db_id}:{field_name}'
+                        valid_choices[choice_key] = normalized_text
+                        choice_meta[choice_key] = {
+                            'group_id': db_id,
+                            'field_name': field_name,
+                            'raw_text': (raw_text or '').strip(),
+                        }
                     
-            # 3. 核心优化：C++ 层批量计算并直接取 Top 15
-            # extract 返回列表: [(匹配文本, 分数0-100, 字典的Key(即db_id)), ...]
+            # 3. 批量计算多个字段的相似度，再按组聚合取最高分
             matches = process.extract(
                 prompt_text,
                 valid_choices,
                 scorer=fuzz.ratio,
-                limit=15
+                limit=min(len(valid_choices), 120) if valid_choices else 0
             )
             
-            # 将分数转换回 0-1 的比例，并重组为 (ratio, id) 格式
-            top_recs = [(match[1]/100.0, match[2]) for match in matches]
+            best_scores = {}
+            for _, score, choice_key in matches:
+                meta = choice_meta[str(choice_key)]
+                group_id = meta['group_id']
+                old_score = best_scores.get(group_id)
+                if old_score is None or score > old_score['score']:
+                    best_scores[group_id] = {
+                        'score': score,
+                        'matched_field': meta['field_name'],
+                        'matched_text': meta['raw_text'],
+                    }
+
+            top_recs = [
+                {
+                    'ratio': match_info['score'] / 100.0,
+                    'group_id': group_id,
+                    'matched_field': match_info['matched_field'],
+                    'matched_text': match_info['matched_text'],
+                }
+                for group_id, match_info in sorted(
+                    best_scores.items(),
+                    key=lambda item: (-item[1]['score'], -item[0])
+                )[:15]
+            ]
             
             # 4. 如果匹配结果不足 15 个（比如全被短路过滤了），用最新的 ID 补齐兜底
             if len(top_recs) < 15:
-                used_ids = {rec[1] for rec in top_recs}
-                for db_id, _ in candidates_data:
+                used_ids = {rec['group_id'] for rec in top_recs}
+                for db_id, main_text, zh_text, negative_text in candidates_data:
                     if db_id not in used_ids:
-                        top_recs.append((0.0, db_id))
+                        matched_field, matched_text = pick_display_field(main_text, zh_text, negative_text)
+                        top_recs.append({
+                            'ratio': 0.0,
+                            'group_id': db_id,
+                            'matched_field': matched_field,
+                            'matched_text': matched_text,
+                        })
                         if len(top_recs) >= 15:
                             break
 
-        top_ids = [item[1] for item in top_recs]
+        top_ids = [item['group_id'] for item in top_recs]
         
         groups_dict = PromptGroup.objects.select_related('cover_image').prefetch_related('images', 'characters').in_bulk(top_ids)
         
         results = []
-        for ratio, group_id in top_recs:
+        for rec in top_recs:
+            ratio = rec['ratio']
+            group_id = rec['group_id']
             if group_id not in groups_dict:
                 continue
                 
@@ -2400,15 +2490,21 @@ def api_get_similar_groups_by_prompt(request):
             chars_list = []
             if hasattr(group, 'characters'):
                 chars_list = [char.name for char in group.characters.all()]
+
+            matched_prompt_text = rec['matched_text'] or group.prompt_text or group.prompt_text_zh or group.negative_prompt or '无提示词'
+            if len(matched_prompt_text) > 100:
+                matched_prompt_text = matched_prompt_text[:100] + '...'
                      
             results.append({
                 'id': group.id,
                 'title': group.title,
-                'prompt_text': group.prompt_text[:100] + '...' if group.prompt_text and len(group.prompt_text)>100 else (group.prompt_text or '无提示词'),
+                'prompt_text': matched_prompt_text,
                 'cover_url': cover_url,
                 'similarity': f"{int(ratio*100)}%" if len(prompt_text) > 0 else "-",
                 'model_info': group.model_info or "无模型",
-                'characters': chars_list
+                'characters': chars_list,
+                'matched_prompt_field': rec['matched_field'],
+                'matched_prompt_label': field_labels.get(rec['matched_field'], '提示词')
             })
             
         return JsonResponse({'status': 'success', 'results': results})

@@ -901,7 +901,7 @@ function performAppendSearch(q) {
     document.getElementById('appendModalSubtitle').innerText = `包含 "${q}" 的全库检索结果：`;
     container.innerHTML = '<div class="text-center text-muted py-5"><div class="spinner-border text-primary mb-3"></div><br>正在检索全库...</div>';
 
-    fetch(`/api/groups/?q=${encodeURIComponent(q)}`)
+    fetch(`/api/groups/?q=${encodeURIComponent(q)}&include_variants=1`)
     .then(res => res.json())
     .then(data => {
         if (data.results) {
@@ -1019,6 +1019,10 @@ function renderSimilarGroups(groups, currentModelName, isSearch = false) {
             });
         }
 
+        const matchedPromptBadge = (!isSearch && group.matched_prompt_label)
+            ? `<span class="badge bg-light text-secondary border fw-normal me-2" style="font-size: 0.75rem;"><i class="bi bi-chat-left-text me-1"></i>${group.matched_prompt_label}</span>`
+            : '';
+
         const activeCardClass = isCurrentSource ? "border-success border-2 bg-success bg-opacity-10" : "";
 
         const safeTitle = group.title 
@@ -1038,7 +1042,7 @@ function renderSimilarGroups(groups, currentModelName, isSearch = false) {
                 </div>
                 <div class="mb-0 text-truncate mt-1 d-flex align-items-center">
                     ${modelBadge}
-                    ${charBadges} <span class="small text-muted text-truncate">${group.prompt_text}</span>
+                    ${charBadges}${matchedPromptBadge}<span class="small text-muted text-truncate">${group.prompt_text}</span>
                 </div>
             </div>
         </a>`;
