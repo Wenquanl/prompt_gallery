@@ -1,4 +1,5 @@
 import os
+import math
 import time
 import difflib
 import uuid
@@ -9,6 +10,7 @@ import hashlib
 import fal_client
 import requests
 import base64
+import numpy as np
 from rapidfuzz import fuzz
 import warnings 
 import subprocess
@@ -19,15 +21,17 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
 from django.conf import settings
 from django.http import JsonResponse
+from django.urls import reverse
 from django.db.models import Q, Count, Case, When, IntegerField, Max, Prefetch
 from django.db import transaction
 from django.core.files.base import ContentFile
+from django.core.files.images import get_image_dimensions
 from django.core.paginator import Paginator
 from django.views.decorators.http import require_GET, require_POST
 from django.core.cache import cache
 from django.template.loader import render_to_string
 from django.views.decorators.csrf import csrf_exempt
-from .models import ImageItem, PromptGroup, Tag, AIModel, ReferenceItem, Character
+from .models import ImageItem, PromptGroup, Tag, AIModel, ReferenceItem, Character, PROVIDER_CHOICES
 from .forms import PromptGroupForm
 from .ai_utils import search_similar_images, generate_title_with_local_llm
 from .ai_providers import get_ai_provider
@@ -40,6 +44,139 @@ from .services import (
     trigger_background_processing,
     confirm_upload_images
 )
+
+DETAIL_SORT_MODES = {'similar', 'latest'}
+DETAIL_RATIO_FILTERS = {'all', 'landscape', 'portrait', 'square'}
+HIDDEN_MODEL_SUGGESTION_NAMES = {'GPT Image 2 官方'}
+LEGACY_MODEL_ALIAS_MAP = {
+    'GPT Image 2 官方': 'GPT Image 2',
+}
+
+
+def _normalize_detail_sort_mode(value):
+    if value in DETAIL_SORT_MODES:
+        return value
+    return 'similar'
+
+
+def _normalize_detail_ratio_filter(value):
+    if value in DETAIL_RATIO_FILTERS:
+        return value
+    return 'all'
+
+
+def _get_visible_model_suggestion_queryset():
+    return AIModel.objects.exclude(name__in=HIDDEN_MODEL_SUGGESTION_NAMES)
+
+
+def _cleanup_legacy_ai_studio_aliases():
+    for legacy_name, canonical_name in LEGACY_MODEL_ALIAS_MAP.items():
+        if legacy_name == canonical_name:
+            continue
+
+        if canonical_name:
+            AIModel.objects.get_or_create(name=canonical_name)
+
+        AIModel.objects.filter(name=legacy_name).delete()
+        Tag.objects.filter(name=legacy_name).delete()
+
+
+def _load_feature_vector(item):
+    if not item.feature_vector:
+        return None
+
+    try:
+        vector = np.frombuffer(item.feature_vector, dtype=np.float32)
+    except (TypeError, ValueError):
+        return None
+
+    if vector.size == 0:
+        return None
+
+    norm = np.linalg.norm(vector)
+    if not np.isfinite(norm) or norm <= 0:
+        return None
+
+    return vector / norm
+
+
+def _order_images_by_similarity(images):
+    if len(images) < 2:
+        return list(images)
+
+    vector_entries = []
+    trailing_images = []
+
+    for original_index, image in enumerate(images):
+        vector = _load_feature_vector(image)
+        if vector is None:
+            trailing_images.append((original_index, image))
+            continue
+        vector_entries.append((original_index, image, vector))
+
+    if len(vector_entries) < 2:
+        return list(images)
+
+    vectors = np.stack([entry[2] for entry in vector_entries]).astype(np.float32)
+    similarity_matrix = vectors @ vectors.T
+
+    remaining = set(range(len(vector_entries)))
+    ordered_positions = [0]
+    remaining.remove(0)
+    current_position = 0
+
+    while remaining:
+        next_position = max(
+            remaining,
+            key=lambda candidate: (
+                float(similarity_matrix[current_position, candidate]),
+                -vector_entries[candidate][0],
+            ),
+        )
+        ordered_positions.append(next_position)
+        remaining.remove(next_position)
+        current_position = next_position
+
+    ordered_images = [vector_entries[position][1] for position in ordered_positions]
+    ordered_images.extend(image for _, image in trailing_images)
+    return ordered_images
+
+
+def _get_detail_ratio_group(item):
+    if getattr(item, 'detail_ratio_group', None):
+        return item.detail_ratio_group
+
+    cache_token = item.image_hash or getattr(item.image, 'name', '') or f'image-{item.pk}'
+    cache_key = f'detail-ratio-group:{item.pk}:{cache_token}'
+    cached_ratio_group = cache.get(cache_key)
+    if cached_ratio_group:
+        item.detail_ratio_group = cached_ratio_group
+        return item.detail_ratio_group
+
+    if not item.image:
+        item.detail_ratio_group = 'unknown'
+        return item.detail_ratio_group
+
+    try:
+        width, height = get_image_dimensions(item.image)
+    except Exception:
+        width, height = (None, None)
+
+    if not width or not height:
+        item.detail_ratio_group = 'unknown'
+        return item.detail_ratio_group
+
+    aspect_ratio = width / height
+    if aspect_ratio > 1.05:
+        item.detail_ratio_group = 'landscape'
+    elif aspect_ratio < 0.95:
+        item.detail_ratio_group = 'portrait'
+    else:
+        item.detail_ratio_group = 'square'
+
+    cache.set(cache_key, item.detail_ratio_group, timeout=60 * 60 * 24 * 30)
+    return item.detail_ratio_group
+
 # 填写本地 ComfyUI 的启动批处理文件（.bat）绝对路径
 COMFYUI_BAT_PATH = r"E:\comfyUI\启动.bat"
 # ==========================================
@@ -51,45 +188,10 @@ AI_STUDIO_CONFIG = {
     'categories': [
         # 增加 'img_required': False，标记图片为可选
         {'id': 'multi', 'title': '🟢 多图融合', 'img_max': 10, 'img_required': False, 'img_help': '按住 Ctrl 键可多选垫图 (最多10张)，也可直接文生图'},
-        {'id': 'i2i', 'title': '🔵 图生图', 'img_max': 1, 'img_required': True, 'img_help': '当前为单图模式：【必须】上传 1 张参考图片'},
         {'id': 't2i', 'title': '🟠 文生图', 'img_max': 0, 'img_required': False, 'img_help': '纯文本模式，无需传图'},
     ],
     # 2. 具体模型定义
     'models': {
-        'flux-dev': {
-            'provider': 'fal_ai',
-            'category': 't2i',
-            'endpoint': 'fal-ai/bytedance/seedream/v4.5/text-to-image',
-            'title': 'Seedream 4.5-t2i (Fal)',
-            'desc': '文生图',
-            'params': [
-                {'id': 'num_images', 'label': '生成图数量', 'type': 'range', 'min': 1, 'max': 4, 'step': 1, 'default': 1},
-                {'id': 'max_images', 'label': '最大生成图数量', 'type': 'range', 'min': 1, 'max': 4, 'step': 1, 'default': 1},
-                {'id': 'image_size', 'label': '生成尺寸 (Size)', 'type': 'select', 'options': [
-                    {'value': 'auto_2K', 'text': '2K'},
-                    {'value': 'auto_4K', 'text': '4K'},
-                    {'value': 'portrait_16_9', 'text': '竖版 9:16'},
-                    {'value': 'portrait_4_3', 'text': '竖版 3:4'},
-                    {'value': 'landscape_16_9', 'text': '横版 16:9'},
-                    {'value': 'landscape_4_3', 'text': '横版 4:3'},
-                    {'value': 'landscape_16_9', 'text': '横版 16:9'},
-                    {'value': 'square_hd', 'text': '1:1 正方形 HD'},
-                    {'value': 'square', 'text': '1:1 正方形'}
-                ], 'default': 'auto_2K'},
-                {'id': 'enable_safety_checker', 'label': '启用安全检查', 'type': 'checkbox', 'default': False}
-            ]
-        },
-        'flux-dev-i2i': {
-            'provider': 'fal_ai',
-            'category': 'i2i',
-            'endpoint': 'fal-ai/flux/dev/image-to-image',
-            'title': 'Flux i2i',
-            'desc': 'Flux Dev 的图生图强化变体',
-            'params': [
-                {'id': 'strength', 'label': '重绘幅度 (Strength)', 'type': 'range', 'min': 0.1, 'max': 1.0, 'step': 0.05, 'default': 0.75},
-                {'id': 'num_inference_steps', 'label': '生成步数 (Steps)', 'type': 'range', 'min': 20, 'max': 50, 'step': 1, 'default': 28}
-            ]
-        },
         'seedream-5.0-lite-official': {
             'provider': 'volcengine',
             'category': 'multi',
@@ -398,8 +500,199 @@ AI_STUDIO_CONFIG = {
 
             ]
         },
+        'gpt-image-2-edit-fal': {
+            'provider': 'fal_ai',
+            'category': 'multi',
+            'endpoint': 'openai/gpt-image-2/edit',
+            'title': 'GPT Image 2 (Fal)',
+            'registry_name': 'GPT Image 2',
+            'desc': 'OpenAI 最新细粒度图像编辑模型，支持参考图与蒙版局部重绘',
+            'requires_base_images': True,
+            'base_images_help': '当前模型至少需要 1 张参考图片，支持最多 10 张图联合编辑',
+            'max_base_images': 10,
+            'custom_size_param': 'image_size',
+            'custom_size_format': 'object',
+            'supports_mask': True,
+            'mask_optional': True,
+            'file_params': [
+                {
+                    'id': 'mask_url',
+                    'label': '编辑蒙版',
+                    'accept': 'image/*',
+                    'required': False,
+                    'help_text': '上传黑白蒙版后，仅会编辑蒙版指定区域；不上传则对整张图执行智能编辑。'
+                }
+            ],
+            'params': [
+                {'id': 'num_images', 'label': '生成图数量', 'type': 'range', 'min': 1, 'max': 4, 'step': 1, 'default': 1},
+                {'id': 'image_size_mode', 'label': '尺寸控制', 'type': 'select', 'options': [
+                    {'value': 'auto', 'text': '自动匹配参考图'},
+                    {'value': 'custom', 'text': '自定义分辨率'}
+                ], 'default': 'custom'},
+                {'id': 'aspect_ratio', 'label': '画幅比例', 'type': 'select', 'options': [
+                    {'value': '1:1', 'text': '1:1 (正方形)'},
+                    {'value': '4:3', 'text': '4:3 (横版)'},
+                    {'value': '3:4', 'text': '3:4 (竖版)'},
+                    {'value': '16:9', 'text': '16:9 (横版)'},
+                    {'value': '9:16', 'text': '9:16 (竖版)'}
+                ], 'default': '9:16'},
+                {'id': 'resolution', 'label': '目标分辨率', 'type': 'select', 'options': [
+                    {'value': '1K', 'text': '1K 级别'},
+                    {'value': '2K', 'text': '2K 级别'},
+                    {'value': '4K', 'text': '4K 级别'}
+                ], 'default': '2K'},
+                {'id': 'quality', 'label': '生成质量', 'type': 'select', 'options': [
+                    {'value': 'low', 'text': 'Low'},
+                    {'value': 'medium', 'text': 'Medium'},
+                    {'value': 'high', 'text': 'High'}
+                ], 'default': 'medium'},
+                {'id': 'output_format', 'label': '输出格式', 'type': 'select', 'options': [
+                    {'value': 'png', 'text': 'PNG (默认)'},
+                    {'value': 'jpeg', 'text': 'JPEG'},
+                    {'value': 'webp', 'text': 'WebP'}
+                ], 'default': 'png'}
+            ]
+        },
+        'gpt-image-2-openai': {
+            'provider': 'openai',
+            'category': 'multi',
+            'endpoint': 'gpt-image-2',
+            'title': 'GPT Image 2 (官方)',
+            'registry_name': 'GPT Image 2',
+            'desc': 'OpenAI Images API 通道，支持文生图、参考图编辑与蒙版局部重绘',
+            'requires_base_images': False,
+            'base_images_help': '可直接文生图，也可上传最多 10 张参考图片进行编辑；如使用蒙版，必须先上传参考图',
+            'max_base_images': 10,
+            'custom_size_param': 'size',
+            'custom_size_format': 'string',
+            'supports_mask': True,
+            'mask_optional': True,
+            'file_params': [
+                {
+                    'id': 'mask_url',
+                    'label': '编辑蒙版',
+                    'accept': 'image/*',
+                    'required': False,
+                    'help_text': '仅在已上传参考图时可用。建议使用透明 PNG 蒙版；若上传普通黑白图，后端会自动补 alpha 通道。'
+                }
+            ],
+            'params': [
+                {'id': 'num_images', 'label': '生成图数量', 'type': 'range', 'min': 1, 'max': 4, 'step': 1, 'default': 1},
+                {'id': 'image_size_mode', 'label': '尺寸控制', 'type': 'select', 'options': [
+                    {'value': 'auto', 'text': '自动匹配最佳尺寸'},
+                    {'value': 'custom', 'text': '自定义分辨率'}
+                ], 'default': 'custom'},
+                {'id': 'aspect_ratio', 'label': '画幅比例', 'type': 'select', 'options': [
+                    {'value': '1:1', 'text': '1:1 (正方形)'},
+                    {'value': '4:3', 'text': '4:3 (横版)'},
+                    {'value': '3:4', 'text': '3:4 (竖版)'},
+                    {'value': '16:9', 'text': '16:9 (横版)'},
+                    {'value': '9:16', 'text': '9:16 (竖版)'}
+                ], 'default': '9:16'},
+                {'id': 'resolution', 'label': '目标分辨率', 'type': 'select', 'options': [
+                    {'value': '1K', 'text': '1K 级别'},
+                    {'value': '2K', 'text': '2K 级别'},
+                    {'value': '4K', 'text': '4K 级别'}
+                ], 'default': '2K'},
+                {'id': 'quality', 'label': '生成质量', 'type': 'select', 'options': [
+                    {'value': 'low', 'text': 'Low'},
+                    {'value': 'medium', 'text': 'Medium'},
+                    {'value': 'high', 'text': 'High'}
+                ], 'default': 'medium'},
+                {'id': 'output_format', 'label': '输出格式', 'type': 'select', 'options': [
+                    {'value': 'png', 'text': 'PNG (默认)'},
+                    {'value': 'jpeg', 'text': 'JPEG'},
+                    {'value': 'webp', 'text': 'WebP'}
+                ], 'default': 'png'},
+                {'id': 'moderation', 'label': '内容审核', 'type': 'select', 'options': [
+                    {'value': 'auto', 'text': 'Auto (默认)'},
+                    {'value': 'low', 'text': 'Low (更宽松)'}
+                ], 'default': 'auto'},
+                {'id': 'background', 'label': '背景模式', 'type': 'select', 'options': [
+                    {'value': 'auto', 'text': 'Auto'},
+                    {'value': 'opaque', 'text': 'Opaque'}
+                ], 'default': 'auto'}
+            ]
+        },
     }
 }
+
+
+def _get_ai_studio_registry_name(model_config):
+    registry_name = (model_config.get('registry_name') or '').strip()
+    if registry_name:
+        return registry_name
+
+    raw_title = (model_config.get('title') or '').strip()
+    if not raw_title:
+        return ''
+
+    return re.sub(r'\s*[\(（].*?[\)）]$', '', raw_title).strip()
+
+
+def ensure_ai_studio_model_labels_registered():
+    _cleanup_legacy_ai_studio_aliases()
+
+    for model_config in AI_STUDIO_CONFIG.get('models', {}).values():
+        model_name = _get_ai_studio_registry_name(model_config)
+        if not model_name:
+            continue
+        AIModel.objects.get_or_create(name=model_name)
+        Tag.objects.get_or_create(name=model_name)
+
+
+def _round_to_multiple_of_16(value):
+    return max(16, int(round(float(value) / 16.0)) * 16)
+
+
+def _build_gpt_image_2_custom_size(size_mode, aspect_ratio, resolution, output_format='object'):
+    if size_mode != 'custom':
+        return 'auto'
+
+    aspect_options = {
+        '1:1': (1, 1),
+        '4:3': (4, 3),
+        '3:4': (3, 4),
+        '16:9': (16, 9),
+        '9:16': (9, 16),
+    }
+    target_pixels = {
+        '1K': 1024 * 1024,
+        '2K': 2048 * 2048,
+        '4K': 3840 * 2160,
+    }
+
+    ratio = aspect_options.get(aspect_ratio)
+    pixel_budget = target_pixels.get(resolution)
+    if not ratio or not pixel_budget:
+        return 'auto'
+
+    ratio_width, ratio_height = ratio
+    width = math.sqrt(pixel_budget * ratio_width / ratio_height)
+    height = math.sqrt(pixel_budget * ratio_height / ratio_width)
+
+    width = _round_to_multiple_of_16(width)
+    height = _round_to_multiple_of_16(height)
+
+    max_edge = 3840
+    max_pixels = 8_294_400
+    current_pixels = width * height
+    if width > max_edge or height > max_edge or current_pixels > max_pixels:
+        scale = min(
+            max_edge / width,
+            max_edge / height,
+            math.sqrt(max_pixels / current_pixels),
+        )
+        width = _round_to_multiple_of_16(width * scale)
+        height = _round_to_multiple_of_16(height * scale)
+
+    if output_format == 'string':
+        return f'{width}x{height}'
+
+    return {
+        'width': width,
+        'height': height,
+    }
 
 # ==========================================
 # 辅助函数
@@ -410,6 +703,8 @@ def get_tags_bar_data():
     cached_data = cache.get(cache_key)
     if cached_data:
         return cached_data
+
+    ensure_ai_studio_model_labels_registered()
 
     from django.db.models import Count
     model_stats = PromptGroup.objects.values('model_info').annotate(
@@ -608,11 +903,90 @@ def generate_smart_title(prompt_text):
     # 【日志提示】：连正则都没截出来
     print(f"ℹ️ [标题生成] 兜底提取失败，使用默认标题")
     return "AI 独立创作"
+
+
+def normalize_prompt_items(raw_prompts):
+    return PromptGroup.normalize_prompts(raw_prompts)
+
+
+def find_duplicate_prompt_texts(prompt_items):
+    seen = {}
+    duplicates = []
+
+    for item in prompt_items or []:
+        original_text = str((item or {}).get('text', '')).strip()
+        if not original_text:
+            continue
+
+        normalized_text = re.sub(r'\s+', ' ', original_text).strip().lower()
+        if not normalized_text:
+            continue
+
+        if normalized_text in seen:
+            if seen[normalized_text] not in duplicates:
+                duplicates.append(seen[normalized_text])
+            if original_text not in duplicates:
+                duplicates.append(original_text)
+            continue
+
+        seen[normalized_text] = original_text
+
+    return duplicates
+
+
+def extract_prompt_items_from_mapping(mapping):
+    raw_prompts = None
+
+    prompts_json = mapping.get('prompts_json') if hasattr(mapping, 'get') else None
+    if prompts_json:
+        try:
+            raw_prompts = json.loads(prompts_json)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            raw_prompts = None
+
+    if raw_prompts is None and hasattr(mapping, 'get'):
+        direct_prompts = mapping.get('prompts')
+        if isinstance(direct_prompts, list):
+            raw_prompts = direct_prompts
+        elif isinstance(direct_prompts, str) and direct_prompts.strip():
+            try:
+                raw_prompts = json.loads(direct_prompts)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                raw_prompts = [direct_prompts]
+
+    if raw_prompts is None and hasattr(mapping, 'getlist'):
+        prompt_list = [item for item in mapping.getlist('prompts') if str(item or '').strip()]
+        if prompt_list:
+            raw_prompts = prompt_list
+
+    prompt_items = normalize_prompt_items(raw_prompts)
+    if prompt_items:
+        return prompt_items
+
+    return PromptGroup.build_prompts_from_legacy_fields(
+        mapping.get('prompt_text', '') if hasattr(mapping, 'get') else '',
+        mapping.get('prompt_text_zh', '') if hasattr(mapping, 'get') else '',
+        mapping.get('negative_prompt', '') if hasattr(mapping, 'get') else '',
+    )
+
+
+def get_primary_prompt_text(prompt_items):
+    if prompt_items:
+        return prompt_items[0]['text']
+    return ''
+
+
+def get_prompt_summary_text(group, max_length=100):
+    text = group.get_primary_prompt_text() or ''
+    if len(text) > max_length:
+        return text[:max_length] + '...'
+    return text
 # ==========================================
 # 视图函数
 # ==========================================
 
 def home(request):
+    ensure_ai_studio_model_labels_registered()
     queryset = PromptGroup.objects.all()
     query = request.GET.get('q')
     filter_type = request.GET.get('filter')
@@ -704,8 +1078,7 @@ def home(request):
             print(f"⚠️ Meilisearch 搜索不可用，降级为原生数据库查询: {e}")
             queryset = queryset.filter(
                 Q(title__icontains=query) |
-                Q(prompt_text__icontains=query) |
-                Q(prompt_text_zh__icontains=query) |
+                Q(searchable_prompts__icontains=query) |
                 Q(model_info__icontains=query) |       
                 Q(characters__name__icontains=query) | 
                 Q(tags__name__icontains=query)
@@ -774,7 +1147,7 @@ def home(request):
     tags_bar = get_tags_bar_data()
 
     # 获取所有的模型名称列表
-    model_names_list = list(AIModel.objects.values_list('name', flat=True))
+    model_names_list = list(_get_visible_model_suggestion_queryset().values_list('name', flat=True))
     
     # 获取各维度筛选项并统计卡片数量 (过滤掉没有作品被关联的空标签/人物)
     filter_data = {
@@ -870,7 +1243,7 @@ def liked_images_gallery(request):
     elif query_text:
         queryset = queryset.filter(
             Q(group__title__icontains=query_text) |
-            Q(group__prompt_text__icontains=query_text) |
+            Q(group__searchable_prompts__icontains=query_text) |
             Q(group__model_info__icontains=query_text) |       # 【新增】支持搜模型
             Q(group__characters__name__icontains=query_text) | # 【新增】支持搜人物
             Q(group__tags__name__icontains=query_text)
@@ -892,6 +1265,10 @@ def liked_images_gallery(request):
 
 
 def detail(request, pk):
+    ensure_ai_studio_model_labels_registered()
+    sort_mode = _normalize_detail_sort_mode(request.GET.get('sort'))
+    ratio_filter = _normalize_detail_ratio_filter(request.GET.get('ratio'))
+
     group = get_object_or_404(
         PromptGroup.objects.prefetch_related(
             'tags', 
@@ -912,8 +1289,7 @@ def detail(request, pk):
     if query:
         nav_qs = nav_qs.filter(
             Q(title__icontains=query) |
-            Q(prompt_text__icontains=query) |
-            Q(prompt_text_zh__icontains=query) |
+            Q(searchable_prompts__icontains=query) |
             Q(model_info__icontains=query) |       # 【新增】支持搜模型
             Q(characters__name__icontains=query) | # 【新增】支持搜人物
             Q(tags__name__icontains=query)
@@ -951,8 +1327,36 @@ def detail(request, pk):
 
     # 拆分图片和视频
     all_items = group.images.all()
-    images_list = [item for item in all_items if not item.is_video]
+    latest_images_list = [item for item in all_items if not item.is_video]
+    similar_images_list = _order_images_by_similarity(latest_images_list)
+
+    for index, item in enumerate(latest_images_list):
+        item.detail_sort_latest_order = index
+
+    for index, item in enumerate(similar_images_list):
+        item.detail_sort_similar_order = index
+
+    images_list = similar_images_list if sort_mode == 'similar' else latest_images_list
     videos_list = [item for item in all_items if item.is_video]
+
+    gallery_media_json = json.dumps([
+        {
+            'url': item.image.url,
+            'id': item.pk,
+            'isLiked': item.is_liked,
+            'isVideo': item.is_video,
+        }
+        for item in [*images_list, *videos_list]
+        if item.image
+    ], ensure_ascii=False)
+
+    detail_config_json = json.dumps({
+        'groupId': str(group.pk or ''),
+        'rawPromptContent': group.prompt_text or group.title or '',
+        'sortMode': sort_mode,
+        'ratioFilter': ratio_filter,
+        'ratioGroupsUrl': reverse('detail_ratio_groups', args=[group.pk]),
+    }, ensure_ascii=False)
     
     tags_list = list(group.tags.all())
     chars_list = list(group.characters.all()) if hasattr(group, 'characters') else []
@@ -979,10 +1383,10 @@ def detail(request, pk):
     ).exclude(pk=group.pk).order_by('-created_at')
     
     siblings = []
-    current_prompt = group.prompt_text or ""
+    current_prompt = group.searchable_prompts or group.prompt_text or ""
     
     for sib in siblings_qs:
-        sib_prompt = sib.prompt_text or ""
+        sib_prompt = sib.searchable_prompts or sib.prompt_text or ""
         sib.diff_html = generate_diff_html(current_prompt, sib_prompt)
         siblings.append(sib)
 
@@ -1004,7 +1408,8 @@ def detail(request, pk):
         ).distinct().select_related('cover_image').prefetch_related('images')[:4]
     
     tags_bar = get_tags_bar_data()
-    all_models_list = AIModel.objects.values_list('name', flat=True).order_by('name')
+    all_models_list = _get_visible_model_suggestion_queryset().values_list('name', flat=True).order_by('name')
+    provider_choices = list(PROVIDER_CHOICES)
 
     # char_refs_data = []
     # all_chars_for_ref = Character.objects.all().order_by('-order', 'name')
@@ -1042,6 +1447,8 @@ def detail(request, pk):
     return render(request, 'gallery/detail.html', {
         'all_models_list': all_models_list,        
         'group': group,
+        'prompt_entries': group.get_prompt_items(),
+        'prompt_entries_json': json.dumps(group.get_prompt_items(), ensure_ascii=False),
         'sorted_tags': tags_list,
         'chars_list': chars_list,
         'all_tags': all_tags,
@@ -1051,17 +1458,40 @@ def detail(request, pk):
         'search_query': request.GET.get('q'),
         'images_list': images_list,
         'videos_list': videos_list,
+        'sort_mode': sort_mode,
+        'ratio_filter': ratio_filter,
+        'gallery_media_json': gallery_media_json,
+        'detail_config_json': detail_config_json,
         'prev_group': prev_group,
         'next_group': next_group,
         'char_refs_data': char_refs_data,
+        'provider_choices': provider_choices,
     })
 
 
+@require_GET
+def detail_ratio_groups(request, pk):
+    group = get_object_or_404(
+        PromptGroup.objects.prefetch_related(
+            Prefetch('images', queryset=ImageItem.objects.order_by('-id')),
+        ),
+        pk=pk,
+    )
+
+    ratio_groups = {}
+    for item in group.images.all():
+        if item.is_video:
+            continue
+        ratio_groups[str(item.pk)] = _get_detail_ratio_group(item)
+
+    return JsonResponse({'status': 'success', 'ratio_groups': ratio_groups})
+
+
 def upload(request):
+    ensure_ai_studio_model_labels_registered()
     if request.method == 'POST':
-        prompt_text = request.POST.get('prompt_text', '')
-        prompt_text_zh = request.POST.get('prompt_text_zh', '')
-        negative_prompt = request.POST.get('negative_prompt', '')
+        prompt_items = extract_prompt_items_from_mapping(request.POST)
+        prompt_text = get_primary_prompt_text(prompt_items)
         title = request.POST.get('title', '') or '未命名组'
         model_id = request.POST.get('model_info')
         provider = request.POST.get('provider', 'other')
@@ -1082,8 +1512,7 @@ def upload(request):
         group = PromptGroup.objects.create(
             title=title,
             prompt_text=prompt_text,
-            prompt_text_zh=prompt_text_zh,
-            negative_prompt=negative_prompt,
+            prompts=prompt_items,
             model_info=model_name_str,
             provider=provider,
         )
@@ -1218,6 +1647,7 @@ def upload(request):
         # === GET 请求：渲染上传页面 ===
         batch_id = request.GET.get('batch_id')
         temp_files_preview = []
+        initial_prompt_entries = PromptGroup.build_prompts_from_legacy_fields('', '', '')
         
         if batch_id:
             temp_dir = get_temp_dir(batch_id)
@@ -1243,16 +1673,25 @@ def upload(request):
         if template_id:
             try:
                 source_group = PromptGroup.objects.get(pk=template_id)
+                source_prompt_items = source_group.get_prompt_items()
+                initial_prompt_entries = source_prompt_items
                 initial_data = {
                     'title': source_group.title, # 可以选择加上 ' (新模型)' 后缀
-                    'prompt_text': source_group.prompt_text,
-                    'prompt_text_zh': source_group.prompt_text_zh,
-                    'negative_prompt': source_group.negative_prompt,
+                    'prompt_text': source_prompt_items[0]['text'] if len(source_prompt_items) >= 1 else '',
+                    'prompt_text_zh': source_prompt_items[1]['text'] if len(source_prompt_items) >= 2 else '',
+                    'negative_prompt': source_prompt_items[2]['text'] if len(source_prompt_items) >= 3 else '',
+                    'prompts_json': json.dumps(source_prompt_items, ensure_ascii=False),
                     'tags': source_group.tags.all(),
                     # 注意：不预填充 model_info，强制用户选择新模型
                 }
             except PromptGroup.DoesNotExist:
                 pass
+        else:
+            initial_prompt_entries = PromptGroup.build_prompts_from_legacy_fields(
+                initial_data.get('prompt_text', ''),
+                initial_data.get('prompt_text_zh', ''),
+                initial_data.get('negative_prompt', ''),
+            )
         
         # char_refs_data = []
         # all_chars_for_ref = Character.objects.all().order_by('-order', 'name')
@@ -1289,6 +1728,7 @@ def upload(request):
             'temp_files': temp_files_json,
             'source_group': source_group,
             'char_refs_data': char_refs_data,
+            'initial_prompt_entries_json': json.dumps(initial_prompt_entries, ensure_ascii=False),
         })
 
 
@@ -1639,12 +2079,26 @@ def update_group_prompts(request, pk):
         data = json.loads(request.body)
         if 'title' in data:
             group.title = data['title']
-        if 'prompt_text' in data:
-            group.prompt_text = data['prompt_text']
-        if 'prompt_text_zh' in data:
-            group.prompt_text_zh = data['prompt_text_zh']
-        if 'negative_prompt' in data:
-            group.negative_prompt = data['negative_prompt']
+        if 'prompts' in data:
+            group.prompts = normalize_prompt_items(data.get('prompts'))
+        elif any(key in data for key in ['prompt_text', 'prompt_text_zh', 'negative_prompt']):
+            legacy_prompt_items = PromptGroup.build_prompts_from_legacy_fields(
+                data['prompt_text'] if 'prompt_text' in data else group.prompt_text,
+                data['prompt_text_zh'] if 'prompt_text_zh' in data else group.prompt_text_zh,
+                data['negative_prompt'] if 'negative_prompt' in data else group.negative_prompt,
+            )
+            group.prompts = legacy_prompt_items
+
+        duplicate_prompts = find_duplicate_prompt_texts(group.prompts)
+        if duplicate_prompts:
+            duplicate_preview = '；'.join(duplicate_prompts[:3])
+            if len(duplicate_prompts) > 3:
+                duplicate_preview += '；...'
+            return JsonResponse({
+                'status': 'error',
+                'message': f'提示词组中存在重复内容，请删除重复项后再保存：{duplicate_preview}'
+            }, status=400)
+
         if 'model_info' in data:
             group.model_info = data['model_info']
         if 'provider' in data:                    
@@ -1721,9 +2175,7 @@ def group_list_api(request):
     if query:
         search_filter = (
             Q(title__icontains=query) |
-            Q(prompt_text__icontains=query) |
-            Q(prompt_text_zh__icontains=query) |
-            Q(negative_prompt__icontains=query) |
+            Q(searchable_prompts__icontains=query) |
             Q(model_info__icontains=query) |       # 加上模型搜索
             Q(characters__name__icontains=query) | # 加上人物搜索
             Q(tags__name__icontains=query)
@@ -1797,7 +2249,7 @@ def group_list_api(request):
         data.append({
             'id': group.id,
             'title': group.title,
-            'prompt_text': (group.prompt_text[:100] + '...') if group.prompt_text and len(group.prompt_text) > 100 else (group.prompt_text or ''),
+            'prompt_text': get_prompt_summary_text(group),
             'created_at': group.created_at.strftime('%Y-%m-%d'),
             'cover_url': cover_url,
             'model_info': group.model_info or '',
@@ -1918,7 +2370,7 @@ def get_similar_candidates(request, pk):
     except PromptGroup.DoesNotExist:
         return JsonResponse({'status': 'error', 'message': 'Group not found'})
 
-    my_content = (current_group.prompt_text or "").strip().lower()
+    my_content = (current_group.searchable_prompts or current_group.prompt_text or "").strip().lower()
     if len(my_content) < 5:
          return JsonResponse({'status': 'success', 'results': []})
 
@@ -1930,7 +2382,7 @@ def get_similar_candidates(request, pk):
     # 【核心优化1】：用 values_list 只取 id 和 文本，不取完整对象
     candidates_data = PromptGroup.objects.filter(id__in=latest_ids).exclude(
         group_id=current_group.group_id
-    ).values_list('id', 'prompt_text').order_by('-id')[:1000]
+    ).values_list('id', 'searchable_prompts').order_by('-id')[:1000]
     
     recommendations = []
     
@@ -1993,7 +2445,7 @@ def get_similar_candidates(request, pk):
         results.append({
             'id': group.id,
             'title': group.title,
-            'prompt_text': group.prompt_text[:200] if group.prompt_text else '',
+            'prompt_text': get_prompt_summary_text(group, max_length=200),
             'cover_url': cover_url,
             'similarity': f"{int(ratio*100)}%" 
         })
@@ -2034,26 +2486,31 @@ def add_ai_model(request):
 @require_GET
 def create_view(request):
     """渲染 AI 独立创作工作室页面，并将配置和初始数据注入前端"""
+    ensure_ai_studio_model_labels_registered()
     template_id = request.GET.get('template_id')
     prompt_type = request.GET.get('prompt_type', 'positive')
+    model_names = set(AIModel.objects.values_list('name', flat=True))
     
     initial_data = {'prompt': '', 'tags': [], 'characters': [], 'reference_urls': []}
     
     if template_id:
         try:
             source_group = PromptGroup.objects.get(pk=template_id)
+            source_prompt_items = source_group.get_prompt_items()
             
             selected_prompt = ""
-            if prompt_type == 'positive' and source_group.prompt_text:
-                selected_prompt = source_group.prompt_text
-            elif prompt_type == 'positive_zh' and source_group.prompt_text_zh:
-                selected_prompt = source_group.prompt_text_zh
-            elif prompt_type == 'negative' and source_group.negative_prompt:
-                selected_prompt = source_group.negative_prompt
+            legacy_type_to_index = {'positive': 0, 'positive_zh': 1, 'negative': 2}
+            if prompt_type.isdigit():
+                prompt_index = max(int(prompt_type) - 1, 0)
             else:
-                selected_prompt = source_group.prompt_text or source_group.prompt_text_zh or ""
+                prompt_index = legacy_type_to_index.get(prompt_type, 0)
+
+            if 0 <= prompt_index < len(source_prompt_items):
+                selected_prompt = source_prompt_items[prompt_index]['text']
+            else:
+                selected_prompt = source_group.get_primary_prompt_text()
                 
-            tags = [tag.name for tag in source_group.tags.all()]
+            tags = [tag.name for tag in source_group.tags.all() if tag.name not in model_names]
 
             chars = []
             if hasattr(source_group, 'characters'):
@@ -2088,6 +2545,7 @@ def create_view(request):
                     
             initial_data = {
                 'prompt': selected_prompt, 
+                'prompts': source_prompt_items,
                 'tags': tags, 
                 'characters': chars,
                 'reference_urls': ref_urls,
@@ -2097,7 +2555,11 @@ def create_view(request):
             pass
 
     # 【新增】获取全库所有已有的标签名称列表
-    all_tags = list(Tag.objects.values_list('name', flat=True).distinct())
+    all_tags = list(
+        Tag.objects.exclude(name__in=model_names)
+        .values_list('name', flat=True)
+        .distinct()
+    )
     all_chars = []
     try:
         from .models import Character
@@ -2147,6 +2609,10 @@ def api_generate_and_download(request):
             return JsonResponse({'status': 'error', 'message': f'未知的模型: {model_choice}'})
 
         category_id = model_config['category']
+        cat_config = next((cat for cat in AI_STUDIO_CONFIG['categories'] if cat['id'] == category_id), {})
+        img_max = model_config.get('max_base_images', cat_config.get('img_max', 0))
+        img_required = model_config.get('requires_base_images', cat_config.get('img_required', True))
+        file_param_configs = model_config.get('file_params', [])
         
         # 1. 获取默认参数
         api_args = {}
@@ -2172,19 +2638,40 @@ def api_generate_and_download(request):
                 except ValueError:
                     pass 
 
+        custom_size_param = model_config.get('custom_size_param')
+        if custom_size_param:
+            api_args[custom_size_param] = _build_gpt_image_2_custom_size(
+                api_args.get('image_size_mode', 'custom'),
+                api_args.get('aspect_ratio', '9:16'),
+                api_args.get('resolution', '2K'),
+                output_format=model_config.get('custom_size_format', 'object'),
+            )
+            api_args.pop('image_size_mode', None)
+            api_args.pop('aspect_ratio', None)
+            api_args.pop('resolution', None)
+
         # 3. 获取上传图片列表 (控制最大张数)
         files_to_upload = []
-        cat_config = next((cat for cat in AI_STUDIO_CONFIG['categories'] if cat['id'] == category_id), {})
-        img_max = cat_config.get('img_max', 0)
-        img_required = cat_config.get('img_required', True) # 默认需要图片
 
         if img_max > 0:
             # 只有在强制需要图片且未上传时才拦截
             if img_required and not base_image_files:
-                return JsonResponse({'status': 'error', 'message': '该模型分类需要至少上传一张参考图片'})
+                return JsonResponse({'status': 'error', 'message': '当前模型至少需要上传一张参考图片'})
             # 如果上传了图片，则截取最大数量；没上传则保留空列表进行文生图
             if base_image_files:
                 files_to_upload = base_image_files[:img_max]
+
+        extra_files = {}
+        for file_param in file_param_configs:
+            file_obj = request.FILES.get(file_param['id'])
+            if file_obj:
+                extra_files[file_param['id']] = file_obj
+                continue
+            if file_param.get('required'):
+                return JsonResponse({'status': 'error', 'message': f"请上传{file_param.get('label', file_param['id'])}"})
+
+        if extra_files.get('mask_url') and not files_to_upload:
+            return JsonResponse({'status': 'error', 'message': '使用编辑蒙版前请先上传一张参考图片'})
 
         # ==========================================
         # 核心修改点：使用适配器模式请求云端，解耦第三方 SDK
@@ -2196,7 +2683,7 @@ def api_generate_and_download(request):
         
         try:
             # 获取统一格式的图片 URL 列表
-            generated_urls = provider.generate(model_config, api_args, files_to_upload)
+            generated_urls = provider.generate(model_config, api_args, files_to_upload, extra_files=extra_files)
         except Exception as e:
             error_str = str(e)
             # 针对火山引擎敏感内容拦截的专项友好提示
@@ -2268,7 +2755,8 @@ def api_generate_and_download(request):
 def api_publish_studio_creation(request):
     """处理从 AI 创作室一键发布作品卡片的请求"""
     try:
-        prompt = request.POST.get('prompt', '').strip()
+        prompt_items = extract_prompt_items_from_mapping(request.POST)
+        prompt = get_primary_prompt_text(prompt_items)
         model_info = request.POST.get('model_info', '').strip()
         title = request.POST.get('title', '').strip()
         provider = request.POST.get('provider', 'other').strip()
@@ -2290,6 +2778,7 @@ def api_publish_studio_creation(request):
         group = PromptGroup.objects.create(
             title=title,
             prompt_text=prompt,
+            prompts=prompt_items,
             model_info=clean_model_info,
             provider=provider
         )
@@ -2350,60 +2839,54 @@ def api_get_similar_groups_by_prompt(request):
     try:
         data = json.loads(request.body)
         prompt_text = data.get('prompt', '').strip().lower()
-        field_labels = {
-            'prompt_text': '主提示词',
-            'prompt_text_zh': '中文提示词',
-            'negative_prompt': '负向提示词',
-        }
-
-        def pick_display_field(main_text, zh_text, negative_text):
-            for field_name, raw_text in [
-                ('prompt_text', main_text),
-                ('prompt_text_zh', zh_text),
-                ('negative_prompt', negative_text),
-            ]:
-                normalized_text = (raw_text or '').strip()
-                if normalized_text:
-                    return field_name, normalized_text
-            return 'prompt_text', ''
+        def build_prompt_meta(prompt_items):
+            meta = []
+            for index, item in enumerate(prompt_items, start=1):
+                meta.append({
+                    'field': item.get('id', f'prompt_{index}'),
+                    'label': item.get('label', f'提示词{index}'),
+                    'text': item.get('text', ''),
+                })
+            return meta
         
-        # 1. 直接获取前 2000 条的核心提示词字段
-        candidates_data = list(
-            PromptGroup.objects.values_list(
-                'id', 'prompt_text', 'prompt_text_zh', 'negative_prompt'
-            ).order_by('-id')[:2000]
+        candidate_groups = list(
+            PromptGroup.objects.only('id', 'prompts', 'prompt_text', 'prompt_text_zh', 'negative_prompt')
+            .order_by('-id')[:2000]
         )
         
         if not prompt_text:
             # 如果没传提示词，直接按最新时间返回兜底数据
             top_recs = []
-            for db_id, main_text, zh_text, negative_text in candidates_data[:15]:
-                matched_field, matched_text = pick_display_field(main_text, zh_text, negative_text)
+            for group in candidate_groups[:15]:
+                prompt_meta = build_prompt_meta(group.get_prompt_items())
+                matched_meta = prompt_meta[0] if prompt_meta else {
+                    'field': 'prompt_1',
+                    'label': '提示词1',
+                    'text': '',
+                }
                 top_recs.append({
                     'ratio': 0.0,
-                    'group_id': db_id,
-                    'matched_field': matched_field,
-                    'matched_text': matched_text,
+                    'group_id': group.id,
+                    'matched_field': matched_meta['field'],
+                    'matched_label': matched_meta['label'],
+                    'matched_text': matched_meta['text'],
                 })
         else:
-            # 2. 将主提示词、中文提示词、负向提示词全部纳入匹配池
+            # 2. 将统一提示词列表里的每一项全部纳入匹配池
             valid_choices = {}
             choice_meta = {}
-            for db_id, main_text, zh_text, negative_text in candidates_data:
-                candidate_fields = {
-                    'prompt_text': main_text,
-                    'prompt_text_zh': zh_text,
-                    'negative_prompt': negative_text,
-                }
-                for field_name, raw_text in candidate_fields.items():
-                    normalized_text = (raw_text or '').strip().lower()
+            for group in candidate_groups:
+                for prompt_meta in build_prompt_meta(group.get_prompt_items()):
+                    raw_text = prompt_meta['text']
+                    normalized_text = raw_text.strip().lower()
                     if normalized_text:
-                        choice_key = f'{db_id}:{field_name}'
+                        choice_key = f'{group.id}:{prompt_meta["field"]}'
                         valid_choices[choice_key] = normalized_text
                         choice_meta[choice_key] = {
-                            'group_id': db_id,
-                            'field_name': field_name,
-                            'raw_text': (raw_text or '').strip(),
+                            'group_id': group.id,
+                            'field_name': prompt_meta['field'],
+                            'field_label': prompt_meta['label'],
+                            'raw_text': raw_text.strip(),
                         }
                     
             # 3. 批量计算多个字段的相似度，再按组聚合取最高分
@@ -2423,6 +2906,7 @@ def api_get_similar_groups_by_prompt(request):
                     best_scores[group_id] = {
                         'score': score,
                         'matched_field': meta['field_name'],
+                        'matched_label': meta['field_label'],
                         'matched_text': meta['raw_text'],
                     }
 
@@ -2431,6 +2915,7 @@ def api_get_similar_groups_by_prompt(request):
                     'ratio': match_info['score'] / 100.0,
                     'group_id': group_id,
                     'matched_field': match_info['matched_field'],
+                    'matched_label': match_info['matched_label'],
                     'matched_text': match_info['matched_text'],
                 }
                 for group_id, match_info in sorted(
@@ -2442,14 +2927,20 @@ def api_get_similar_groups_by_prompt(request):
             # 4. 如果匹配结果不足 15 个（比如全被短路过滤了），用最新的 ID 补齐兜底
             if len(top_recs) < 15:
                 used_ids = {rec['group_id'] for rec in top_recs}
-                for db_id, main_text, zh_text, negative_text in candidates_data:
-                    if db_id not in used_ids:
-                        matched_field, matched_text = pick_display_field(main_text, zh_text, negative_text)
+                for group in candidate_groups:
+                    if group.id not in used_ids:
+                        prompt_meta = build_prompt_meta(group.get_prompt_items())
+                        matched_meta = prompt_meta[0] if prompt_meta else {
+                            'field': 'prompt_1',
+                            'label': '提示词1',
+                            'text': '',
+                        }
                         top_recs.append({
                             'ratio': 0.0,
-                            'group_id': db_id,
-                            'matched_field': matched_field,
-                            'matched_text': matched_text,
+                            'group_id': group.id,
+                            'matched_field': matched_meta['field'],
+                            'matched_label': matched_meta['label'],
+                            'matched_text': matched_meta['text'],
                         })
                         if len(top_recs) >= 15:
                             break
@@ -2504,7 +2995,7 @@ def api_get_similar_groups_by_prompt(request):
                 'model_info': group.model_info or "无模型",
                 'characters': chars_list,
                 'matched_prompt_field': rec['matched_field'],
-                'matched_prompt_label': field_labels.get(rec['matched_field'], '提示词')
+                'matched_prompt_label': rec.get('matched_label', '提示词1')
             })
             
         return JsonResponse({'status': 'success', 'results': results})

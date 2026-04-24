@@ -8,6 +8,11 @@ let imageModal = null;
 // 独立存储详情页模态框中的文件
 let modalGenFiles = [];
 let modalRefFiles = [];
+let detailLayoutFrameId = null;
+let detailLayoutRestoreFrameId = null;
+let detailGridTransitionTimeoutId = null;
+let detailRatioGroupsPromise = null;
+let detailRatioGroupsLoaded = false;
 
 // === 多选关联状态 ===
 let selectedLinkIds = new Set();
@@ -17,6 +22,388 @@ function getCurrentGroupId() {
     // 【修改】正则表达式改为同时支持 /detail/ 和 /image/ 路径
     const match = location.pathname.match(/\/(?:detail|image)\/(\d+)/);
     return match ? parseInt(match[1]) : null;
+}
+
+function getDetailPageConfig() {
+    const fallback = {
+        groupId: null,
+        rawPromptContent: 'image',
+        sortMode: 'similar',
+        ratioFilter: 'all',
+        ratioGroupsUrl: null,
+    };
+
+    const configEl = document.getElementById('detail-config-data');
+    if (!configEl) {
+        return fallback;
+    }
+
+    try {
+        return { ...fallback, ...JSON.parse(configEl.textContent) };
+    } catch (error) {
+        console.error('Failed to parse detail config:', error);
+        return fallback;
+    }
+}
+
+function applyDetailRatioGroups(ratioGroups) {
+    Object.entries(ratioGroups || {}).forEach(([imageId, ratioGroup]) => {
+        const card = document.querySelector(`#detail-masonry-grid-images .grid-item[data-img-id="${imageId}"]`);
+        if (card && ratioGroup) {
+            card.dataset.ratioGroup = ratioGroup;
+        }
+    });
+}
+
+function ensureDetailRatioGroupsLoaded() {
+    if (detailRatioGroupsLoaded) {
+        return Promise.resolve();
+    }
+
+    if (detailRatioGroupsPromise) {
+        return detailRatioGroupsPromise;
+    }
+
+    const detailConfig = window.detailConfig || getDetailPageConfig();
+    if (!detailConfig.ratioGroupsUrl) {
+        return Promise.resolve();
+    }
+
+    detailRatioGroupsPromise = fetch(detailConfig.ratioGroupsUrl, {
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+    })
+        .then((response) => {
+            if (!response.ok) {
+                throw new Error(`Failed to load detail ratio groups: ${response.status}`);
+            }
+            return response.json();
+        })
+        .then((payload) => {
+            if (payload.status === 'success') {
+                applyDetailRatioGroups(payload.ratio_groups);
+                detailRatioGroupsLoaded = true;
+            }
+        })
+        .catch((error) => {
+            console.error(error);
+        })
+        .finally(() => {
+            if (!detailRatioGroupsLoaded) {
+                detailRatioGroupsPromise = null;
+            }
+        });
+
+    return detailRatioGroupsPromise;
+}
+
+function warmDetailRatioGroupsInBackground() {
+    const startWarmup = () => {
+        ensureDetailRatioGroupsLoaded().then(() => {
+            if ((window.currentDetailRatioFilter || 'all') !== 'all') {
+                applyDetailRatioFilter(window.currentDetailRatioFilter || 'all', { syncUrl: false, animate: false });
+            }
+        });
+    };
+
+    if (typeof window.requestIdleCallback === 'function') {
+        window.requestIdleCallback(startWarmup, { timeout: 1200 });
+    } else {
+        window.setTimeout(startWarmup, 180);
+    }
+}
+
+function syncDetailQueryParam(paramName, value, defaultValue, reloadPage = false) {
+    const url = new URL(window.location.href);
+
+    if (!value || value === defaultValue) {
+        url.searchParams.delete(paramName);
+    } else {
+        url.searchParams.set(paramName, value);
+    }
+
+    const queryString = url.searchParams.toString();
+    const nextUrl = `${url.pathname}${queryString ? `?${queryString}` : ''}${url.hash}`;
+
+    if (reloadPage) {
+        window.location.href = nextUrl;
+        return;
+    }
+
+    window.history.replaceState({}, '', nextUrl);
+}
+
+function setActiveDetailSortMode(sortMode) {
+    document.querySelectorAll('#detail-sort-filter [data-sort-value]').forEach((button) => {
+        button.classList.toggle('active', button.dataset.sortValue === sortMode);
+    });
+}
+
+function syncGalleryImagesFromCurrentLayout() {
+    if (!Array.isArray(window.galleryImages)) {
+        return;
+    }
+
+    const mediaById = new Map(window.galleryImages.map((item) => [String(item.id), item]));
+    const orderedImageItems = Array.from(
+        document.querySelectorAll('#detail-masonry-grid-images .grid-item[data-media-type="image"]')
+    )
+        .map((card) => mediaById.get(card.dataset.imgId))
+        .filter(Boolean);
+
+    const videoItems = window.galleryImages.filter((item) => item.isVideo);
+    window.galleryImages = [...orderedImageItems, ...videoItems];
+}
+
+function getDetailCardSortOrder(card, sortMode) {
+    if (!card) {
+        return 0;
+    }
+
+    const datasetKey = sortMode === 'latest' ? 'sortLatest' : 'sortSimilar';
+    return parseInt(card.dataset[datasetKey] || '0', 10);
+}
+
+function syncMasonryOrderWithCards(sortMode) {
+    if (!window.msnryImages || !Array.isArray(window.msnryImages.items)) {
+        return;
+    }
+
+    window.msnryImages.items.sort((leftItem, rightItem) => {
+        return getDetailCardSortOrder(leftItem.element, sortMode) - getDetailCardSortOrder(rightItem.element, sortMode);
+    });
+}
+
+function sortDetailImageCards(sortMode, options = {}) {
+    const { syncUrl = true, animate = false } = options;
+    const grid = document.getElementById('detail-masonry-grid-images');
+    if (!grid) {
+        return;
+    }
+
+    const cards = Array.from(grid.querySelectorAll('.grid-item[data-media-type="image"]'));
+    if (!cards.length) {
+        return;
+    }
+
+    const normalizedSortMode = sortMode === 'latest' ? 'latest' : 'similar';
+    cards.sort((leftCard, rightCard) => {
+        return getDetailCardSortOrder(leftCard, normalizedSortMode) - getDetailCardSortOrder(rightCard, normalizedSortMode);
+    });
+
+    const fragment = document.createDocumentFragment();
+    cards.forEach((card) => fragment.appendChild(card));
+    grid.appendChild(fragment);
+    syncMasonryOrderWithCards(normalizedSortMode);
+
+    window.detailConfig = { ...(window.detailConfig || {}), sortMode: normalizedSortMode };
+    setActiveDetailSortMode(normalizedSortMode);
+
+    syncGalleryImagesFromCurrentLayout();
+    relayoutDetailImages({ animate });
+
+    if (syncUrl) {
+        syncDetailQueryParam('sort', normalizedSortMode, 'similar');
+    }
+}
+
+function relayoutDetailImages(options = {}) {
+    const { animate = false } = options;
+    if (window.msnryImages) {
+        const grid = document.getElementById('detail-masonry-grid-images');
+        const gridItems = document.querySelectorAll('#detail-masonry-grid-images .grid-item[data-media-type="image"]');
+        const previousTransitionDuration = window.msnryImages.options.transitionDuration;
+
+        if (grid) {
+            grid.style.minHeight = `${Math.ceil(grid.getBoundingClientRect().height)}px`;
+            if (animate) {
+                grid.classList.add('detail-grid-transitioning');
+            }
+        }
+
+        gridItems.forEach((card) => {
+            const isHidden = card.classList.contains('ratio-filter-hidden');
+
+            if (isHidden) {
+                if (typeof window.msnryImages.ignore === 'function') {
+                    window.msnryImages.ignore(card);
+                }
+                card.style.left = '';
+                card.style.top = '';
+            } else if (typeof window.msnryImages.unignore === 'function') {
+                window.msnryImages.unignore(card);
+            }
+        });
+
+        if (detailLayoutFrameId) {
+            cancelAnimationFrame(detailLayoutFrameId);
+        }
+        if (detailLayoutRestoreFrameId) {
+            cancelAnimationFrame(detailLayoutRestoreFrameId);
+        }
+        if (detailGridTransitionTimeoutId) {
+            clearTimeout(detailGridTransitionTimeoutId);
+        }
+
+        window.msnryImages.options.transitionDuration = 0;
+
+        detailLayoutFrameId = requestAnimationFrame(() => {
+            window.msnryImages.layout();
+
+            detailLayoutRestoreFrameId = requestAnimationFrame(() => {
+                window.msnryImages.layout();
+
+                window.msnryImages.options.transitionDuration = previousTransitionDuration;
+                if (grid) {
+                    grid.style.minHeight = '';
+                    if (animate) {
+                        detailGridTransitionTimeoutId = setTimeout(() => {
+                            grid.classList.remove('detail-grid-transitioning');
+                            detailGridTransitionTimeoutId = null;
+                        }, 120);
+                    } else {
+                        grid.classList.remove('detail-grid-transitioning');
+                    }
+                }
+
+                detailLayoutFrameId = null;
+                detailLayoutRestoreFrameId = null;
+            });
+        });
+    }
+}
+
+function updateDetailImageCountBadge(visibleCount) {
+    const badge = document.getElementById('image-count-badge');
+    if (!badge) {
+        return;
+    }
+
+    const totalCount = parseInt(badge.dataset.totalCount || '0', 10);
+    const ratioFilter = window.currentDetailRatioFilter || 'all';
+    badge.textContent = ratioFilter === 'all' ? `${totalCount}` : `${visibleCount} / ${totalCount}`;
+}
+
+function setActiveDetailRatioFilter(filterValue) {
+    document.querySelectorAll('#detail-ratio-filter [data-ratio-value]').forEach((button) => {
+        button.classList.toggle('active', button.dataset.ratioValue === filterValue);
+    });
+}
+
+function classifyDetailImageCard(card) {
+    if (!card || card.dataset.mediaType !== 'image') {
+        return null;
+    }
+
+    const existingRatioGroup = card.dataset.ratioGroup;
+    if (existingRatioGroup && existingRatioGroup !== 'pending' && existingRatioGroup !== 'unknown') {
+        return existingRatioGroup;
+    }
+
+    const image = card.querySelector('img.thumb-img');
+    if (!image || !image.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) {
+        return null;
+    }
+
+    const aspectRatio = image.naturalWidth / image.naturalHeight;
+    let ratioGroup = 'square';
+
+    if (aspectRatio > 1.05) {
+        ratioGroup = 'landscape';
+    } else if (aspectRatio < 0.95) {
+        ratioGroup = 'portrait';
+    }
+
+    card.dataset.ratioGroup = ratioGroup;
+    return ratioGroup;
+}
+
+function applyDetailRatioFilter(filterValue, options = {}) {
+    const { syncUrl = true, animate = false } = options;
+    const cards = document.querySelectorAll('#detail-masonry-grid-images .grid-item[data-media-type="image"]');
+
+    window.currentDetailRatioFilter = filterValue;
+    setActiveDetailRatioFilter(filterValue);
+
+    let visibleCount = 0;
+    cards.forEach((card) => {
+        const ratioGroup = classifyDetailImageCard(card) || card.dataset.ratioGroup || 'unknown';
+        const isVisible = filterValue === 'all' || ratioGroup === filterValue;
+        card.classList.toggle('ratio-filter-hidden', !isVisible);
+        if (isVisible) {
+            visibleCount += 1;
+        }
+    });
+
+    updateDetailImageCountBadge(visibleCount);
+    relayoutDetailImages({ animate });
+
+    if (syncUrl) {
+        syncDetailQueryParam('ratio', filterValue, 'all');
+    }
+}
+
+function initializeDetailOrganizer() {
+    const sortButtons = document.querySelectorAll('#detail-sort-filter [data-sort-value]');
+    const ratioButtons = document.querySelectorAll('#detail-ratio-filter [data-ratio-value]');
+    const imageCards = document.querySelectorAll('#detail-masonry-grid-images .grid-item[data-media-type="image"]');
+
+    if (!sortButtons.length && !ratioButtons.length) {
+        return;
+    }
+
+    const detailConfig = window.detailConfig || getDetailPageConfig();
+    const initialRatioFilter = detailConfig.ratioFilter || 'all';
+    const initialSortMode = detailConfig.sortMode || 'similar';
+
+    sortButtons.forEach((button) => {
+        button.addEventListener('click', () => {
+            const nextSortMode = button.dataset.sortValue || 'similar';
+            sortDetailImageCards(nextSortMode, { animate: true });
+        });
+    });
+
+    ratioButtons.forEach((button) => {
+        button.addEventListener('click', () => {
+            const nextRatioFilter = button.dataset.ratioValue || 'all';
+            if (nextRatioFilter === 'all') {
+                applyDetailRatioFilter(nextRatioFilter, { animate: true });
+                return;
+            }
+
+            ensureDetailRatioGroupsLoaded().finally(() => {
+                applyDetailRatioFilter(nextRatioFilter, { animate: true });
+            });
+        });
+    });
+
+    imageCards.forEach((card) => {
+        const image = card.querySelector('img.thumb-img');
+        if (!image) {
+            return;
+        }
+
+        if (image.complete && image.naturalWidth > 0 && image.naturalHeight > 0) {
+            classifyDetailImageCard(card);
+            return;
+        }
+
+        image.addEventListener('load', () => {
+            classifyDetailImageCard(card);
+            applyDetailRatioFilter(window.currentDetailRatioFilter || 'all', { syncUrl: false, animate: false });
+        }, { once: true });
+    });
+
+    setActiveDetailSortMode(initialSortMode);
+    sortDetailImageCards(initialSortMode, { syncUrl: false, animate: false });
+
+    if (initialRatioFilter === 'all') {
+        applyDetailRatioFilter(initialRatioFilter, { syncUrl: false, animate: false });
+        warmDetailRatioGroupsInBackground();
+    } else {
+        ensureDetailRatioGroupsLoaded().finally(() => {
+            applyDetailRatioFilter(initialRatioFilter, { syncUrl: false, animate: false });
+        });
+    }
 }
 
 // === 新增：视频布局自适应函数 ===
@@ -63,6 +450,8 @@ document.addEventListener('DOMContentLoaded', function() {
         window.galleryImages = JSON.parse(dataElement.textContent);
     }
 
+    window.detailConfig = { ...getDetailPageConfig(), ...(window.detailConfig || {}) };
+
     // 2. 初始化大图模态框
     const modalEl = document.getElementById('imageModal');
     if (modalEl) {
@@ -90,6 +479,8 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         }
     }
+
+    initializeDetailOrganizer();
 
     //  视频布局自动调整 (针对页面加载时已存在的视频)
     const videos = document.querySelectorAll('#detail-masonry-grid-videos video');
@@ -522,91 +913,288 @@ function confirmDelete(event) {
     });
 }
 
-// ================= 提示词编辑逻辑 =================
+// ================= 统一提示词编辑逻辑 =================
 
-function enableEdit(elementId, editBtn) {
-    const box = document.getElementById(elementId);
-    if (box.querySelector('.empty-text')) {
-        box.dataset.wasEmpty = 'true';
-        box.innerText = ''; 
-    } else {
-        box.dataset.originalText = box.innerText; 
+const promptEditorState = {
+    items: [],
+    draftItems: [],
+    isEditing: false,
+};
+
+document.addEventListener('DOMContentLoaded', () => {
+    initPromptListEditor();
+});
+
+function initPromptListEditor() {
+    const dataEl = document.getElementById('prompt-list-data');
+    const container = document.getElementById('promptListContainer');
+    if (!dataEl || !container) return;
+
+    try {
+        const parsed = JSON.parse(dataEl.textContent || '[]');
+        promptEditorState.items = normalizePromptEditorItems(parsed);
+    } catch (error) {
+        console.error('初始化提示词列表失败', error);
+        promptEditorState.items = [];
     }
-    box.contentEditable = "true";
-    box.focus();
-    toggleEditButtons(box, true);
+
+    renderPromptList(promptEditorState.items, false);
 }
 
-function cancelEdit(elementId) {
-    const box = document.getElementById(elementId);
-    if (box.dataset.wasEmpty === 'true') {
-        box.innerHTML = '<span class="empty-text">未填写</span>';
-    } else if (box.dataset.originalText !== undefined) {
-        box.innerText = box.dataset.originalText;
-    }
-    box.contentEditable = "false";
-    delete box.dataset.originalText;
-    delete box.dataset.wasEmpty;
-    toggleEditButtons(box, false);
+function normalizePromptEditorItems(items) {
+    const normalized = [];
+
+    (items || []).forEach((item) => {
+        const text = typeof item === 'object'
+            ? String(item.text || '').trim()
+            : String(item || '').trim();
+
+        if (!text) return;
+
+        normalized.push({
+            id: typeof item === 'object' && item.id ? item.id : `prompt_${normalized.length + 1}`,
+            label: `提示词${normalized.length + 1}`,
+            text,
+        });
+    });
+
+    return normalized;
 }
 
-function savePrompt(elementId, pk, type) {
-    const box = document.getElementById(elementId);
-    const newText = box.innerText;
-    const data = {};
+function escapePromptHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text || '';
+    return div.innerHTML;
+}
+
+function renderPromptList(items, isEditing) {
+    const container = document.getElementById('promptListContainer');
+    if (!container) return;
+
+    const displayItems = items.length > 0
+        ? items
+        : (isEditing ? [{ id: 'prompt_1', label: '提示词1', text: '' }] : []);
+
+    if (displayItems.length === 0) {
+        container.innerHTML = '<div class="text-muted small py-2">暂无提示词，点击“编辑”后可新增。</div>';
+        togglePromptEditorControls(isEditing);
+        return;
+    }
+
+    container.innerHTML = displayItems.map((item, index) => {
+        const safeText = escapePromptHtml(item.text);
+        return `
+            <div class="border rounded-4 bg-white shadow-sm p-3">
+                <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+                    <span class="badge bg-light text-primary border rounded-pill px-3 py-2">提示词${index + 1}</span>
+                    <div class="d-flex align-items-center gap-2">
+                        <button type="button" class="btn btn-sm btn-outline-primary rounded-pill px-3" onclick="copyPromptItem(${index}, this)" ${item.text.trim() ? '' : 'disabled'}>
+                            <i class="bi bi-clipboard me-1"></i>复制
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-danger rounded-pill px-3" onclick="removePromptItem(${index})" style="${isEditing ? '' : 'display:none;'}">
+                            <i class="bi bi-trash3 me-1"></i>删除
+                        </button>
+                    </div>
+                </div>
+                ${isEditing
+                    ? `<textarea class="form-control prompt-list-input" rows="4" data-index="${index}" placeholder="请输入提示词${index + 1}...">${safeText}</textarea>`
+                    : `<div class="prompt-box mb-0">${item.text.trim() ? safeText.replace(/\n/g, '<br>') : '<span class="empty-text">未填写</span>'}</div>`}
+            </div>
+        `;
+    }).join('');
+
+    togglePromptEditorControls(isEditing);
+}
+
+function togglePromptEditorControls(isEditing) {
+    const editBtn = document.getElementById('btnEditPromptList');
+    const addBtn = document.getElementById('btnAddPromptItem');
+    const actions = document.getElementById('promptListActions');
+    if (editBtn) editBtn.style.display = isEditing ? 'none' : 'inline-flex';
+    if (addBtn) addBtn.style.display = isEditing ? 'inline-flex' : 'none';
+    if (actions) actions.style.display = isEditing ? 'block' : 'none';
+}
+
+function collectPromptDraftItems() {
+    const inputs = document.querySelectorAll('#promptListContainer .prompt-list-input');
+    return normalizePromptEditorItems(Array.from(inputs).map((input) => ({ text: input.value })));
+}
+
+function buildDuplicatePromptEntries(items) {
+    const seen = new Map();
+    const duplicates = [];
+
+    (items || []).forEach((item, index) => {
+        const originalText = String(item?.text || '').trim();
+        if (!originalText) return;
+
+        const normalizedText = originalText.replace(/\s+/g, ' ').trim().toLowerCase();
+        if (!normalizedText) return;
+
+        if (seen.has(normalizedText)) {
+            const firstMatch = seen.get(normalizedText);
+            let entry = duplicates.find((dup) => dup.normalizedText === normalizedText);
+            if (!entry) {
+                entry = {
+                    normalizedText,
+                    text: firstMatch.text,
+                    indexes: [firstMatch.index + 1],
+                };
+                duplicates.push(entry);
+            }
+            if (!entry.indexes.includes(index + 1)) {
+                entry.indexes.push(index + 1);
+            }
+            return;
+        }
+
+        seen.set(normalizedText, { text: originalText, index });
+    });
+
+    return duplicates;
+}
+
+function clearDuplicatePromptHighlights() {
+    document.querySelectorAll('#promptListContainer .prompt-list-input-duplicate').forEach((input) => {
+        input.classList.remove('prompt-list-input-duplicate');
+    });
+}
+
+function highlightDuplicatePromptInputs(duplicateEntries) {
+    clearDuplicatePromptHighlights();
+
+    (duplicateEntries || []).forEach((entry) => {
+        entry.indexes.forEach((displayIndex) => {
+            const input = document.querySelector(`#promptListContainer .prompt-list-input[data-index="${displayIndex - 1}"]`);
+            if (input) {
+                input.classList.add('prompt-list-input-duplicate');
+            }
+        });
+    });
+}
+
+function buildDuplicatePromptAlertHtml(duplicateEntries) {
+    const rows = (duplicateEntries || []).map((entry, index) => {
+        const indexes = entry.indexes.map((item) => `提示词${item}`).join('、');
+        return `
+            <div class="duplicate-prompt-row">
+                <div class="duplicate-prompt-row-top">
+                    <span class="duplicate-prompt-badge">重复项 ${index + 1}</span>
+                    <span class="duplicate-prompt-meta">出现在 ${indexes}</span>
+                </div>
+                <div class="duplicate-prompt-text">${escapePromptHtml(entry.text)}</div>
+            </div>
+        `;
+    }).join('');
+
+    return `
+        <div class="duplicate-prompt-alert">
+            <div class="duplicate-prompt-summary">
+                <span class="duplicate-prompt-icon"><i class="bi bi-exclamation-triangle-fill"></i></span>
+                <div>
+                    <div class="fw-bold mb-1">提示词组里有重复内容</div>
+                    <div class="small">已为你高亮重复输入框，请先删除或改写后再保存。</div>
+                </div>
+            </div>
+            <div class="duplicate-prompt-list">${rows}</div>
+        </div>
+    `;
+}
+
+function enablePromptListEdit() {
+    promptEditorState.draftItems = promptEditorState.items.map((item) => ({ ...item }));
+    promptEditorState.isEditing = true;
+    renderPromptList(promptEditorState.draftItems, true);
+}
+
+function cancelPromptListEdit() {
+    promptEditorState.isEditing = false;
+    promptEditorState.draftItems = [];
+    clearDuplicatePromptHighlights();
+    renderPromptList(promptEditorState.items, false);
+}
+
+function addPromptItem() {
+    if (!promptEditorState.isEditing) return;
+
+    promptEditorState.draftItems = collectPromptDraftItems();
+    promptEditorState.draftItems.push({
+        id: `prompt_${promptEditorState.draftItems.length + 1}`,
+        label: `提示词${promptEditorState.draftItems.length + 1}`,
+        text: '',
+    });
+    renderPromptList(promptEditorState.draftItems, true);
+
+    const inputs = document.querySelectorAll('#promptListContainer .prompt-list-input');
+    const lastInput = inputs[inputs.length - 1];
+    if (lastInput) lastInput.focus();
+}
+
+function removePromptItem(index) {
+    if (!promptEditorState.isEditing) return;
+
+    promptEditorState.draftItems = collectPromptDraftItems();
+    promptEditorState.draftItems.splice(index, 1);
+    renderPromptList(promptEditorState.draftItems, true);
+}
+
+function savePromptList(pk) {
     const csrftoken = getCookie('csrftoken');
-    
-    if (type === 'positive') { data.prompt_text = newText; }
-    else if (type === 'positive_zh') { data.prompt_text_zh = newText; }
-    else if (type === 'model') { data.model_info = newText; }
-    else { data.negative_prompt = newText; }
+    const prompts = collectPromptDraftItems();
+    const duplicatePrompts = buildDuplicatePromptEntries(prompts);
+
+    if (duplicatePrompts.length > 0) {
+        highlightDuplicatePromptInputs(duplicatePrompts);
+        Swal.fire({
+            icon: 'warning',
+            title: '检测到重复提示词',
+            html: buildDuplicatePromptAlertHtml(duplicatePrompts),
+            confirmButtonText: '返回修改',
+            width: 640,
+        });
+        return;
+    }
+
+    clearDuplicatePromptHighlights();
 
     fetch(`/update-prompts/${pk}/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrftoken },
-        body: JSON.stringify(data)
+        body: JSON.stringify({ prompts })
     })
     .then(response => response.json())
     .then(res => {
         if (res.status === 'success') {
-            box.contentEditable = "false";
-            const copyBtn = box.closest('.prompt-card').querySelector('.btn-outline-primary, .btn-outline-danger, .btn-outline-success');            if (copyBtn) copyBtn.disabled = !newText.trim();
-            if (!newText.trim()) { box.innerHTML = '<span class="empty-text">未填写</span>'; }
-            toggleEditButtons(box, false);
-            Swal.fire({icon: 'success', title: '保存成功', toast: true, position: 'top-end', showConfirmButton: false, timer: 1500});
+            promptEditorState.items = prompts;
+            promptEditorState.draftItems = [];
+            promptEditorState.isEditing = false;
+            clearDuplicatePromptHighlights();
+            renderPromptList(promptEditorState.items, false);
+            Swal.fire({ icon: 'success', title: '保存成功', toast: true, position: 'top-end', showConfirmButton: false, timer: 1500 });
         } else {
-            Swal.fire({ icon: 'error', title: '保存失败', text: res.message });
+            Swal.fire({ icon: 'error', title: '保存失败', text: res.message || '未知错误' });
         }
     })
-    .catch(err => { console.error(err); Swal.fire({ icon: 'error', title: '错误', text: '网络错误' }); });
+    .catch(err => {
+        console.error(err);
+        Swal.fire({ icon: 'error', title: '错误', text: '网络错误' });
+    });
 }
 
-function toggleEditButtons(boxElement, isEditing) {
-    const header = boxElement.closest('.prompt-card').querySelector('.section-header');
-    const editBtn = header.querySelector('.btn-edit-prompt');
-    const actionsDiv = header.querySelector('.edit-actions');
-    if (isEditing) {
-        editBtn.style.display = 'none';
-        actionsDiv.style.display = 'block';
-    } else {
-        editBtn.style.display = 'inline-block';
-        actionsDiv.style.display = 'none';
-    }
-}
+function copyPromptItem(index, btnElement) {
+    const sourceItems = promptEditorState.isEditing ? collectPromptDraftItems() : promptEditorState.items;
+    const text = sourceItems[index] ? sourceItems[index].text.trim() : '';
+    if (!text) return;
 
-function copyTextHandler(elementId, btnElement) {
-    const textElement = document.getElementById(elementId);
-    if (textElement.querySelector('.empty-text')) return;
-    copyToClipboard(textElement.innerText); 
+    copyToClipboard(text);
     const originalHTML = btnElement.innerHTML;
-    const isPrimary = btnElement.classList.contains('btn-outline-primary');
-    const isDanger = btnElement.classList.contains('btn-outline-danger');
-    let originalClass = isPrimary ? 'btn-outline-primary' : (isDanger ? 'btn-outline-danger' : 'btn-outline-success');
     btnElement.innerHTML = '<i class="bi bi-check-lg me-1"></i>已复制';
-    btnElement.classList.remove(originalClass); btnElement.classList.add('btn-success', 'text-white');
+    btnElement.classList.remove('btn-outline-primary');
+    btnElement.classList.add('btn-success', 'text-white');
     setTimeout(() => {
         btnElement.innerHTML = originalHTML;
-        btnElement.classList.remove('btn-success', 'text-white'); btnElement.classList.add(originalClass);
+        btnElement.classList.remove('btn-success', 'text-white');
+        btnElement.classList.add('btn-outline-primary');
     }, 2000);
 }
 
@@ -1735,11 +2323,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 document.addEventListener('DOMContentLoaded', function () {
     // 1. 获取后端传来的配置数据 (如果存在)
-    const configEl = document.getElementById('detail-config-data');
-    let detailConfig = { groupId: null, rawPromptContent: 'image' };
-    if (configEl) {
-        detailConfig = JSON.parse(configEl.textContent);
-    }
+    let detailConfig = { ...getDetailPageConfig(), ...(window.detailConfig || {}) };
     window.detailConfig = detailConfig;
 
     var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));

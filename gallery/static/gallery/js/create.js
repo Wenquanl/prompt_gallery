@@ -10,6 +10,7 @@ try {
 }
 
 let currentFiles = []; 
+let currentExtraFiles = {};
 let maxImagesAllowed = 0;
 let lastSavedPaths = []; 
 let initialTagsForPublish = [];
@@ -19,10 +20,490 @@ let allAvailableChars = [];
 let currentSelectedTags = new Set(); 
 let currentSelectedChars = new Set();
 let currentSourceGroupId = null;
+let currentPublishPromptItems = [];
+let maskEditorExportCanvas = null;
+const maskEditorState = {
+    imageFile: null,
+    imageName: '',
+    isDrawing: false,
+    lastPoint: null,
+    tool: 'brush',
+    brushSize: 28,
+    baseCanvas: null,
+    drawCanvas: null,
+    displayCtx: null,
+    exportCtx: null,
+    baseImage: null,
+};
+
+function normalizeModelName(name) {
+    return String(name || '')
+        .trim()
+        .toLowerCase()
+        .replace(/\s*[\(（].*?[\)）]$/, '')
+        .trim();
+}
+
+function getCategoryConfig(categoryId) {
+    return (AI_CONFIG.categories || []).find(c => c.id === categoryId) || {};
+}
+
+function getModelConfig(modelId) {
+    return (AI_CONFIG.models || {})[modelId] || null;
+}
+
+function getEffectiveUploadConfig(modelId, categoryId = null) {
+    const modelConfig = getModelConfig(modelId) || {};
+    const resolvedCategoryId = categoryId || modelConfig.category;
+    const catConfig = getCategoryConfig(resolvedCategoryId);
+
+    return {
+        categoryId: resolvedCategoryId,
+        maxImagesAllowed: modelConfig.max_base_images !== undefined ? modelConfig.max_base_images : (catConfig.img_max || 0),
+        imgRequired: modelConfig.requires_base_images !== undefined ? modelConfig.requires_base_images : (catConfig.img_required !== undefined ? catConfig.img_required : (catConfig.img_max || 0) > 0),
+        imgHelp: modelConfig.base_images_help || catConfig.img_help || '',
+    };
+}
+
+function getModelFileParams(modelId) {
+    const modelConfig = getModelConfig(modelId);
+    if (!modelConfig || !Array.isArray(modelConfig.file_params)) {
+        return [];
+    }
+    return modelConfig.file_params;
+}
+
+function modelSupportsMaskEditor(modelId) {
+    return getModelFileParams(modelId).some(param => param.id === 'mask_url');
+}
+
+function clearMaskFile(options = {}) {
+    const { silent = false, resetInput = true } = options;
+    if (!currentExtraFiles.mask_url) return;
+
+    delete currentExtraFiles.mask_url;
+    if (resetInput) {
+        const input = document.getElementById('file-param-mask_url');
+        if (input) input.value = '';
+    }
+
+    renderDynamicFileParams(document.getElementById('ai-model-select').value);
+
+    if (!silent) {
+        Swal.fire({
+            toast: true,
+            position: 'top',
+            icon: 'info',
+            title: '参考图已变更，旧蒙版已自动清空',
+            showConfirmButton: false,
+            timer: 2200,
+        });
+    }
+}
+
+function clearMaskFileForReferenceChange() {
+    clearMaskFile({ silent: true });
+}
+
+function loadImageFromFile(file) {
+    return new Promise((resolve, reject) => {
+        const image = new Image();
+        const objectUrl = URL.createObjectURL(file);
+        image.onload = () => {
+            URL.revokeObjectURL(objectUrl);
+            resolve(image);
+        };
+        image.onerror = (error) => {
+            URL.revokeObjectURL(objectUrl);
+            reject(error);
+        };
+        image.src = objectUrl;
+    });
+}
+
+function renderExtraFilePreview(paramId) {
+    const previewContainer = document.getElementById(`file-param-preview-${paramId}`);
+    if (!previewContainer) return;
+
+    previewContainer.innerHTML = '';
+    const file = currentExtraFiles[paramId];
+    if (!file) return;
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'preview-wrapper m-1';
+
+    const img = document.createElement('img');
+    img.className = 'preview-item shadow-sm';
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'btn-remove-preview';
+    removeBtn.innerHTML = '<i class="bi bi-x"></i>';
+    removeBtn.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        removeExtraFile(paramId);
+    };
+
+    wrapper.appendChild(img);
+    wrapper.appendChild(removeBtn);
+    previewContainer.appendChild(wrapper);
+}
+
+function renderDynamicFileParams(modelId) {
+    const container = document.getElementById('dynamic-file-params-container');
+    if (!container) return;
+
+    const fileParams = getModelFileParams(modelId);
+    if (!fileParams.length) {
+        container.innerHTML = '';
+        return;
+    }
+
+    let html = `<div class="p-3 bg-light rounded-3 border"><label class="form-label fw-bold text-secondary small mb-3"><i class="bi bi-images me-1"></i>附加文件参数</label><div class="row g-3">`;
+    fileParams.forEach(param => {
+        const isMaskParam = param.id === 'mask_url';
+        const maskEditorButton = isMaskParam
+            ? `
+                <div class="d-flex flex-wrap gap-2 align-items-center mt-2">
+                    <button type="button" class="btn btn-sm btn-outline-danger rounded-pill" onclick="openMaskEditor()" ${currentFiles.length ? '' : 'disabled'}>
+                        <i class="bi bi-pencil-square me-1"></i>${currentExtraFiles.mask_url ? '重绘蒙版' : '打开蒙版画板'}
+                    </button>
+                    <span class="small text-muted">${currentFiles.length ? '直接基于第 1 张参考图绘制，无需额外做一张蒙版图。' : '请先上传参考图，再打开蒙版画板。'}</span>
+                </div>
+            `
+            : '';
+
+        html += `
+            <div class="col-12">
+                <label class="form-label small text-muted mb-1">${param.label}${param.required ? ' <span class="text-danger">*</span>' : ''}</label>
+                <div class="drag-drop-zone" onclick="document.getElementById('file-param-${param.id}').click()">
+                    <i class="bi bi-brush mb-2 d-block"></i>
+                    <span class="text-muted fw-bold">点击选择${param.label}</span>
+                </div>
+                <input type="file" id="file-param-${param.id}" class="d-none" accept="${param.accept || 'image/*'}" onchange="handleExtraFileChange('${param.id}', this.files)">
+                ${param.help_text ? `<div class="form-text small text-muted mt-2">${param.help_text}</div>` : ''}
+                ${maskEditorButton}
+                <div id="file-param-preview-${param.id}" class="d-flex flex-wrap mt-2"></div>
+            </div>
+        `;
+    });
+    html += `</div></div>`;
+    container.innerHTML = html;
+
+    fileParams.forEach(param => renderExtraFilePreview(param.id));
+}
+
+function handleExtraFileChange(paramId, files) {
+    if (!files || files.length === 0) return;
+    currentExtraFiles[paramId] = files[0];
+    renderExtraFilePreview(paramId);
+    renderPreviews();
+}
+
+function removeExtraFile(paramId) {
+    delete currentExtraFiles[paramId];
+    const input = document.getElementById(`file-param-${paramId}`);
+    if (input) input.value = '';
+    renderExtraFilePreview(paramId);
+    renderDynamicFileParams(document.getElementById('ai-model-select').value);
+    renderPreviews();
+}
+
+function applyModelUploadConfig(modelId) {
+    const uploadConfig = getEffectiveUploadConfig(modelId);
+    const imgBlock = document.getElementById('ai-image-upload-block');
+    const fileInput = document.getElementById('file-input-hidden');
+    const imgHelp = document.getElementById('ai-img-help');
+
+    maxImagesAllowed = uploadConfig.maxImagesAllowed;
+
+    if (maxImagesAllowed === 0) {
+        imgBlock.style.display = 'none';
+        currentFiles = [];
+    } else {
+        imgBlock.style.display = 'block';
+        imgHelp.innerHTML = uploadConfig.imgHelp;
+        if (maxImagesAllowed === 1) {
+            fileInput.removeAttribute('multiple');
+            currentFiles = currentFiles.slice(0, 1);
+        } else {
+            fileInput.setAttribute('multiple', 'multiple');
+            currentFiles = currentFiles.slice(0, maxImagesAllowed);
+        }
+    }
+
+    renderPreviews();
+    renderDynamicFileParams(modelId);
+}
+
+function getMaskCanvasContexts() {
+    if (!maskEditorState.baseCanvas || !maskEditorState.drawCanvas || !maskEditorExportCanvas) {
+        return null;
+    }
+
+    return {
+        baseCanvas: maskEditorState.baseCanvas,
+        drawCanvas: maskEditorState.drawCanvas,
+        displayCtx: maskEditorState.displayCtx,
+        exportCanvas: maskEditorExportCanvas,
+        exportCtx: maskEditorState.exportCtx,
+    };
+}
+
+function resetMaskCanvasExport(width, height) {
+    const contexts = getMaskCanvasContexts();
+    if (!contexts) return;
+
+    contexts.exportCanvas.width = width;
+    contexts.exportCanvas.height = height;
+    contexts.exportCtx = contexts.exportCanvas.getContext('2d');
+    maskEditorState.exportCtx = contexts.exportCtx;
+    maskEditorState.exportCtx.fillStyle = '#000000';
+    maskEditorState.exportCtx.fillRect(0, 0, width, height);
+}
+
+function applyMaskStroke(fromPoint, toPoint) {
+    const contexts = getMaskCanvasContexts();
+    if (!contexts || !fromPoint || !toPoint) return;
+
+    const { displayCtx, exportCtx } = contexts;
+    const size = maskEditorState.brushSize;
+
+    displayCtx.lineCap = 'round';
+    displayCtx.lineJoin = 'round';
+    displayCtx.lineWidth = size;
+    exportCtx.lineCap = 'round';
+    exportCtx.lineJoin = 'round';
+    exportCtx.lineWidth = size;
+
+    if (maskEditorState.tool === 'eraser') {
+        displayCtx.save();
+        displayCtx.globalCompositeOperation = 'destination-out';
+        displayCtx.beginPath();
+        displayCtx.moveTo(fromPoint.x, fromPoint.y);
+        displayCtx.lineTo(toPoint.x, toPoint.y);
+        displayCtx.stroke();
+        displayCtx.restore();
+
+        exportCtx.strokeStyle = '#000000';
+    } else {
+        displayCtx.strokeStyle = 'rgba(255, 88, 88, 0.58)';
+        displayCtx.beginPath();
+        displayCtx.moveTo(fromPoint.x, fromPoint.y);
+        displayCtx.lineTo(toPoint.x, toPoint.y);
+        displayCtx.stroke();
+
+        exportCtx.strokeStyle = '#ffffff';
+    }
+
+    exportCtx.beginPath();
+    exportCtx.moveTo(fromPoint.x, fromPoint.y);
+    exportCtx.lineTo(toPoint.x, toPoint.y);
+    exportCtx.stroke();
+}
+
+function getCanvasPoint(event) {
+    const canvas = maskEditorState.drawCanvas;
+    if (!canvas) return null;
+
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+
+    return {
+        x: (event.clientX - rect.left) * scaleX,
+        y: (event.clientY - rect.top) * scaleY,
+    };
+}
+
+function handleMaskPointerDown(event) {
+    const point = getCanvasPoint(event);
+    if (!point) return;
+
+    maskEditorState.isDrawing = true;
+    maskEditorState.lastPoint = point;
+    applyMaskStroke(point, point);
+}
+
+function handleMaskPointerMove(event) {
+    if (!maskEditorState.isDrawing) return;
+
+    const point = getCanvasPoint(event);
+    if (!point || !maskEditorState.lastPoint) return;
+
+    applyMaskStroke(maskEditorState.lastPoint, point);
+    maskEditorState.lastPoint = point;
+}
+
+function stopMaskDrawing() {
+    maskEditorState.isDrawing = false;
+    maskEditorState.lastPoint = null;
+}
+
+function setMaskTool(tool) {
+    maskEditorState.tool = tool;
+    const brushBtn = document.getElementById('mask-tool-brush');
+    const eraserBtn = document.getElementById('mask-tool-eraser');
+    if (brushBtn) brushBtn.classList.toggle('active', tool === 'brush');
+    if (eraserBtn) eraserBtn.classList.toggle('active', tool === 'eraser');
+}
+
+function clearMaskEditorCanvas() {
+    const contexts = getMaskCanvasContexts();
+    if (!contexts) return;
+
+    contexts.displayCtx.clearRect(0, 0, contexts.drawCanvas.width, contexts.drawCanvas.height);
+    resetMaskCanvasExport(contexts.drawCanvas.width, contexts.drawCanvas.height);
+}
+
+async function preloadExistingMaskIntoEditor() {
+    const existingMaskFile = currentExtraFiles.mask_url;
+    if (!existingMaskFile) return;
+
+    try {
+        const maskImage = await loadImageFromFile(existingMaskFile);
+        const contexts = getMaskCanvasContexts();
+        if (!contexts) return;
+
+        maskEditorState.exportCtx.drawImage(maskImage, 0, 0, contexts.exportCanvas.width, contexts.exportCanvas.height);
+        contexts.displayCtx.save();
+        contexts.displayCtx.globalAlpha = 0.55;
+        contexts.displayCtx.drawImage(maskImage, 0, 0, contexts.drawCanvas.width, contexts.drawCanvas.height);
+        contexts.displayCtx.restore();
+    } catch (error) {
+        console.error('加载已有蒙版失败:', error);
+    }
+}
+
+async function openMaskEditor() {
+    const modelId = document.getElementById('ai-model-select').value;
+    if (!modelSupportsMaskEditor(modelId)) {
+        Swal.fire('提示', '当前模型不支持蒙版编辑。', 'info');
+        return;
+    }
+    if (!currentFiles.length) {
+        Swal.fire('提示', '请先上传至少一张参考图，再绘制蒙版。', 'warning');
+        return;
+    }
+
+    const targetFile = currentFiles[0];
+    const modalEl = document.getElementById('maskEditorModal');
+    const canvasWrap = document.getElementById('mask-editor-canvas-wrap');
+    const baseCanvas = document.getElementById('mask-base-canvas');
+    const drawCanvas = document.getElementById('mask-draw-canvas');
+    if (!modalEl || !canvasWrap || !baseCanvas || !drawCanvas) return;
+
+    try {
+        const image = await loadImageFromFile(targetFile);
+        const maxDisplayWidth = Math.min(900, window.innerWidth - 120);
+        const maxDisplayHeight = Math.min(680, window.innerHeight - 260);
+        const scale = Math.min(maxDisplayWidth / image.naturalWidth, maxDisplayHeight / image.naturalHeight, 1);
+        const displayWidth = Math.max(220, Math.round(image.naturalWidth * scale));
+        const displayHeight = Math.max(220, Math.round(image.naturalHeight * scale));
+
+        baseCanvas.width = image.naturalWidth;
+        baseCanvas.height = image.naturalHeight;
+        drawCanvas.width = image.naturalWidth;
+        drawCanvas.height = image.naturalHeight;
+
+        baseCanvas.style.width = `${displayWidth}px`;
+        baseCanvas.style.height = `${displayHeight}px`;
+        drawCanvas.style.width = `${displayWidth}px`;
+        drawCanvas.style.height = `${displayHeight}px`;
+        canvasWrap.style.width = `${displayWidth}px`;
+        canvasWrap.style.height = `${displayHeight}px`;
+
+        maskEditorState.baseCanvas = baseCanvas;
+        maskEditorState.drawCanvas = drawCanvas;
+        maskEditorState.displayCtx = drawCanvas.getContext('2d');
+        maskEditorState.baseImage = image;
+        maskEditorState.imageFile = targetFile;
+        maskEditorState.imageName = targetFile.name;
+        maskEditorExportCanvas = document.createElement('canvas');
+
+        resetMaskCanvasExport(image.naturalWidth, image.naturalHeight);
+
+        const baseCtx = baseCanvas.getContext('2d');
+        baseCtx.clearRect(0, 0, baseCanvas.width, baseCanvas.height);
+        baseCtx.drawImage(image, 0, 0, baseCanvas.width, baseCanvas.height);
+        maskEditorState.displayCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+
+        setMaskTool(maskEditorState.tool);
+        await preloadExistingMaskIntoEditor();
+
+        const modalInstance = bootstrap.Modal.getOrCreateInstance(modalEl);
+        modalInstance.show();
+    } catch (error) {
+        console.error('打开蒙版编辑器失败:', error);
+        Swal.fire('错误', '参考图加载失败，暂时无法打开蒙版编辑器。', 'error');
+    }
+}
+
+function saveMaskFromEditor() {
+    if (!maskEditorExportCanvas) return;
+
+    maskEditorExportCanvas.toBlob((blob) => {
+        if (!blob) {
+            Swal.fire('错误', '蒙版导出失败，请重试。', 'error');
+            return;
+        }
+
+        currentExtraFiles.mask_url = new File([blob], `mask_${Date.now()}.png`, { type: 'image/png' });
+        renderDynamicFileParams(document.getElementById('ai-model-select').value);
+        renderPreviews();
+
+        const modalEl = document.getElementById('maskEditorModal');
+        const modalInstance = bootstrap.Modal.getInstance(modalEl);
+        if (modalInstance) modalInstance.hide();
+
+        Swal.fire({
+            toast: true,
+            position: 'top',
+            icon: 'success',
+            title: '蒙版已保存到当前模型参数',
+            showConfirmButton: false,
+            timer: 2200,
+        });
+    }, 'image/png');
+}
 
 document.addEventListener('DOMContentLoaded', () => {
     initDynamicUI();
     setupDragAndDrop();
+    initPublishPromptEditor();
+
+    maskEditorState.baseCanvas = document.getElementById('mask-base-canvas');
+    maskEditorState.drawCanvas = document.getElementById('mask-draw-canvas');
+    if (maskEditorState.drawCanvas) {
+        maskEditorState.drawCanvas.addEventListener('pointerdown', handleMaskPointerDown);
+        maskEditorState.drawCanvas.addEventListener('pointermove', handleMaskPointerMove);
+        maskEditorState.drawCanvas.addEventListener('pointerup', stopMaskDrawing);
+        maskEditorState.drawCanvas.addEventListener('pointerleave', stopMaskDrawing);
+    }
+
+    const brushSizeInput = document.getElementById('mask-brush-size');
+    if (brushSizeInput) {
+        brushSizeInput.addEventListener('input', function() {
+            maskEditorState.brushSize = parseInt(this.value, 10) || 28;
+        });
+    }
+
+    const brushBtn = document.getElementById('mask-tool-brush');
+    if (brushBtn) brushBtn.addEventListener('click', () => setMaskTool('brush'));
+    const eraserBtn = document.getElementById('mask-tool-eraser');
+    if (eraserBtn) eraserBtn.addEventListener('click', () => setMaskTool('eraser'));
+    const clearMaskBtn = document.getElementById('mask-clear-btn');
+    if (clearMaskBtn) clearMaskBtn.addEventListener('click', clearMaskEditorCanvas);
+    const saveMaskBtn = document.getElementById('mask-save-btn');
+    if (saveMaskBtn) saveMaskBtn.addEventListener('click', saveMaskFromEditor);
+
+    const maskModal = document.getElementById('maskEditorModal');
+    if (maskModal) maskModal.addEventListener('hidden.bs.modal', stopMaskDrawing);
 
     const urlParams = new URLSearchParams(window.location.search);
     currentSourceGroupId = urlParams.get('template_id') || urlParams.get('group_id') || null;
@@ -100,6 +581,11 @@ document.addEventListener('DOMContentLoaded', () => {
             if (initialData.prompt) {
                 document.getElementById('ai-prompt').value = initialData.prompt;
             }
+            if (initialData.prompts && initialData.prompts.length > 0) {
+                currentPublishPromptItems = normalizePublishPromptItems(initialData.prompts);
+            } else if (initialData.prompt) {
+                currentPublishPromptItems = normalizePublishPromptItems([{ text: initialData.prompt }]);
+            }
             
             if (initialData.tags && initialData.tags.length > 0) {
                 initialTagsForPublish = initialData.tags; 
@@ -110,12 +596,14 @@ document.addEventListener('DOMContentLoaded', () => {
             let modelToastMsg = null;
             
             if (initialData.model_info && typeof initialData.model_info === 'string') {
-                const dbModelName = initialData.model_info.trim().toLowerCase();
+                const dbModelName = normalizeModelName(initialData.model_info);
                 let targetModelId = null;
                 let targetCategoryId = null;
 
                 for (const [key, model] of Object.entries(AI_CONFIG.models)) {
-                    if (model.title && model.title.trim().toLowerCase() === dbModelName) {
+                    const titleName = normalizeModelName(model.title);
+                    const registryName = normalizeModelName(model.registry_name);
+                    if (titleName === dbModelName || registryName === dbModelName) {
                         targetModelId = key;
                         targetCategoryId = model.category;
                         break;
@@ -165,6 +653,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             return new File([blob], filename, { type: blob.type || 'image/jpeg' });
                         })
                 )).then(files => {
+                    clearMaskFileForReferenceChange();
                     if (maxImagesAllowed === 1) {
                         currentFiles = [files[0]]; 
                     } else if (maxImagesAllowed > 1) {
@@ -205,6 +694,116 @@ document.addEventListener('DOMContentLoaded', () => {
     dynamicContainer.addEventListener('input', handleDynamicInput);
     dynamicContainer.addEventListener('change', handleDynamicInput);
 });
+
+function normalizePublishPromptItems(items) {
+    const normalized = [];
+
+    (items || []).forEach((item) => {
+        const text = typeof item === 'object'
+            ? String(item.text || '').trim()
+            : String(item || '').trim();
+
+        if (!text) return;
+
+        normalized.push({
+            id: typeof item === 'object' && item.id ? item.id : `prompt_${normalized.length + 1}`,
+            label: `提示词${normalized.length + 1}`,
+            text,
+        });
+    });
+
+    return normalized;
+}
+
+function ensurePublishPromptSlots(items, minimum = 3) {
+    const normalized = [...items];
+    while (normalized.length < minimum) {
+        normalized.push({
+            id: `prompt_${normalized.length + 1}`,
+            label: `提示词${normalized.length + 1}`,
+            text: '',
+        });
+    }
+    return normalized.map((item, index) => ({
+        id: `prompt_${index + 1}`,
+        label: `提示词${index + 1}`,
+        text: item.text || '',
+    }));
+}
+
+function escapePublishPromptHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text || '';
+    return div.innerHTML;
+}
+
+function initPublishPromptEditor() {
+    const addBtn = document.getElementById('btn-pub-add-prompt');
+    if (!addBtn) return;
+
+    addBtn.addEventListener('click', () => {
+        syncPublishPromptItemsFromDom();
+        currentPublishPromptItems.push({
+            id: `prompt_${currentPublishPromptItems.length + 1}`,
+            label: `提示词${currentPublishPromptItems.length + 1}`,
+            text: '',
+        });
+        renderPublishPromptItems();
+
+        const inputs = document.querySelectorAll('#pub-prompts-container .pub-prompt-input');
+        const lastInput = inputs[inputs.length - 1];
+        if (lastInput) lastInput.focus();
+    });
+}
+
+function syncPublishPromptItemsFromDom() {
+    const inputs = document.querySelectorAll('#pub-prompts-container .pub-prompt-input');
+    if (!inputs.length) return;
+
+    currentPublishPromptItems = Array.from(inputs).map((input, index) => ({
+        id: `prompt_${index + 1}`,
+        label: `提示词${index + 1}`,
+        text: input.value || '',
+    }));
+}
+
+function preparePublishPromptItems() {
+    const activePrompt = document.getElementById('ai-prompt').value.trim();
+    const existing = normalizePublishPromptItems(currentPublishPromptItems);
+    const remainder = existing.filter(item => item.text.trim() && item.text.trim() !== activePrompt);
+    const items = [];
+
+    if (activePrompt) {
+        items.push({ text: activePrompt });
+    }
+
+    remainder.forEach(item => items.push({ text: item.text }));
+    currentPublishPromptItems = ensurePublishPromptSlots(items);
+}
+
+function renderPublishPromptItems() {
+    const container = document.getElementById('pub-prompts-container');
+    if (!container) return;
+
+    currentPublishPromptItems = ensurePublishPromptSlots(currentPublishPromptItems);
+    container.innerHTML = currentPublishPromptItems.map((item, index) => `
+        <div class="border rounded-4 bg-light p-3">
+            <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+                <span class="badge bg-white text-primary border rounded-pill px-3 py-2">提示词${index + 1}</span>
+                <button type="button" class="btn btn-sm btn-outline-danger rounded-pill px-3" onclick="removePublishPromptItem(${index})">
+                    <i class="bi bi-trash3 me-1"></i>删除
+                </button>
+            </div>
+            <textarea class="form-control pub-prompt-input" rows="3" data-index="${index}" placeholder="请输入提示词${index + 1}...">${escapePublishPromptHtml(item.text)}</textarea>
+        </div>
+    `).join('');
+}
+
+function removePublishPromptItem(index) {
+    syncPublishPromptItemsFromDom();
+    currentPublishPromptItems.splice(index, 1);
+    renderPublishPromptItems();
+}
 
 // ...将原先写在 HTML 中的剩余所有 JavaScript 方法全部复制到这里（从 updateSeedreamPrompt 到 extractExistingRefToCanvas 等方法）
 // 为了节省篇幅和防止你复制出错，剩余所有自定义 functions 直接无缝追加在此处即可（和原版逻辑完全一致）
@@ -285,24 +884,10 @@ function initDynamicUI() {
 
 function switchCategory(categoryId) {
     document.getElementById('ai-category-select').value = categoryId;
-    const catConfig = AI_CONFIG.categories.find(c => c.id === categoryId);
-    maxImagesAllowed = catConfig.img_max;
-
-    const imgBlock = document.getElementById('ai-image-upload-block');
-    const fileInput = document.getElementById('file-input-hidden');
-    const imgHelp = document.getElementById('ai-img-help');
-
-    if (maxImagesAllowed === 0) {
-        imgBlock.style.display = 'none';
-    } else {
-        imgBlock.style.display = 'block';
-        imgHelp.innerHTML = catConfig.img_help;
-        if (maxImagesAllowed === 1) fileInput.removeAttribute('multiple');
-        else fileInput.setAttribute('multiple', 'multiple');
-    }
-    
     currentFiles = [];
+    currentExtraFiles = {};
     renderPreviews();
+    renderDynamicFileParams();
 
     const activeTabPane = document.getElementById(`tab-${categoryId}`);
     const firstCard = activeTabPane.querySelector('.model-card');
@@ -313,7 +898,9 @@ function selectModel(modelId, categoryId, element) {
     document.querySelectorAll('.model-card').forEach(card => card.classList.remove('active'));
     element.classList.add('active');
     document.getElementById('ai-model-select').value = modelId;
+    currentExtraFiles = {};
     renderDynamicParams(modelId);
+    applyModelUploadConfig(modelId);
 }
 
 function renderDynamicParams(modelId) {
@@ -461,6 +1048,7 @@ function renderPublishChars(preSelectedChars) {
 
 function handleFiles(files) {
     if (!files || files.length === 0 || maxImagesAllowed === 0) return;
+    clearMaskFileForReferenceChange();
     if (maxImagesAllowed === 1) {
         currentFiles = [files[0]]; 
     } else {
@@ -473,10 +1061,20 @@ function renderPreviews() {
     const container = document.getElementById('preview-container');
     container.innerHTML = ''; 
     currentFiles.forEach((file, index) => {
+        const supportsMaskEditor = modelSupportsMaskEditor(document.getElementById('ai-model-select').value);
+        const canOpenMaskEditor = index === 0 && supportsMaskEditor;
         const wrapper = document.createElement('div');
         wrapper.className = 'preview-wrapper m-1';
         const img = document.createElement('img');
-        img.className = 'preview-item shadow-sm';
+        img.className = `preview-item shadow-sm ${canOpenMaskEditor ? 'preview-item-clickable' : ''}`;
+        if (canOpenMaskEditor) {
+            img.title = currentExtraFiles.mask_url ? '点击打开参考图并查看/继续编辑蒙版' : '点击打开参考图并开始绘制蒙版';
+            img.onclick = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                openMaskEditor();
+            };
+        }
         const reader = new FileReader();
         reader.onload = (e) => { img.src = e.target.result; }
         reader.readAsDataURL(file);
@@ -489,13 +1087,50 @@ function renderPreviews() {
             e.stopPropagation(); 
             removeFile(index);
         };
+
+        if (canOpenMaskEditor) {
+            if (currentExtraFiles.mask_url) {
+                const badge = document.createElement('div');
+                badge.className = 'preview-badge';
+                badge.textContent = '已挂载蒙版';
+                wrapper.appendChild(badge);
+            }
+
+            const hint = document.createElement('div');
+            hint.className = 'preview-click-hint';
+            hint.innerHTML = '<i class="bi bi-arrows-angle-expand me-1"></i>点击参考图查看蒙版';
+            wrapper.appendChild(hint);
+
+            const actions = document.createElement('div');
+            actions.className = 'preview-actions';
+
+            const maskBtn = document.createElement('button');
+            maskBtn.type = 'button';
+            maskBtn.className = 'btn-preview-action';
+            maskBtn.innerHTML = currentExtraFiles.mask_url ? '<i class="bi bi-brush me-1"></i>重绘蒙版' : '<i class="bi bi-brush me-1"></i>编辑蒙版';
+            maskBtn.onclick = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                openMaskEditor();
+            };
+
+            actions.appendChild(maskBtn);
+            wrapper.appendChild(actions);
+        }
+
         wrapper.appendChild(img);
         wrapper.appendChild(removeBtn);
         container.appendChild(wrapper);
     });
+
+    const activeModelId = document.getElementById('ai-model-select')?.value;
+    if (activeModelId) {
+        renderDynamicFileParams(activeModelId);
+    }
 }
 
 function removeFile(index) {
+    clearMaskFileForReferenceChange();
     currentFiles.splice(index, 1);
     renderPreviews();
 }
@@ -531,12 +1166,19 @@ async function startGeneration() {
     const loopCount = parseInt(document.getElementById('ai-loop-count').value) || 1;
 
     const categoryId = document.getElementById('ai-category-select').value;
-    const catConfig = AI_CONFIG.categories.find(c => c.id === categoryId);
-    const imgRequired = catConfig.img_required !== undefined ? catConfig.img_required : (maxImagesAllowed > 0);
+    const uploadConfig = getEffectiveUploadConfig(modelChoice, categoryId);
+    const imgRequired = uploadConfig.imgRequired;
+    const fileParams = getModelFileParams(modelChoice);
 
     if (imgRequired && currentFiles.length === 0) {
         Swal.fire('提示', '当前模式必须上传参考图片！', 'warning');
         return;
+    }
+    for (const fileParam of fileParams) {
+        if (fileParam.required && !currentExtraFiles[fileParam.id]) {
+            Swal.fire('提示', `请上传${fileParam.label}！`, 'warning');
+            return;
+        }
     }
     if (!promptText.trim()) {
         Swal.fire('提示', '请输入画面描述！', 'warning');
@@ -597,6 +1239,10 @@ async function startGeneration() {
     if (maxImagesAllowed > 0) {
         currentFiles.forEach(file => formData.append('base_images', file));
     }
+    fileParams.forEach(fileParam => {
+        const file = currentExtraFiles[fileParam.id];
+        if (file) formData.append(fileParam.id, file);
+    });
     document.querySelectorAll('.dynamic-param-input').forEach(input => {
         const paramId = input.getAttribute('data-param-id');
         const paramType = input.getAttribute('data-param-type');
@@ -773,6 +1419,8 @@ function publishCreation() {
     document.getElementById('pub-provider').value = currentModelConfig ? (currentModelConfig.provider || 'other') : 'other';
     renderPublishTags(initialTagsForPublish);
     renderPublishChars(initialCharsForPublish);
+    preparePublishPromptItems();
+    renderPublishPromptItems();
     
     const promptText = document.getElementById('ai-prompt').value.trim();
     const titleInput = document.getElementById('pub-title');
@@ -824,7 +1472,10 @@ function confirmPublish() {
     });
 
     const formData = new FormData();
+    syncPublishPromptItemsFromDom();
+    const normalizedPrompts = normalizePublishPromptItems(currentPublishPromptItems);
     formData.append('prompt', document.getElementById('ai-prompt').value);
+    formData.append('prompts_json', JSON.stringify(normalizedPrompts));
     formData.append('title', titleInput);
     formData.append('model_info', document.getElementById('pub-model').value.trim());
     formData.append('provider', document.getElementById('pub-provider').value);
@@ -1150,6 +1801,7 @@ function extractExistingRefToCanvas(url) {
         .then(blob => {
             const filename = url.split('/').pop().split('?')[0] || 'reference_image.jpg';
             const file = new File([blob], filename, { type: blob.type || 'image/jpeg' });
+            clearMaskFileForReferenceChange();
             
             if (maxImagesAllowed === 1) {
                 currentFiles = [file];

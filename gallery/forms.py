@@ -16,6 +16,22 @@ class MultipleFileField(forms.FileField):
             raise forms.ValidationError(self.error_messages['required'], code='required')
 
 class PromptGroupForm(forms.ModelForm):
+    prompt_text = forms.CharField(
+        required=False,
+        label="提示词1",
+        widget=forms.Textarea(attrs={'class': 'form-control', 'rows': 4, 'placeholder': '输入提示词1...'})
+    )
+    prompt_text_zh = forms.CharField(
+        required=False,
+        label="提示词2",
+        widget=forms.Textarea(attrs={'class': 'form-control', 'rows': 3, 'placeholder': '输入提示词2 (可选)...'})
+    )
+    negative_prompt = forms.CharField(
+        required=False,
+        label="提示词3",
+        widget=forms.Textarea(attrs={'class': 'form-control', 'rows': 3, 'placeholder': '输入提示词3 (可选)...'})
+    )
+
     characters = forms.ModelMultipleChoiceField(
         queryset=Character.objects.all(), 
         widget=forms.CheckboxSelectMultiple, 
@@ -102,9 +118,6 @@ class PromptGroupForm(forms.ModelForm):
                 'list': 'title_list',
                 'autocomplete': 'off'
             }),
-            'prompt_text': forms.Textarea(attrs={'class': 'form-control', 'rows': 4, 'placeholder': '输入正向提示词...'}),
-            'prompt_text_zh': forms.Textarea(attrs={'class': 'form-control', 'rows': 3, 'placeholder': '输入中文或辅助提示词 (可选)...'}),
-            'negative_prompt': forms.Textarea(attrs={'class': 'form-control', 'rows': 3, 'placeholder': '输入负向提示词 (可选)...'}),
         }
 
     # 生成图上传

@@ -14,20 +14,183 @@ from PIL import Image
 
 class BaseAIProvider:
     """AI 生图提供商的基类（接口定义）"""
-    def generate(self, model_config, api_args, base_image_files=None):
+    def generate(self, model_config, api_args, base_image_files=None, extra_files=None):
         """
         统一接口
         :param model_config: AI_STUDIO_CONFIG 中的模型配置字典
         :param api_args: 组装好的参数字典 (包含 prompt, steps, size 等)
         :param base_image_files: 上传的参考图文件对象列表
+        :param extra_files: 额外的文件参数映射 (如 mask_url)
         :return: 生成的图片 URL 列表 (List[str])
         """
         raise NotImplementedError("子类必须实现 generate 方法")
 
 
+class OpenAIOfficialProvider(BaseAIProvider):
+    def _get_api_key(self):
+        api_key = os.getenv('OPENAI_API_KEY', '').strip()
+        if not api_key:
+            raise Exception('未配置 OPENAI_API_KEY，无法调用 OpenAI 通道')
+        return api_key
+
+    def _prepare_uploaded_file(self, file_obj, default_content_type='image/png'):
+        content = file_obj.read()
+        file_name = getattr(file_obj, 'name', 'upload.bin')
+        content_type = getattr(file_obj, 'content_type', None) or default_content_type
+        return file_name, content, content_type
+
+    def _prepare_mask_file(self, file_obj, reference_image=None):
+        file_name, content, content_type = self._prepare_uploaded_file(file_obj, default_content_type='image/png')
+
+        try:
+            mask_image = Image.open(io.BytesIO(content))
+        except Exception:
+            return file_name, content, content_type
+
+        reference_size = None
+        if reference_image is not None:
+            try:
+                _, reference_content, _ = self._prepare_uploaded_file(reference_image)
+                reference_size = Image.open(io.BytesIO(reference_content)).size
+            except Exception:
+                reference_size = None
+
+        if reference_size and mask_image.size != reference_size:
+            raise Exception('编辑蒙版尺寸必须与第一张参考图完全一致')
+
+        if mask_image.mode != 'RGBA':
+            rgba_image = mask_image.convert('RGBA')
+            alpha_channel = mask_image.convert('L')
+            rgba_image.putalpha(alpha_channel)
+            output = io.BytesIO()
+            rgba_image.save(output, format='PNG')
+            return 'mask.png', output.getvalue(), 'image/png'
+
+        if (mask_image.format or '').upper() != 'PNG':
+            output = io.BytesIO()
+            mask_image.save(output, format='PNG')
+            return 'mask.png', output.getvalue(), 'image/png'
+
+        return file_name, content, content_type
+
+    def _image_data_to_urls(self, response_data, output_format):
+        image_urls = []
+        output_format = (output_format or 'png').lower()
+        mime_type = 'image/jpeg' if output_format == 'jpeg' else f'image/{output_format}'
+
+        for item in response_data:
+            if item.get('b64_json'):
+                image_urls.append(f"data:{mime_type};base64,{item['b64_json']}")
+            elif item.get('url'):
+                image_urls.append(item['url'])
+
+        return image_urls
+
+    def generate(self, model_config, api_args, base_image_files=None, extra_files=None):
+        api_key = self._get_api_key()
+        endpoint_model = model_config['endpoint']
+        output_format = api_args.get('output_format', 'png')
+        has_base_images = bool(base_image_files)
+
+        headers = {
+            'Authorization': f'Bearer {api_key}',
+        }
+        timeout = httpx.Timeout(300.0)
+
+        if has_base_images:
+            request_url = 'https://api.openai.com/v1/images/edits'
+            data = {
+                'model': endpoint_model,
+                'prompt': api_args.get('prompt', ''),
+                'n': str(api_args.get('num_images', 1)),
+                'quality': api_args.get('quality', 'medium'),
+                'size': api_args.get('size', 'auto'),
+                'output_format': output_format,
+            }
+            optional_fields = ('moderation', 'background', 'output_compression')
+            for field_name in optional_fields:
+                if field_name in api_args and api_args[field_name] not in (None, ''):
+                    data[field_name] = str(api_args[field_name])
+
+            debug_payload = copy.deepcopy(data)
+            debug_payload['images_count'] = len(base_image_files or [])
+            debug_payload['has_mask'] = bool(extra_files and extra_files.get('mask_url'))
+
+            files = []
+            normalized_base_images = []
+            for image_file in base_image_files or []:
+                file_name, content, content_type = self._prepare_uploaded_file(image_file, default_content_type='image/png')
+                normalized_base_images.append((file_name, content, content_type))
+                files.append(('image[]', (file_name, content, content_type)))
+
+            mask_file = (extra_files or {}).get('mask_url')
+            if mask_file:
+                reference_stub = type('ReferenceImageStub', (), {
+                    'read': lambda self_ref: normalized_base_images[0][1],
+                    'name': normalized_base_images[0][0],
+                    'content_type': normalized_base_images[0][2],
+                })()
+                mask_name, mask_content, mask_type = self._prepare_mask_file(mask_file, reference_image=reference_stub)
+                files.append(('mask', (mask_name, mask_content, mask_type)))
+
+            print("\n" + "="*60)
+            print(f"🚀 [OpenAI Images API] 正在请求官方编辑模型: {endpoint_model}")
+            print('📦 最终发往云端的请求报文 (Payload):')
+            print(json.dumps(debug_payload, indent=4, ensure_ascii=False))
+            print("="*60 + "\n")
+
+            with httpx.Client(headers=headers, timeout=timeout) as client:
+                response = client.post(request_url, data=data, files=files)
+        else:
+            request_url = 'https://api.openai.com/v1/images/generations'
+            payload = {
+                'model': endpoint_model,
+                'prompt': api_args.get('prompt', ''),
+                'n': api_args.get('num_images', 1),
+                'quality': api_args.get('quality', 'medium'),
+                'size': api_args.get('size', 'auto'),
+                'output_format': output_format,
+            }
+            optional_fields = ('moderation', 'background', 'output_compression')
+            for field_name in optional_fields:
+                if field_name in api_args and api_args[field_name] not in (None, ''):
+                    payload[field_name] = api_args[field_name]
+
+            print("\n" + "="*60)
+            print(f"🚀 [OpenAI Images API] 正在请求官方生图模型: {endpoint_model}")
+            print('📦 最终发往云端的请求报文 (Payload):')
+            print(json.dumps(payload, indent=4, ensure_ascii=False))
+            print("="*60 + "\n")
+
+            with httpx.Client(headers={**headers, 'Content-Type': 'application/json'}, timeout=timeout) as client:
+                response = client.post(request_url, json=payload)
+
+        try:
+            result = response.json()
+        except ValueError:
+            result = {'raw_text': response.text}
+
+        print("\n" + "="*60)
+        print(f"✅ [OpenAI Images API] 成功接收到官方响应: {endpoint_model}")
+        print('📥 云端返回报文 (Response):')
+        print(json.dumps(result, indent=4, ensure_ascii=False))
+        print("="*60 + "\n")
+
+        if response.is_error:
+            error_info = result.get('error') if isinstance(result, dict) else None
+            if isinstance(error_info, dict):
+                raise Exception(error_info.get('message') or json.dumps(error_info, ensure_ascii=False))
+            raise Exception(result.get('raw_text') if isinstance(result, dict) else response.text)
+
+        image_urls = self._image_data_to_urls(result.get('data', []), result.get('output_format') or output_format)
+        if not image_urls:
+            raise Exception('OpenAI 通道未返回任何图片数据')
+        return image_urls
+
+
 class FalAIProvider(BaseAIProvider):
     """当前正在使用的 Fal.ai 接口适配器"""
-    def generate(self, model_config, api_args, base_image_files=None):
+    def generate(self, model_config, api_args, base_image_files=None, extra_files=None):
         endpoint = model_config['endpoint']
         category_id = model_config['category']
         os.environ["FAL_KEY"] = os.getenv("FAL_KEY", "")
@@ -45,6 +208,12 @@ class FalAIProvider(BaseAIProvider):
             else:
                 api_args['image_urls'] = uploaded_image_urls
 
+        if extra_files:
+            for field_name, file in extra_files.items():
+                if not file:
+                    continue
+                api_args[field_name] = fal_client.upload(file.read(), file.content_type)
+
         # ==================================
         # 【新增】：控制台优美打印
         # ==================================
@@ -56,13 +225,19 @@ class FalAIProvider(BaseAIProvider):
 
         # 2. 调用生成接口
         result = fal_client.subscribe(endpoint, arguments=api_args)
+
+        print("\n" + "="*60)
+        print(f"✅ [Fal.ai API] 成功接收到模型响应: {endpoint}")
+        print("📥 云端返回报文 (Response):")
+        print(json.dumps(result, indent=4, ensure_ascii=False))
+        print("="*60 + "\n")
         
         # 3. 统一返回格式：提取并返回 URL 字符串列表
         gen_images = result.get('images', [])
         return [img.get('url') for img in gen_images if img.get('url')]
 
 class VolcengineProvider(BaseAIProvider):
-    def generate(self, model_config, api_args, base_image_files=None):
+    def generate(self, model_config, api_args, base_image_files=None, extra_files=None):
         client = OpenAI(
             base_url="https://ark.cn-beijing.volces.com/api/v3",
             api_key=os.getenv('ARK_API_KEY')
@@ -148,6 +323,23 @@ class VolcengineProvider(BaseAIProvider):
         # ==================================
         response = client.images.generate(**request_payload)
 
+        debug_response = None
+        if hasattr(response, 'model_dump'):
+            debug_response = response.model_dump()
+        elif hasattr(response, 'to_dict'):
+            debug_response = response.to_dict()
+        else:
+            debug_response = str(response)
+
+        print("\n" + "="*60)
+        print("✅ [Volcengine API] 成功接收到火山引擎响应")
+        print("📥 云端返回报文 (Response):")
+        if isinstance(debug_response, str):
+            print(debug_response)
+        else:
+            print(json.dumps(debug_response, indent=4, ensure_ascii=False))
+        print("="*60 + "\n")
+
         # 解析返回的 URL
         urls = []
         if response.data:
@@ -159,7 +351,7 @@ class VolcengineProvider(BaseAIProvider):
         return urls
 
 class GoogleAIProvider(BaseAIProvider):
-    def generate(self, model_config, api_args, base_image_files=None):
+    def generate(self, model_config, api_args, base_image_files=None, extra_files=None):
         # 1. 获取反代地址
         base_url = os.getenv("GOOGLE_API_BASE_URL", "https://generativelanguage.googleapis.com")
         proxy_token = os.getenv("GOOGLE_PROXY_TOKEN", "")
@@ -427,6 +619,7 @@ class GoogleAIProvider(BaseAIProvider):
 # ==========================================
 def get_ai_provider(provider_name="fal_ai"):
     providers = {
+        'openai': OpenAIOfficialProvider(),
         'fal_ai': FalAIProvider(),
         'volcengine': VolcengineProvider(),
         'google_ai': GoogleAIProvider(), 

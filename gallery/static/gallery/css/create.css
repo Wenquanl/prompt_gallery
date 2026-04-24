@@ -40,6 +40,17 @@ body { background-color: #f8f9fa; }
     border: 1px solid #ddd;
 }
 
+.preview-item-clickable {
+    cursor: zoom-in;
+    transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.preview-item-clickable:hover {
+    transform: scale(1.04);
+    border-color: #8a2be2;
+    box-shadow: 0 6px 18px rgba(138, 43, 226, 0.25);
+}
+
 /* 右侧画板区样式 */
 .canvas-panel {
     background: #e9ecef;
@@ -188,6 +199,62 @@ body { background-color: #f8f9fa; }
     display: inline-block;
 }
 
+.preview-actions {
+    position: absolute;
+    left: 4px;
+    right: 4px;
+    bottom: 4px;
+    display: flex;
+    justify-content: center;
+    pointer-events: none;
+}
+
+.btn-preview-action {
+    pointer-events: auto;
+    border: none;
+    border-radius: 999px;
+    padding: 4px 8px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: #fff;
+    background: rgba(33, 37, 41, 0.82);
+    box-shadow: 0 3px 10px rgba(0,0,0,0.18);
+}
+
+.btn-preview-action:hover {
+    background: rgba(138, 43, 226, 0.92);
+}
+
+.preview-badge {
+    position: absolute;
+    left: 4px;
+    top: 4px;
+    padding: 3px 8px;
+    font-size: 0.65rem;
+    border-radius: 999px;
+    background: rgba(220, 53, 69, 0.9);
+    color: #fff;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    z-index: 2;
+}
+
+.preview-click-hint {
+    position: absolute;
+    left: 50%;
+    bottom: 30px;
+    transform: translateX(-50%);
+    background: rgba(33, 37, 41, 0.82);
+    color: #fff;
+    font-size: 0.62rem;
+    font-weight: 700;
+    padding: 4px 8px;
+    border-radius: 999px;
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 2;
+}
+
 .btn-remove-preview {
     position: absolute;
     top: -6px;
@@ -212,6 +279,77 @@ body { background-color: #f8f9fa; }
 .btn-remove-preview:hover {
     transform: scale(1.15);
     background: #bb2d3b;
+}
+
+.mask-editor-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    align-items: end;
+}
+
+.mask-brush-control {
+    min-width: 180px;
+}
+
+.mask-brush-control input[type="range"] {
+    width: 100%;
+}
+
+.mask-toolbar-actions {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.mask-editor-stage {
+    min-height: 420px;
+    border-radius: 18px;
+    border: 1px solid #e9ecef;
+    background:
+        linear-gradient(45deg, rgba(0,0,0,0.03) 25%, transparent 25%),
+        linear-gradient(-45deg, rgba(0,0,0,0.03) 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, rgba(0,0,0,0.03) 75%),
+        linear-gradient(-45deg, transparent 75%, rgba(0,0,0,0.03) 75%);
+    background-size: 24px 24px;
+    background-position: 0 0, 0 12px, 12px -12px, -12px 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 18px;
+    overflow: auto;
+}
+
+.mask-editor-canvas-wrap {
+    position: relative;
+    display: inline-block;
+    max-width: 100%;
+}
+
+#mask-base-canvas,
+#mask-draw-canvas {
+    display: block;
+    max-width: 100%;
+    border-radius: 16px;
+}
+
+#mask-base-canvas {
+    box-shadow: 0 10px 25px rgba(0,0,0,0.12);
+}
+
+#mask-draw-canvas {
+    position: absolute;
+    left: 0;
+    top: 0;
+    cursor: crosshair;
+}
+
+.mask-editor-tips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    color: #6c757d;
+    font-size: 0.82rem;
 }
 
 /* === 标签多选样式 === */

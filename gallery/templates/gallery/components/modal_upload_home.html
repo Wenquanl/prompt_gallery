@@ -34,8 +34,9 @@
                             <div id="collapsePrompt" class="accordion-collapse collapse" data-bs-parent="#accordionPrompt">
                                 <div class="accordion-body">
                                     <div class="mb-2">
-                                        <textarea name="prompt_text" class="form-control mb-2" rows="3" placeholder="Positive Prompt..."></textarea>
-                                        <textarea name="negative_prompt" class="form-control mb-2" rows="2" placeholder="Negative Prompt..."></textarea>
+                                        <textarea name="prompts" class="form-control mb-2" rows="3" placeholder="提示词1..."></textarea>
+                                        <textarea name="prompts" class="form-control mb-2" rows="3" placeholder="提示词2 (可选)..."></textarea>
+                                        <textarea name="prompts" class="form-control mb-2" rows="2" placeholder="提示词3 (可选)..."></textarea>
                                         <select name="model_info" class="form-select form-select-sm">
                                             <option value="">-- 选择模型 (可选) --</option>
                                             {% for m in all_models %}

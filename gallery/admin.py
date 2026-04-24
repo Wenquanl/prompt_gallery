@@ -31,7 +31,7 @@ class PromptGroupAdmin(admin.ModelAdmin):
     form = PromptGroupForm
     inlines = [ImageItemInline]
     list_display = ('title', 'created_at', 'image_count', 'display_characters', 'display_tags')
-    search_fields = ['title', 'prompt_text', 'tags__name', 'characters__name']
+    search_fields = ['title', 'searchable_prompts', 'tags__name', 'characters__name']
     filter_horizontal = ('tags', 'characters')
 
     def image_count(self, obj):

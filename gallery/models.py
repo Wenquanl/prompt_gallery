@@ -13,9 +13,12 @@ from django.dispatch import receiver
 
 
 PROVIDER_CHOICES = [
+    ('openai', 'OpenAI'),
+    ('chatgpt', 'ChatGPT'),
     ('fal_ai', 'Fal.ai'),
     ('volcengine', '火山引擎'),
     ('google_ai', 'Google AI (API)'),
+    ('google_flow', 'Google Flow'),
     ('gemini_web', 'Gemini 网页/APP'),  
     ('midjourney', 'Midjourney'),
     ('webui', 'Stable Diffusion WebUI'),
@@ -75,6 +78,8 @@ class PromptGroup(models.Model):
     prompt_text_zh = models.TextField("中文/辅助提示词", blank=True, null=True)
     
     negative_prompt = models.TextField("负向提示词 (Negative Prompt)", blank=True, null=True)
+    prompts = models.JSONField("统一提示词列表", default=list, blank=True)
+    searchable_prompts = models.TextField("提示词检索缓存", blank=True, default="")
     model_info = models.CharField("模型信息", max_length=200, blank=True)
     characters = models.ManyToManyField('Character', blank=True, verbose_name="包含人物")
     tags = models.ManyToManyField(Tag, blank=True, verbose_name="关联标签")
@@ -107,7 +112,74 @@ class PromptGroup(models.Model):
         verbose_name_plural = "提示词组列表"
         ordering = ['-created_at']
 
+    @staticmethod
+    def normalize_prompts(raw_prompts):
+        normalized = []
+
+        if not raw_prompts:
+            return normalized
+
+        for index, item in enumerate(raw_prompts, start=1):
+            if isinstance(item, dict):
+                text = str(item.get('text', '') or '').strip()
+            else:
+                text = str(item or '').strip()
+
+            if not text:
+                continue
+
+            normalized.append({
+                'id': f'prompt_{index}',
+                'label': f'提示词{len(normalized) + 1}',
+                'text': text,
+            })
+
+        return normalized
+
+    @classmethod
+    def build_prompts_from_legacy_fields(cls, prompt_text='', prompt_text_zh='', negative_prompt=''):
+        return cls.normalize_prompts([prompt_text, prompt_text_zh, negative_prompt])
+
+    def get_prompt_items(self):
+        prompts = self.normalize_prompts(self.prompts)
+        if prompts:
+            return prompts
+        return self.build_prompts_from_legacy_fields(
+            self.prompt_text,
+            self.prompt_text_zh,
+            self.negative_prompt,
+        )
+
+    def get_prompt_texts(self):
+        return [item['text'] for item in self.get_prompt_items()]
+
+    def get_primary_prompt_text(self):
+        prompt_items = self.get_prompt_items()
+        if prompt_items:
+            return prompt_items[0]['text']
+        return ''
+
+    def get_searchable_prompts_text(self):
+        return '\n'.join(self.get_prompt_texts())
+
+    def sync_prompt_storage(self):
+        prompt_items = self.normalize_prompts(self.prompts)
+        if not prompt_items:
+            prompt_items = self.build_prompts_from_legacy_fields(
+                self.prompt_text,
+                self.prompt_text_zh,
+                self.negative_prompt,
+            )
+
+        self.prompts = prompt_items
+        prompt_texts = [item['text'] for item in prompt_items]
+        self.searchable_prompts = '\n'.join(prompt_texts)
+        self.prompt_text = prompt_texts[0] if len(prompt_texts) >= 1 else ''
+        self.prompt_text_zh = prompt_texts[1] if len(prompt_texts) >= 2 else ''
+        self.negative_prompt = prompt_texts[2] if len(prompt_texts) >= 3 else ''
+
     def save(self, *args, **kwargs):
+        self.sync_prompt_storage()
         is_new = self._state.adding
         if is_new:
             self.find_and_join_group()
@@ -115,7 +187,7 @@ class PromptGroup(models.Model):
 
     def find_and_join_group(self):
         """查找最近的相似提示词组 (C++底层极速批处理版)"""
-        my_content = (self.prompt_text or "").strip().lower()
+        my_content = self.get_primary_prompt_text().strip().lower()
         
         if len(my_content) < 5:
             return
@@ -123,7 +195,7 @@ class PromptGroup(models.Model):
         # 1. 内存优化：只取必须的字段，不要拉取整个模型实例
         # 注意要转换成 list 触发 SQL 查询
         candidates = list(PromptGroup.objects.order_by('-id').values_list(
-            'group_id', 'title', 'prompt_text'
+            'group_id', 'title', 'searchable_prompts'
         )[:2000])
         
         # 2. 预过滤并构建待匹配字典 {文本: (group_id, title)}
@@ -268,12 +340,16 @@ def sync_promptgroup_to_meili(instance):
         chars_list = []
         if instance.pk and hasattr(instance, 'characters'):
             chars_list = [c.name for c in instance.characters.all()]
+        prompt_items = instance.get_prompt_items()
 
         document = {
             'id': instance.id,
             'title': instance.title,
             'prompt_text': instance.prompt_text or '',
             'prompt_text_zh': instance.prompt_text_zh or '',
+            'negative_prompt': instance.negative_prompt or '',
+            'prompts': [item['text'] for item in prompt_items],
+            'searchable_prompts': instance.searchable_prompts or '',
             'model_info': instance.model_info or '',
             'tags': tags_list,
             'characters': chars_list,

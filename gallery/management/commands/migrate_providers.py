@@ -13,6 +13,8 @@ class Command(BaseCommand):
         # 1. 基础后缀映射字典 (统一转小写进行匹配)
         provider_mapping = {
             'fal': 'fal_ai',
+            'google flow': 'google_flow',
+            'flow': 'google_flow',
             'midjourney': 'midjourney',
             'mj': 'midjourney',
             'webui': 'webui',

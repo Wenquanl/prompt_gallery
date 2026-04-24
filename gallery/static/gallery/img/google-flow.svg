@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" fill="none">
+  <rect width="64" height="64" rx="16" fill="#F8FAFC"/>
+  <rect x="1" y="1" width="62" height="62" rx="15" stroke="#E2E8F0"/>
+  <defs>
+    <linearGradient id="flow-gradient" x1="14" y1="16" x2="50" y2="48" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#4285F4"/>
+      <stop offset="0.35" stop-color="#34A853"/>
+      <stop offset="0.7" stop-color="#FBBC05"/>
+      <stop offset="1" stop-color="#EA4335"/>
+    </linearGradient>
+  </defs>
+  <path d="M18 22C18 18.6863 20.6863 16 24 16H42C45.3137 16 48 18.6863 48 22C48 25.3137 45.3137 28 42 28H31C27.6863 28 25 30.6863 25 34C25 37.3137 27.6863 40 31 40H34" stroke="url(#flow-gradient)" stroke-width="8" stroke-linecap="round"/>
+  <path d="M46 42C46 45.3137 43.3137 48 40 48H22C18.6863 48 16 45.3137 16 42C16 38.6863 18.6863 36 22 36H33C36.3137 36 39 33.3137 39 30C39 26.6863 36.3137 24 33 24H30" stroke="url(#flow-gradient)" stroke-width="8" stroke-linecap="round"/>
+</svg>

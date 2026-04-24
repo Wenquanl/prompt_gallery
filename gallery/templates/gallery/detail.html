@@ -86,9 +86,9 @@
 
 <div class="container mt-0 mb-4">
     <div class="mb-4">
-        {% with from_view=request.GET.from|default:'home' page_num=request.GET.page|default:'1' q_val=request.GET.q|default:'' filter_val=request.GET.filter|default:'' source_id=request.GET.source_img_id back_to_id=request.GET.back_to_detail_id search_id=request.GET.search_id %}
+        {% with from_view=request.GET.from|default:'home' page_num=request.GET.page|default:'1' q_val=request.GET.q|default:'' filter_val=request.GET.filter|default:'' sort_val=request.GET.sort|default:'' ratio_val=request.GET.ratio|default:'' source_id=request.GET.source_img_id back_to_id=request.GET.back_to_detail_id search_id=request.GET.search_id %}
             {% if back_to_id %}
-                <a href="{% url 'detail' back_to_id %}?from={{ from_view }}&page={{ page_num }}{% if q_val %}&q={{ q_val|urlencode }}{% endif %}{% if filter_val %}&filter={{ filter_val }}{% endif %}{% if source_id %}&source_img_id={{ source_id }}{% endif %}" class="btn-float-back" title="返回"><i class="bi bi-arrow-left"></i><span>返回</span></a>
+            <a href="{% url 'detail' back_to_id %}?from={{ from_view }}&page={{ page_num }}{% if q_val %}&q={{ q_val|urlencode }}{% endif %}{% if filter_val %}&filter={{ filter_val }}{% endif %}{% if sort_val %}&sort={{ sort_val }}{% endif %}{% if ratio_val %}&ratio={{ ratio_val }}{% endif %}{% if source_id %}&source_img_id={{ source_id }}{% endif %}" class="btn-float-back" title="返回"><i class="bi bi-arrow-left"></i><span>返回</span></a>
             
             {% elif search_id %}
                 {% if from_view == 'home_search' or from_view == 'home' %}
@@ -188,9 +188,29 @@
                 </div>
             </div>
 
-            <div class="section-divider mb-3 pb-2 border-bottom d-flex align-items-center">
-                <h5 class="fw-bold text-secondary mb-0"><i class="bi bi-images me-2"></i>图片</h5>
-                <span class="ms-2 badge bg-light text-secondary border" id="image-count-badge">{{ images_list|length }}</span>
+            <div class="section-divider detail-media-header mb-3 pb-2 border-bottom">
+                <div class="detail-media-title">
+                    <h5 class="fw-bold text-secondary mb-0"><i class="bi bi-images me-2"></i>图片</h5>
+                    <span class="ms-2 badge bg-light text-secondary border" id="image-count-badge" data-total-count="{{ images_list|length }}">{{ images_list|length }}</span>
+                </div>
+                <div class="detail-organizer-toolbar">
+                    <div class="detail-toolbar-group detail-toolbar-group-sort">
+                        <span class="detail-toolbar-label">排序</span>
+                        <div class="detail-sort-filter" id="detail-sort-filter" aria-label="图片排序方式">
+                            <button type="button" class="detail-sort-chip {% if sort_mode == 'similar' %}active{% endif %}" data-sort-value="similar">相似相邻</button>
+                            <button type="button" class="detail-sort-chip {% if sort_mode == 'latest' %}active{% endif %}" data-sort-value="latest">最新优先</button>
+                        </div>
+                    </div>
+                    <div class="detail-toolbar-group detail-toolbar-group-ratio">
+                        <span class="detail-toolbar-label">比例</span>
+                        <div class="detail-ratio-filter" id="detail-ratio-filter" aria-label="图片比例筛选">
+                            <button type="button" class="detail-filter-chip {% if ratio_filter == 'all' %}active{% endif %}" data-ratio-value="all">全部</button>
+                            <button type="button" class="detail-filter-chip {% if ratio_filter == 'landscape' %}active{% endif %}" data-ratio-value="landscape">横图</button>
+                            <button type="button" class="detail-filter-chip {% if ratio_filter == 'portrait' %}active{% endif %}" data-ratio-value="portrait">竖图</button>
+                            <button type="button" class="detail-filter-chip {% if ratio_filter == 'square' %}active{% endif %}" data-ratio-value="square">方图</button>
+                        </div>
+                    </div>
+                </div>
             </div>
             <div class="media-scroll-area">
                 <div id="detail-masonry-grid-images" class="row mb-5">
@@ -224,7 +244,7 @@
                     {% for related in related_groups %}
                     <div class="rec-item-container">
                         <div class="rec-card-ultra">
-                            <a href="{% url 'detail' related.pk %}?from={{ request.GET.from|default:'home' }}&page={{ request.GET.page|default:'1' }}{% if request.GET.q %}&q={{ request.GET.q|urlencode }}{% endif %}{% if request.GET.filter %}&filter={{ request.GET.filter }}{% endif %}&back_to_detail_id={{ group.pk }}" class="text-decoration-none d-block">                                <div class="rec-img-full">
+                            <a href="{% url 'detail' related.pk %}?from={{ request.GET.from|default:'home' }}&page={{ request.GET.page|default:'1' }}{% if request.GET.q %}&q={{ request.GET.q|urlencode }}{% endif %}{% if request.GET.filter %}&filter={{ request.GET.filter }}{% endif %}{% if request.GET.sort %}&sort={{ request.GET.sort }}{% endif %}{% if request.GET.ratio %}&ratio={{ request.GET.ratio }}{% endif %}&back_to_detail_id={{ group.pk }}" class="text-decoration-none d-block">                                <div class="rec-img-full">
                                     {% with cover=related.cover_image|default:related.images.first %}
                                         {% if cover %}
                                             {% if cover.is_video and not cover.thumbnail %}
@@ -269,11 +289,9 @@
                     {% endfor %}
                 </datalist>
                 <datalist id="provider-list">
-                    <option value="fal_ai">fal_ai (Fal AI)</option>
-                    <option value="volcengine">volcengine (火山引擎)</option>
-                    <option value="google_ai">google_ai (Google AI)</option>
-                    <option value="gemini_web">gemini_web (Gemini Web)</option>
-                    <option value="other">other (其他)</option>
+                    {% for provider_value, provider_label in provider_choices %}
+                        <option value="{{ provider_value }}">{{ provider_label }}</option>
+                    {% endfor %}
                 </datalist>
 
                 <div class="prompt-card p-4 mb-4" style="position: relative; z-index: 10; overflow: visible;">
@@ -302,16 +320,22 @@
                             <strong class="text-muted me-2" style="width: 70px;">生成渠道:</strong>
                             <span id="display-provider" 
                                 class="badge cursor-pointer px-3 py-2 d-flex align-items-center 
-                                {% if group.provider == 'fal_ai' %}bg-dark text-white
+                                {% if group.provider == 'openai' %}bg-dark text-white
+                                {% elif group.provider == 'chatgpt' %}bg-success text-white
+                                {% elif group.provider == 'fal_ai' %}bg-dark text-white
                                 {% elif group.provider == 'volcengine' %}bg-primary text-white
                                 {% elif group.provider == 'google_ai' %}bg-warning text-dark
+                                {% elif group.provider == 'google_flow' %}bg-success text-white
                                 {% elif group.provider == 'gemini_web' %}bg-info text-dark
                                 {% else %}bg-secondary text-white{% endif %}" 
                                 ondblclick="enableParamEdit('provider', '{{ group.provider|default:''|escapejs }}', {{ group.pk }})" 
                                 title="双击修改渠道">
-                                {% if group.provider == 'fal_ai' %}<i class="bi bi-rocket-takeoff me-1"></i>
+                                {% if group.provider == 'openai' %}<i class="bi bi-stars me-1"></i>
+                                {% elif group.provider == 'chatgpt' %}<i class="bi bi-chat-dots me-1"></i>
+                                {% elif group.provider == 'fal_ai' %}<i class="bi bi-rocket-takeoff me-1"></i>
                                 {% elif group.provider == 'volcengine' %}<i class="bi bi-cloud-check me-1"></i>
                                 {% elif group.provider == 'google_ai' %}<i class="bi bi-google me-1"></i>
+                                {% elif group.provider == 'google_flow' %}<i class="bi bi-bezier2 me-1"></i>
                                 {% elif group.provider == 'gemini_web' %}<i class="bi bi-browser-chrome me-1"></i>
                                 {% else %}<i class="bi bi-cpu me-1"></i>{% endif %}
                                 
@@ -351,48 +375,22 @@
                 </div>
 
                 <div class="prompt-card p-4">
-                    <div class="section-header">
-                        <span class="section-label text-primary">Prompt (正向)</span>
-                        <div class="d-flex align-items-center gap-2">
-                            <button onclick="enableEdit('promptText', this)" class="btn btn-sm btn-outline-secondary rounded-pill px-3 btn-edit-prompt"><i class="bi bi-pencil me-1"></i>编辑</button>
-                            <div class="edit-actions" style="display:none;">
-                                <button onclick="savePrompt('promptText', {{ group.pk }}, 'positive')" class="btn btn-sm btn-success rounded-pill px-3 me-1" title="保存"><i class="bi bi-check-lg"></i></button>
-                                <button onclick="cancelEdit('promptText')" class="btn btn-sm btn-outline-secondary rounded-pill px-3" title="取消"><i class="bi bi-x-lg"></i></button>
+                    <div class="section-header mb-3">
+                        <span class="section-label text-primary">提示词列表</span>
+                        <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
+                            <button type="button" id="btnAddPromptItem" onclick="addPromptItem()" class="btn btn-sm btn-outline-primary rounded-pill px-3" style="display:none;">
+                                <i class="bi bi-plus-lg me-1"></i>新增提示词
+                            </button>
+                            <button type="button" id="btnEditPromptList" onclick="enablePromptListEdit()" class="btn btn-sm btn-outline-secondary rounded-pill px-3 btn-edit-prompt">
+                                <i class="bi bi-pencil me-1"></i>编辑
+                            </button>
+                            <div class="edit-actions" id="promptListActions" style="display:none;">
+                                <button type="button" onclick="savePromptList({{ group.pk }})" class="btn btn-sm btn-success rounded-pill px-3 me-1" title="保存"><i class="bi bi-check-lg"></i></button>
+                                <button type="button" onclick="cancelPromptListEdit()" class="btn btn-sm btn-outline-secondary rounded-pill px-3" title="取消"><i class="bi bi-x-lg"></i></button>
                             </div>
-                            <button onclick="copyTextHandler('promptText', this)" class="btn btn-sm btn-outline-primary rounded-pill px-3" {% if not group.prompt_text %}disabled{% endif %}><i class="bi bi-clipboard me-1"></i>复制</button>
                         </div>
                     </div>
-                    <div class="prompt-box" id="promptText">{% if group.prompt_text %}{{ group.prompt_text }}{% else %}<span class="empty-text">未填写</span>{% endif %}</div>
-                </div>
-
-                <div class="prompt-card p-4">
-                    <div class="section-header">
-                        <span class="section-label text-success">辅助提示词1</span>
-                        <div class="d-flex align-items-center gap-2">
-                            <button onclick="enableEdit('promptTextZh', this)" class="btn btn-sm btn-outline-secondary rounded-pill px-3 btn-edit-prompt"><i class="bi bi-pencil me-1"></i>编辑</button>
-                            <div class="edit-actions" style="display:none;">
-                                <button onclick="savePrompt('promptTextZh', {{ group.pk }}, 'positive_zh')" class="btn btn-sm btn-success rounded-pill px-3 me-1" title="保存"><i class="bi bi-check-lg"></i></button>
-                                <button onclick="cancelEdit('promptTextZh')" class="btn btn-sm btn-outline-secondary rounded-pill px-3" title="取消"><i class="bi bi-x-lg"></i></button>
-                            </div>
-                            <button onclick="copyTextHandler('promptTextZh', this)" class="btn btn-sm btn-outline-success rounded-pill px-3" {% if not group.prompt_text_zh %}disabled{% endif %}><i class="bi bi-clipboard me-1"></i>复制</button>
-                        </div>
-                    </div>
-                    <div class="prompt-box" id="promptTextZh">{% if group.prompt_text_zh %}{{ group.prompt_text_zh }}{% else %}<span class="empty-text">未填写</span>{% endif %}</div>
-                </div>
-
-                <div class="prompt-card p-4">
-                    <div class="section-header">
-                        <span class="section-label text-danger">辅助提示词2</span>
-                        <div class="d-flex align-items-center gap-2">
-                            <button onclick="enableEdit('negPrompt', this)" class="btn btn-sm btn-outline-secondary rounded-pill px-3 btn-edit-prompt"><i class="bi bi-pencil me-1"></i>编辑</button>
-                            <div class="edit-actions" style="display:none;">
-                                <button onclick="savePrompt('negPrompt', {{ group.pk }}, 'negative')" class="btn btn-sm btn-success rounded-pill px-3 me-1" title="保存"><i class="bi bi-check-lg"></i></button>
-                                <button onclick="cancelEdit('negPrompt')" class="btn btn-sm btn-outline-secondary rounded-pill px-3" title="取消"><i class="bi bi-x-lg"></i></button>
-                            </div>
-                            <button onclick="copyTextHandler('negPrompt', this)" class="btn btn-sm btn-outline-danger rounded-pill px-3" {% if not group.negative_prompt %}disabled{% endif %}><i class="bi bi-clipboard me-1"></i>复制</button>
-                        </div>
-                    </div>
-                    <div class="prompt-box" id="negPrompt">{% if group.negative_prompt %}{{ group.negative_prompt }}{% else %}<span class="empty-text">未填写</span>{% endif %}</div>
+                    <div id="promptListContainer" class="d-flex flex-column gap-3"></div>
                 </div>
 
                 <div class="card shadow-sm border-0 mb-4" style="background: rgba(230, 240, 255, 0.5);">
@@ -430,7 +428,7 @@
                                                 <i class="bi bi-x-lg"></i>
                                             </button>
 
-                                            <a href="{% url 'detail' sib.pk %}?from={{ request.GET.from|default:'home' }}&page={{ request.GET.page|default:'1' }}{% if request.GET.q %}&q={{ request.GET.q|urlencode }}{% endif %}{% if request.GET.filter %}&filter={{ request.GET.filter }}{% endif %}&back_to_detail_id={{ group.pk }}" class="text-decoration-none text-dark d-block pe-4">
+                                            <a href="{% url 'detail' sib.pk %}?from={{ request.GET.from|default:'home' }}&page={{ request.GET.page|default:'1' }}{% if request.GET.q %}&q={{ request.GET.q|urlencode }}{% endif %}{% if request.GET.filter %}&filter={{ request.GET.filter }}{% endif %}{% if request.GET.sort %}&sort={{ request.GET.sort }}{% endif %}{% if request.GET.ratio %}&ratio={{ request.GET.ratio }}{% endif %}&back_to_detail_id={{ group.pk }}" class="text-decoration-none text-dark d-block pe-4">
                                                 
                                                 <div class="d-flex justify-content-between align-items-start mb-2">
                                                     <div class="d-flex align-items-center gap-2">
@@ -665,36 +663,16 @@
                     <input type="hidden" name="template_id" value="{{ group.pk }}">
                     
                     <div class="list-group mb-4">
-                        {% if group.prompt_text or group.prompt_text_zh or group.negative_prompt %}
-                            {% if group.prompt_text %}
+                        {% if prompt_entries %}
+                            {% for entry in prompt_entries %}
                             <label class="list-group-item d-flex gap-3 align-items-center cursor-pointer">
-                                <input class="form-check-input flex-shrink-0" type="radio" name="prompt_type" value="positive" checked>
+                                <input class="form-check-input flex-shrink-0" type="radio" name="prompt_type" value="{{ forloop.counter }}" {% if forloop.first %}checked{% endif %}>
                                 <div class="flex-grow-1 overflow-hidden">
-                                    <strong class="text-primary d-block mb-1">Prompt (正向)</strong>
-                                    <small class="d-block text-muted text-truncate">{{ group.prompt_text }}</small>
+                                    <strong class="text-primary d-block mb-1">{{ entry.label }}</strong>
+                                    <small class="d-block text-muted text-truncate">{{ entry.text }}</small>
                                 </div>
                             </label>
-                            {% endif %}
-                            
-                            {% if group.prompt_text_zh %}
-                            <label class="list-group-item d-flex gap-3 align-items-center cursor-pointer">
-                                <input class="form-check-input flex-shrink-0" type="radio" name="prompt_type" value="positive_zh" {% if not group.prompt_text %}checked{% endif %}>
-                                <div class="flex-grow-1 overflow-hidden">
-                                    <strong class="text-success d-block mb-1">辅助提示词 1</strong>
-                                    <small class="d-block text-muted text-truncate">{{ group.prompt_text_zh }}</small>
-                                </div>
-                            </label>
-                            {% endif %}
-                            
-                            {% if group.negative_prompt %}
-                            <label class="list-group-item d-flex gap-3 align-items-center cursor-pointer">
-                                <input class="form-check-input flex-shrink-0" type="radio" name="prompt_type" value="negative" {% if not group.prompt_text and not group.prompt_text_zh %}checked{% endif %}>
-                                <div class="flex-grow-1 overflow-hidden">
-                                    <strong class="text-danger d-block mb-1">辅助提示词 2</strong>
-                                    <small class="d-block text-muted text-truncate">{{ group.negative_prompt }}</small>
-                                </div>
-                            </label>
-                            {% endif %}
+                            {% endfor %}
                         {% else %}
                             <div class="alert alert-light border text-center text-muted mb-0">
                                 该作品暂无提示词文本，将仅带入参考图和标签。
@@ -739,7 +717,7 @@
             {% for sib in siblings %}
             <div class="col drawer-sibling-item" data-id="{{ sib.pk }}">
                 <div class="card h-100 border-0 shadow-sm item-card position-relative" style="cursor: pointer; border-radius: 16px; overflow: hidden; transition: transform 0.2s;">
-                    <a href="{% url 'detail' sib.pk %}?from={{ request.GET.from|default:'home' }}&page={{ request.GET.page|default:'1' }}{% if request.GET.q %}&q={{ request.GET.q|urlencode }}{% endif %}{% if request.GET.filter %}&filter={{ request.GET.filter }}{% endif %}&back_to_detail_id={{ group.pk }}" 
+                          <a href="{% url 'detail' sib.pk %}?from={{ request.GET.from|default:'home' }}&page={{ request.GET.page|default:'1' }}{% if request.GET.q %}&q={{ request.GET.q|urlencode }}{% endif %}{% if request.GET.filter %}&filter={{ request.GET.filter }}{% endif %}{% if request.GET.sort %}&sort={{ request.GET.sort }}{% endif %}{% if request.GET.ratio %}&ratio={{ request.GET.ratio }}{% endif %}&back_to_detail_id={{ group.pk }}" 
                        class="btn btn-sm border-0 shadow-sm position-absolute drawer-nav-btn" 
                        style="top: 10px; right: 10px; z-index: 20; width: 32px; height: 32px; padding: 0; display: flex; align-items: center; justify-content: center; background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(4px);"
                        title="在新页面查看此版本"
@@ -823,23 +801,14 @@
 
 {% block extra_js %}
     <script type="application/json" id="gallery-data">
-    [
-        {% for img in group.images.all %}
-    { 
-        "url": "{{ img.image.url }}", 
-        "id": {{ img.pk }}, 
-        "isLiked": {% if img.is_liked %}true{% else %}false{% endif %}, 
-        "isVideo": {% if img.is_video %}true{% else %}false{% endif %}  }{% if not forloop.last %},{% endif %}
-    {% endfor %}
-    ]
+    {{ gallery_media_json|safe }}
     </script>
     
     <script id="detail-config-data" type="application/json">
-        {
-            "groupId": "{{ group.pk|default:'' }}",
-            "rawPromptContent": "{{ group.prompt_text|default:group.title|escapejs }}"
-        }
+        {{ detail_config_json|safe }}
     </script>
+
+    <script id="prompt-list-data" type="application/json">{{ prompt_entries_json|safe|default:"[]" }}</script>
     
     <script src="{% static 'gallery/js/detail.js' %}"></script>
 {% endblock %}

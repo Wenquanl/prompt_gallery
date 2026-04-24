@@ -1,7 +1,11 @@
 <div class="{% if img.is_video %}col-12 video-wide-item{% else %}col-6 col-md-4 col-lg-3{% endif %} mb-4 grid-item item-card" 
      id="img-anchor-{{ img.pk }}" 
      data-img-id="{{ img.pk }}" 
-     data-img-url="{{ img.image.url }}">
+    data-img-url="{{ img.image.url }}"
+    data-media-type="{% if img.is_video %}video{% else %}image{% endif %}"
+    data-ratio-group="{% if img.is_video %}video{% else %}{{ img.detail_ratio_group|default:'unknown' }}{% endif %}"
+    data-sort-similar="{{ img.detail_sort_similar_order|default:0 }}"
+    data-sort-latest="{{ img.detail_sort_latest_order|default:0 }}">
      
     <div class="detail-img-card shadow-sm position-relative" id="img-card-{{ img.pk }}" style="min-height: 200px; background-color: #f8f9fa;">
         {% if img.image %}

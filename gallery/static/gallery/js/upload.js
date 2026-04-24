@@ -7,6 +7,7 @@
 // 全局文件存储数组 (本地上传的文件)
 let genFiles = []; // 生成图
 let refFiles = []; // 参考图
+let uploadPromptItems = [];
 
 // 专门存储从服务器带入的生成图信息，用于前端去重
 let serverGenFiles = []; 
@@ -30,7 +31,115 @@ document.addEventListener('DOMContentLoaded', () => {
     if (window.SERVER_TEMP_FILES && window.SERVER_TEMP_FILES.length > 0) {
         initServerFiles(window.SERVER_TEMP_FILES);
     }
+
+    initUploadPromptList();
 });
+
+function normalizeUploadPromptItems(items) {
+    const normalized = [];
+
+    (items || []).forEach((item) => {
+        const text = typeof item === 'object'
+            ? String(item.text || '').trim()
+            : String(item || '').trim();
+
+        if (!text) return;
+
+        normalized.push({
+            id: typeof item === 'object' && item.id ? item.id : `prompt_${normalized.length + 1}`,
+            label: `提示词${normalized.length + 1}`,
+            text,
+        });
+    });
+
+    return normalized;
+}
+
+function escapeUploadPromptHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text || '';
+    return div.innerHTML;
+}
+
+function initUploadPromptList() {
+    const dataEl = document.getElementById('upload-prompt-list-data');
+    if (!dataEl) return;
+
+    try {
+        uploadPromptItems = normalizeUploadPromptItems(JSON.parse(dataEl.textContent || '[]'));
+    } catch (error) {
+        console.error('初始化上传提示词失败', error);
+        uploadPromptItems = [];
+    }
+
+    const addBtn = document.getElementById('btn-add-upload-prompt');
+    if (addBtn) {
+        addBtn.addEventListener('click', () => {
+            syncUploadPromptItemsFromDom();
+            uploadPromptItems.push({
+                id: `prompt_${uploadPromptItems.length + 1}`,
+                label: `提示词${uploadPromptItems.length + 1}`,
+                text: '',
+            });
+            renderUploadPromptList();
+
+            const inputs = document.querySelectorAll('#upload-prompt-list .upload-prompt-input');
+            const lastInput = inputs[inputs.length - 1];
+            if (lastInput) lastInput.focus();
+        });
+    }
+
+    if (uploadPromptItems.length < 3) {
+        while (uploadPromptItems.length < 3) {
+            uploadPromptItems.push({
+                id: `prompt_${uploadPromptItems.length + 1}`,
+                label: `提示词${uploadPromptItems.length + 1}`,
+                text: '',
+            });
+        }
+    }
+
+    renderUploadPromptList();
+}
+
+function renderUploadPromptList() {
+    const container = document.getElementById('upload-prompt-list');
+    if (!container) return;
+
+    const displayItems = uploadPromptItems.length > 0
+        ? uploadPromptItems
+        : [{ id: 'prompt_1', label: '提示词1', text: '' }];
+
+    container.innerHTML = displayItems.map((item, index) => {
+        const safeText = escapeUploadPromptHtml(item.text);
+        return `
+            <div class="border rounded-4 bg-light-subtle p-3">
+                <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+                    <span class="badge bg-white text-primary border rounded-pill px-3 py-2">提示词${index + 1}</span>
+                    <button type="button" class="btn btn-sm btn-outline-danger rounded-pill px-3" onclick="removeUploadPromptItem(${index})">
+                        <i class="bi bi-trash3 me-1"></i>删除
+                    </button>
+                </div>
+                <textarea class="form-control upload-prompt-input" name="prompts" rows="4" data-index="${index}" placeholder="请输入提示词${index + 1}...">${safeText}</textarea>
+            </div>
+        `;
+    }).join('');
+}
+
+function syncUploadPromptItemsFromDom() {
+    const inputs = document.querySelectorAll('#upload-prompt-list .upload-prompt-input');
+    uploadPromptItems = Array.from(inputs).map((input, index) => ({
+        id: `prompt_${index + 1}`,
+        label: `提示词${index + 1}`,
+        text: input.value || '',
+    }));
+}
+
+function removeUploadPromptItem(index) {
+    syncUploadPromptItemsFromDom();
+    uploadPromptItems.splice(index, 1);
+    renderUploadPromptList();
+}
 
 /**
  * 初始化服务器端带入的临时文件
