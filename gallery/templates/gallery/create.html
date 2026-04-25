@@ -150,6 +150,22 @@
                     <textarea id="ai-prompt" class="form-control" rows="6" placeholder="详细描述你想要的画面，建议使用英文。"></textarea>
                 </div>
 
+                <div class="mb-4 p-3 bg-light rounded-3 border" id="create-gpt-prompt-mediation-panel" style="display: none;">
+                    <div class="d-flex justify-content-between align-items-center mb-2 gap-2 flex-wrap">
+                        <label class="form-label fw-bold text-secondary small mb-0"><i class="bi bi-magic me-1"></i>GPT Image 2 Prompt 优化</label>
+                        <span class="badge bg-white text-primary border" id="create-gpt-prompt-mediation-badge">未改写</span>
+                    </div>
+                    <div class="small text-muted mb-2" id="create-gpt-prompt-mediation-summary">当前仅在 GPT Image 2 请求中生效。</div>
+                    <div class="small text-secondary mb-1">改写明细</div>
+                    <div class="d-flex flex-column gap-2 mb-3" id="create-gpt-prompt-mediation-details"></div>
+                    <div class="small text-secondary mb-1">结构提取</div>
+                    <div class="d-flex flex-wrap gap-2 mb-3" id="create-gpt-prompt-mediation-outline"></div>
+                    <div class="small text-secondary mb-1">实际发送 Prompt</div>
+                    <div class="bg-white border rounded-3 p-2 small text-break" id="create-gpt-prompt-mediation-optimized" style="max-height: 120px; overflow-y: auto;"></div>
+                    <div class="small text-secondary mt-3 mb-1">触发规则</div>
+                    <div class="d-flex flex-wrap gap-2" id="create-gpt-prompt-mediation-rules"></div>
+                </div>
+
                 <button id="btn-generate" class="btn btn-primary w-100 rounded-pill py-3 fw-bold fs-5 shadow-sm" style="background: linear-gradient(135deg, #8a2be2 0%, #4a00e0 100%); border:none;" onclick="startGeneration()">
                     <i class="bi bi-stars me-2"></i>开始生成
                 </button>
@@ -264,6 +280,94 @@
                     </div>
                 </div>
                 
+            </div>
+
+            <div class="card border-0 shadow-sm mt-4" id="create-gpt-conversation-panel" style="display: none; border-radius: 20px; overflow: hidden;">
+                <div class="card-body p-4">
+                    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
+                        <div>
+                            <div class="text-uppercase small fw-bold text-primary mb-1">GPT Image 2 对话调整</div>
+                            <h5 class="fw-bold mb-1">基于当前选中结果继续微调</h5>
+                            <div class="text-muted small" id="create-gpt-conversation-status">请先生成结果，并选中一张图作为当前基底。</div>
+                        </div>
+                        <button type="button" class="btn btn-outline-primary rounded-pill px-3" id="create-gpt-conversation-reset">
+                            <i class="bi bi-arrow-counterclockwise me-1"></i>重新开聊
+                        </button>
+                    </div>
+                    <div class="border rounded-4 p-3 bg-white mb-3" id="create-gpt-conversation-recent" style="display: none;">
+                        <div class="small fw-bold text-secondary mb-2">最近会话</div>
+                        <div id="create-gpt-conversation-recent-list" class="d-flex flex-column gap-2"></div>
+                    </div>
+                    <div class="border rounded-4 p-3 bg-white mb-3">
+                        <div class="small fw-bold text-secondary mb-2">本轮出图参数</div>
+                        <div class="row g-2">
+                            <div class="col-md-4">
+                                <label class="form-label small text-muted mb-1" for="create-gpt-conversation-quality">质量</label>
+                                <select class="form-select form-select-sm" id="create-gpt-conversation-quality">
+                                    <option value="low">Low</option>
+                                    <option value="medium" selected>Medium</option>
+                                    <option value="high">High</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small text-muted mb-1" for="create-gpt-conversation-size-mode">尺寸模式</label>
+                                <select class="form-select form-select-sm" id="create-gpt-conversation-size-mode">
+                                    <option value="custom" selected>自定义</option>
+                                    <option value="auto">Auto</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small text-muted mb-1" for="create-gpt-conversation-resolution">目标尺寸</label>
+                                <select class="form-select form-select-sm" id="create-gpt-conversation-resolution">
+                                    <option value="1K">1K</option>
+                                    <option value="2K" selected>2K</option>
+                                    <option value="4K">4K</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small text-muted mb-1" for="create-gpt-conversation-aspect-ratio">画幅比例</label>
+                                <select class="form-select form-select-sm" id="create-gpt-conversation-aspect-ratio">
+                                    <option value="1:1">1:1</option>
+                                    <option value="4:3">4:3</option>
+                                    <option value="3:4">3:4</option>
+                                    <option value="16:9">16:9</option>
+                                    <option value="9:16" selected>9:16</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small text-muted mb-1" for="create-gpt-conversation-optimization-level">Prompt 优化</label>
+                                <select class="form-select form-select-sm" id="create-gpt-conversation-optimization-level">
+                                    <option value="off">关闭优化</option>
+                                    <option value="balanced" selected>保真</option>
+                                    <option value="enhanced">增强</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="border rounded-4 p-3 bg-light-subtle mb-3" id="create-gpt-conversation-history" style="min-height: 120px; max-height: 280px; overflow-y: auto;">
+                        <div class="text-muted small">还没有对话记录。</div>
+                    </div>
+                    <div class="border rounded-4 p-3 bg-white mb-3" id="create-gpt-conversation-mediation-panel" style="display: none;">
+                        <div class="d-flex justify-content-between align-items-center mb-2 gap-2 flex-wrap">
+                            <div class="small fw-bold text-secondary">本轮 Prompt 优化结果</div>
+                            <span class="badge bg-white text-primary border" id="create-gpt-conversation-mediation-badge">未改写</span>
+                        </div>
+                        <div class="small text-muted mb-2" id="create-gpt-conversation-mediation-summary">发送后会显示本轮实际送入模型的 Prompt。</div>
+                        <div class="small text-secondary mb-1">改写明细</div>
+                        <div class="d-flex flex-column gap-2 mb-3" id="create-gpt-conversation-mediation-details"></div>
+                        <div class="small text-secondary mb-1">结构提取</div>
+                        <div class="d-flex flex-wrap gap-2 mb-3" id="create-gpt-conversation-mediation-outline"></div>
+                        <div class="bg-light border rounded-3 p-2 small text-break" id="create-gpt-conversation-mediation-optimized" style="max-height: 120px; overflow-y: auto;"></div>
+                        <div class="d-flex flex-wrap gap-2 mt-2" id="create-gpt-conversation-mediation-rules"></div>
+                    </div>
+                    <div class="input-group">
+                        <textarea class="form-control" id="create-gpt-conversation-input" rows="2" placeholder="例如：保留主体不变，把背景改成雨夜东京，并增强边缘霓虹反光"></textarea>
+                        <button class="btn btn-primary px-4" type="button" id="create-gpt-conversation-send">
+                            <i class="bi bi-send me-1"></i>发送
+                        </button>
+                    </div>
+                    <div class="form-text small text-muted mt-2">每一轮默认基于你当前选中的结果继续调整；切换选中图后，下一轮会自动接着新的基底图继续。</div>
+                </div>
             </div>
         </div>
 

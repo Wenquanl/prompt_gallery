@@ -7,6 +7,7 @@ import json
 import re
 import shutil
 import hashlib
+import mimetypes
 import fal_client
 import requests
 import base64
@@ -26,15 +27,17 @@ from django.db.models import Q, Count, Case, When, IntegerField, Max, Prefetch
 from django.db import transaction
 from django.core.files.base import ContentFile
 from django.core.files.images import get_image_dimensions
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.paginator import Paginator
 from django.views.decorators.http import require_GET, require_POST
 from django.core.cache import cache
 from django.template.loader import render_to_string
 from django.views.decorators.csrf import csrf_exempt
-from .models import ImageItem, PromptGroup, Tag, AIModel, ReferenceItem, Character, PROVIDER_CHOICES
+from .models import ImageItem, PromptGroup, Tag, AIModel, ReferenceItem, Character, PROVIDER_CHOICES, GPTImageConversation, GPTImageConversationTurn, GPT_IMAGE_CONVERSATION_SOURCE_CHOICES
 from .forms import PromptGroupForm
 from .ai_utils import search_similar_images, generate_title_with_local_llm
 from .ai_providers import get_ai_provider
+from .prompt_mediation import mediate_gpt_image_prompt
 from rapidfuzz import process, fuzz
 
 # === 引入 Service 层 ===
@@ -50,6 +53,12 @@ DETAIL_RATIO_FILTERS = {'all', 'landscape', 'portrait', 'square'}
 HIDDEN_MODEL_SUGGESTION_NAMES = {'GPT Image 2 官方'}
 LEGACY_MODEL_ALIAS_MAP = {
     'GPT Image 2 官方': 'GPT Image 2',
+}
+ADAPTIVE_PROMPT_OPTIMIZATION_LEVELS = ('off', 'balanced', 'enhanced')
+ADAPTIVE_PROMPT_OPTIMIZATION_ALIASES = {
+    'conservative': 'balanced',
+    'faithful': 'balanced',
+    'visual_rewrite': 'enhanced',
 }
 
 
@@ -142,6 +151,32 @@ def _order_images_by_similarity(images):
     return ordered_images
 
 
+def _build_detail_new_images_payload(request, images):
+    new_images_data = []
+    html_list = []
+
+    for img in images:
+        safe_url = img.image.url if img.image else ''
+        if not img.is_video:
+            _get_detail_ratio_group(img)
+
+        new_images_data.append({
+            'id': img.pk,
+            'url': img.image.url if img.image else '',
+            'isLiked': img.is_liked,
+            'is_video': img.is_video,
+            'isVideo': img.is_video,
+        })
+
+        html = render_to_string('gallery/components/detail_image_card.html', {
+            'img': img,
+            'force_image_url': safe_url,
+        }, request=request)
+        html_list.append(html)
+
+    return html_list, new_images_data
+
+
 def _get_detail_ratio_group(item):
     if getattr(item, 'detail_ratio_group', None):
         return item.detail_ratio_group
@@ -195,6 +230,7 @@ AI_STUDIO_CONFIG = {
         'seedream-5.0-lite-official': {
             'provider': 'volcengine',
             'category': 'multi',
+            'visible_in_categories': ['multi', 't2i'],
             'endpoint': 'doubao-seedream-5-0-260128', 
             'title': 'Seedream 5.0 Lite (官方)',
             'desc': '字节官方最新 API，支持多图融合、组图生成与联网搜索',
@@ -226,6 +262,7 @@ AI_STUDIO_CONFIG = {
         'seedream-4.5-official': {
             'provider': 'volcengine',
             'category': 'multi',
+            'visible_in_categories': ['multi', 't2i'],
             'endpoint': 'doubao-seedream-4-5-251128',
             'title': 'Seedream 4.5 (官方)',
             'desc': '字节官方 API，专注高质量图像输出',
@@ -253,6 +290,7 @@ AI_STUDIO_CONFIG = {
         'seedream-4.0-official': {
             'provider': 'volcengine',
             'category': 'multi',
+            'visible_in_categories': ['multi', 't2i'],
             'endpoint': 'doubao-seedream-4-0-250828',
             'title': 'Seedream 4.0 (官方)',
             'desc': '字节官方 API，支持牺牲部分画质的极速生成模式',
@@ -279,6 +317,71 @@ AI_STUDIO_CONFIG = {
                     {'value': 'fast', 'text': '极速模式 (重速度)'}
                 ], 'default': 'standard'},
                 {'id': 'watermark', 'label': '添加官方水印', 'type': 'checkbox', 'default': False}
+            ]
+        },
+        'seedream-5.0-lite-fal': {
+            'provider': 'fal_ai',
+            'category': 't2i',
+            'endpoint': 'fal-ai/bytedance/seedream/v5/lite/text-to-image',
+            'title': 'Seedream 5.0 Lite 文生图 (Fal)',
+            'desc': 'Fal 文生图端点，适合高质量文本生图与快速创意探索',
+            'params': [
+                {'id': 'num_images', 'label': '生成图数量', 'type': 'range', 'min': 1, 'max': 4, 'step': 1, 'default': 1},
+                {'id': 'max_images', 'label': '最大生成图数量', 'type': 'range', 'min': 1, 'max': 4, 'step': 1, 'default': 1},
+                {'id': 'image_size', 'label': '生成尺寸 (Size)', 'type': 'select', 'options': [
+                    {'value': 'auto_2K', 'text': '2K'},
+                    {'value': 'auto_3K', 'text': '3K'},
+                    {'value': 'portrait_16_9', 'text': '竖版 9:16'},
+                    {'value': 'portrait_4_3', 'text': '竖版 3:4'},
+                    {'value': 'landscape_16_9', 'text': '横版 16:9'},
+                    {'value': 'landscape_4_3', 'text': '横版 4:3'},
+                    {'value': 'square_hd', 'text': '1:1 正方形 HD'},
+                    {'value': 'square', 'text': '1:1 正方形'}
+                ], 'default': 'auto_2K'},
+                {'id': 'enable_safety_checker', 'label': '启用安全检查', 'type': 'checkbox', 'default': False}
+            ]
+        },
+        'seedream-4.5-fal': {
+            'provider': 'fal_ai',
+            'category': 't2i',
+            'endpoint': 'fal-ai/bytedance/seedream/v4.5/text-to-image',
+            'title': 'Seedream 4.5 文生图 (Fal)',
+            'desc': 'Fal 文生图端点，适合高质量纯文本生成',
+            'params': [
+                {'id': 'num_images', 'label': '生成图数量', 'type': 'range', 'min': 1, 'max': 4, 'step': 1, 'default': 1},
+                {'id': 'max_images', 'label': '最大生成图数量', 'type': 'range', 'min': 1, 'max': 4, 'step': 1, 'default': 1},
+                {'id': 'image_size', 'label': '生成尺寸 (Size)', 'type': 'select', 'options': [
+                    {'value': 'auto_2K', 'text': '2K'},
+                    {'value': 'auto_4K', 'text': '4K'},
+                    {'value': 'portrait_16_9', 'text': '竖版 9:16'},
+                    {'value': 'portrait_4_3', 'text': '竖版 3:4'},
+                    {'value': 'landscape_16_9', 'text': '横版 16:9'},
+                    {'value': 'landscape_4_3', 'text': '横版 4:3'},
+                    {'value': 'square_hd', 'text': '1:1 正方形 HD'},
+                    {'value': 'square', 'text': '1:1 正方形'}
+                ], 'default': 'auto_2K'},
+                {'id': 'enable_safety_checker', 'label': '启用安全检查', 'type': 'checkbox', 'default': False}
+            ]
+        },
+        'seedream-4.0-fal': {
+            'provider': 'fal_ai',
+            'category': 't2i',
+            'endpoint': 'fal-ai/bytedance/seedream/v4/text-to-image',
+            'title': 'Seedream 4.0 文生图 (Fal)',
+            'desc': 'Fal 文生图端点，适合较快的 Seedream 文本生成',
+            'params': [
+                {'id': 'num_images', 'label': '生成图数量', 'type': 'range', 'min': 1, 'max': 4, 'step': 1, 'default': 1},
+                {'id': 'max_images', 'label': '最大生成图数量', 'type': 'range', 'min': 1, 'max': 4, 'step': 1, 'default': 1},
+                {'id': 'image_size', 'label': '生成尺寸 (Size)', 'type': 'select', 'options': [
+                    {'value': 'auto_2K', 'text': '2K'},
+                    {'value': 'portrait_16_9', 'text': '竖版 9:16'},
+                    {'value': 'portrait_4_3', 'text': '竖版 3:4'},
+                    {'value': 'landscape_16_9', 'text': '横版 16:9'},
+                    {'value': 'landscape_4_3', 'text': '横版 4:3'},
+                    {'value': 'square_hd', 'text': '1:1 正方形 HD'},
+                    {'value': 'square', 'text': '1:1 正方形'}
+                ], 'default': 'auto_2K'},
+                {'id': 'enable_safety_checker', 'label': '启用安全检查', 'type': 'checkbox', 'default': False}
             ]
         },
         'seedream-5.0-lite-edit-fal': {
@@ -546,6 +649,11 @@ AI_STUDIO_CONFIG = {
                     {'value': 'medium', 'text': 'Medium'},
                     {'value': 'high', 'text': 'High'}
                 ], 'default': 'medium'},
+                {'id': 'prompt_optimization_level', 'label': 'Prompt 优化强度', 'type': 'select', 'options': [
+                    {'value': 'off', 'text': '关闭优化'},
+                    {'value': 'balanced', 'text': '保真 (默认)'},
+                    {'value': 'enhanced', 'text': '增强'}
+                ], 'default': 'balanced'},
                 {'id': 'output_format', 'label': '输出格式', 'type': 'select', 'options': [
                     {'value': 'png', 'text': 'PNG (默认)'},
                     {'value': 'jpeg', 'text': 'JPEG'},
@@ -599,6 +707,11 @@ AI_STUDIO_CONFIG = {
                     {'value': 'medium', 'text': 'Medium'},
                     {'value': 'high', 'text': 'High'}
                 ], 'default': 'medium'},
+                {'id': 'prompt_optimization_level', 'label': 'Prompt 优化强度', 'type': 'select', 'options': [
+                    {'value': 'off', 'text': '关闭优化'},
+                    {'value': 'balanced', 'text': '保真 (默认)'},
+                    {'value': 'enhanced', 'text': '增强'}
+                ], 'default': 'balanced'},
                 {'id': 'output_format', 'label': '输出格式', 'type': 'select', 'options': [
                     {'value': 'png', 'text': 'PNG (默认)'},
                     {'value': 'jpeg', 'text': 'JPEG'},
@@ -692,6 +805,411 @@ def _build_gpt_image_2_custom_size(size_mode, aspect_ratio, resolution, output_f
     return {
         'width': width,
         'height': height,
+    }
+
+
+def _get_ai_studio_model_config(model_choice):
+    model_config = AI_STUDIO_CONFIG['models'].get(model_choice)
+    if not model_config:
+        raise ValueError(f'未知的模型: {model_choice}')
+    return model_config
+
+
+def _is_gpt_image_2_model(model_config):
+    return _get_ai_studio_registry_name(model_config) == 'GPT Image 2'
+
+
+def _normalize_prompt_optimization_level(value, default='balanced'):
+    normalized = str(value or '').strip().lower()
+    normalized = ADAPTIVE_PROMPT_OPTIMIZATION_ALIASES.get(normalized, normalized)
+    if normalized in ADAPTIVE_PROMPT_OPTIMIZATION_LEVELS:
+        return normalized
+    return default
+
+
+def _should_use_adaptive_prompt_optimization(mapping, model_config):
+    if not _is_gpt_image_2_model(model_config) or not hasattr(mapping, 'get'):
+        return False
+
+    raw_value = str(mapping.get('adaptive_prompt_optimization') or '').strip().lower()
+    return raw_value in {'1', 'true', 'yes', 'on'}
+
+
+def _get_next_adaptive_prompt_optimization_level(current_level):
+    normalized_level = _normalize_prompt_optimization_level(current_level, default='off')
+    try:
+        current_index = ADAPTIVE_PROMPT_OPTIMIZATION_LEVELS.index(normalized_level)
+    except ValueError:
+        return 'balanced'
+
+    next_index = current_index + 1
+    if next_index >= len(ADAPTIVE_PROMPT_OPTIMIZATION_LEVELS):
+        return ''
+    return ADAPTIVE_PROMPT_OPTIMIZATION_LEVELS[next_index]
+
+
+def _get_prompt_optimization_level(mapping, model_config):
+    default_level = 'balanced'
+    for param in model_config.get('params', []):
+        if param.get('id') == 'prompt_optimization_level':
+            default_level = param.get('default', default_level)
+            break
+
+    if not hasattr(mapping, 'get'):
+        return default_level
+
+    explicit_next_level = mapping.get('next_optimization_level')
+    if explicit_next_level:
+        return _normalize_prompt_optimization_level(explicit_next_level, default=default_level)
+
+    if _should_use_adaptive_prompt_optimization(mapping, model_config):
+        return 'off'
+
+    return _normalize_prompt_optimization_level(mapping.get('prompt_optimization_level') or default_level, default=default_level)
+
+
+def _mediate_ai_studio_prompt(model_choice, model_config, prompt, mapping, optimization_level=None):
+    prompt = str(prompt or '').strip()
+    mediation = {
+        'original_prompt': prompt,
+        'optimized_prompt': prompt,
+        'optimization_level': 'balanced',
+        'changed': False,
+        'applied_rules': [],
+        'rewrite_details': [],
+        'structured_outline': [],
+    }
+
+    if prompt and _is_gpt_image_2_model(model_config):
+        mediation = mediate_gpt_image_prompt(
+            prompt,
+            optimization_level=optimization_level or _get_prompt_optimization_level(mapping, model_config),
+        )
+
+    return mediation['optimized_prompt'], mediation
+
+
+def _build_ai_studio_api_args(mapping, model_config, prompt):
+    api_args = {}
+    for param in model_config.get('params', []):
+        api_args[param['id']] = param['default']
+    api_args['prompt'] = prompt
+
+    for param in model_config.get('params', []):
+        key = param['id']
+        if key not in mapping:
+            continue
+
+        value = mapping.get(key)
+        default_value = param['default']
+        try:
+            if isinstance(default_value, bool):
+                api_args[key] = str(value).lower() in ['true', '1', 'yes', 'on']
+            elif isinstance(default_value, int):
+                api_args[key] = int(value)
+            elif isinstance(default_value, float):
+                api_args[key] = float(value)
+            else:
+                api_args[key] = value
+        except (TypeError, ValueError):
+            continue
+
+    custom_size_param = model_config.get('custom_size_param')
+    if custom_size_param:
+        api_args[custom_size_param] = _build_gpt_image_2_custom_size(
+            api_args.get('image_size_mode', 'custom'),
+            api_args.get('aspect_ratio', '9:16'),
+            api_args.get('resolution', '2K'),
+            output_format=model_config.get('custom_size_format', 'object'),
+        )
+        api_args.pop('image_size_mode', None)
+        api_args.pop('aspect_ratio', None)
+        api_args.pop('resolution', None)
+
+    return api_args
+
+
+def _classify_ai_studio_error(error):
+    error_str = str(error)
+    error_code = str(getattr(error, 'code', '') or '').strip().lower()
+    error_type = str(getattr(error, 'error_type', '') or '').strip().lower()
+    normalized_error_text = error_str.lower()
+
+    moderation_markers = (
+        'outputimagesensitivecontentdetected',
+        'inputsensitivecontentdetected',
+        'content_policy_violation',
+        'safety system',
+        'content policy',
+        'sensitive content',
+        'moderation',
+        'safety audit',
+        'safety review',
+        '安全审核',
+        '安全违规词库',
+        '安全审查',
+        '触发了官方安全审核机制',
+        '触发了安全',
+        '审核机制',
+        'rejected as a result of our safety system',
+        'violates our content policy',
+    )
+
+    if 'OutputImageSensitiveContentDetected' in error_str:
+        return {
+            'code': 'output_sensitive_content_detected',
+            'message': '生成失败：触发了官方安全审核机制。生成的画面或参考垫图可能存在敏感特征，请尝试修改服装、姿态等描述词，或更换垫图！',
+            'is_moderation_failure': True,
+        }
+    if 'InputSensitiveContentDetected' in error_str:
+        return {
+            'code': 'input_sensitive_content_detected',
+            'message': '生成失败：输入的提示词触发了安全违规词库，请检查并修改提示词。',
+            'is_moderation_failure': True,
+        }
+
+    if error_code in {'content_policy_violation', 'image_content_policy_violation'} or error_type in {'content_policy_violation'}:
+        return {
+            'code': error_code or 'content_policy_violation',
+            'message': '生成失败：请求触发了官方内容审核策略。你可以保留当前意图，逐级提升 Prompt 优化强度后再试。',
+            'is_moderation_failure': True,
+        }
+
+    if any(marker in normalized_error_text for marker in moderation_markers):
+        return {
+            'code': error_code or 'content_moderation_rejected',
+            'message': '生成失败：请求触发了官方内容审核策略。你可以保留当前意图，逐级提升 Prompt 优化强度后再试。',
+            'is_moderation_failure': True,
+        }
+
+    return {
+        'code': 'provider_error',
+        'message': f'云端接口调用失败: {error_str}',
+        'is_moderation_failure': False,
+    }
+
+
+def _normalize_ai_studio_error_message(error):
+    return _classify_ai_studio_error(error)['message']
+
+
+def _save_generated_images(model_choice, generated_urls):
+    downloads_dir = r"G:\CommonData\图片\Imagegeneration_API"
+    os.makedirs(downloads_dir, exist_ok=True)
+
+    base_timestamp = int(time.time())
+    saved_paths = []
+    final_urls = []
+
+    print(f"云端共生成了 {len(generated_urls)} 张图片，开始处理...")
+
+    for idx, img_url in enumerate(generated_urls):
+        if not img_url:
+            print(f"⚠️ 第 {idx+1} 张图片云端未返回 URL，已跳过。")
+            continue
+
+        final_urls.append(img_url)
+        file_name = f"Gen_{model_choice}_{base_timestamp}_{idx+1}.jpg"
+        file_path = os.path.join(downloads_dir, file_name)
+
+        try:
+            if img_url.startswith('data:image'):
+                _, encoded = img_url.split(',', 1)
+                with open(file_path, 'wb') as f:
+                    f.write(base64.b64decode(encoded))
+                saved_paths.append(file_path)
+            else:
+                img_resp = requests.get(img_url, verify=False, timeout=60)
+                if img_resp.status_code == 200:
+                    with open(file_path, 'wb') as f:
+                        f.write(img_resp.content)
+                    saved_paths.append(file_path)
+        except Exception as exc:
+            print(f"处理第 {idx+1} 张图片失败: {exc}")
+
+    return final_urls, saved_paths
+
+
+def _run_ai_studio_generation(model_choice, prompt, mapping, base_image_files=None, extra_files=None):
+    if not prompt:
+        raise ValueError('提示词不能为空')
+
+    model_config = _get_ai_studio_model_config(model_choice)
+    category_id = model_config['category']
+    cat_config = next((cat for cat in AI_STUDIO_CONFIG['categories'] if cat['id'] == category_id), {})
+    img_max = model_config.get('max_base_images', cat_config.get('img_max', 0))
+    img_required = model_config.get('requires_base_images', cat_config.get('img_required', True))
+
+    files_to_upload = list(base_image_files or [])
+    if img_max > 0:
+        if img_required and not files_to_upload:
+            raise ValueError('当前模型至少需要上传一张参考图片')
+        if files_to_upload:
+            files_to_upload = files_to_upload[:img_max]
+    else:
+        files_to_upload = []
+
+    normalized_extra_files = {}
+    for file_param in model_config.get('file_params', []):
+        file_obj = (extra_files or {}).get(file_param['id'])
+        if file_obj:
+            normalized_extra_files[file_param['id']] = file_obj
+            continue
+        if file_param.get('required'):
+            raise ValueError(f"请上传{file_param.get('label', file_param['id'])}")
+
+    if normalized_extra_files.get('mask_url') and not files_to_upload:
+        raise ValueError('使用编辑蒙版前请先上传一张参考图片')
+
+    attempted_optimization_level = _get_prompt_optimization_level(mapping, model_config)
+    adaptive_prompt_optimization = _should_use_adaptive_prompt_optimization(mapping, model_config)
+    optimized_prompt, prompt_mediation = _mediate_ai_studio_prompt(
+        model_choice,
+        model_config,
+        prompt,
+        mapping,
+        optimization_level=attempted_optimization_level,
+    )
+    api_args = _build_ai_studio_api_args(mapping, model_config, optimized_prompt)
+    provider_name = model_config.get('provider', 'fal_ai')
+    provider = get_ai_provider(provider_name)
+
+    print(f"调用通道: {provider_name} | 模型: {model_choice} | 参数: {api_args}")
+
+    try:
+        generated_urls = provider.generate(model_config, api_args, files_to_upload, extra_files=normalized_extra_files)
+    except Exception as exc:
+        error_info = _classify_ai_studio_error(exc)
+        if error_info['is_moderation_failure'] and adaptive_prompt_optimization:
+            next_optimization_level = _get_next_adaptive_prompt_optimization_level(attempted_optimization_level)
+            return {
+                'model_config': model_config,
+                'provider_name': provider_name,
+                'api_args': api_args,
+                'prompt_mediation': prompt_mediation,
+                'optimized_prompt': optimized_prompt,
+                'image_urls': [],
+                'saved_paths': [],
+                'failed': True,
+                'failure_type': 'moderation',
+                'message': error_info['message'],
+                'error_code': error_info['code'],
+                'attempted_optimization_level': attempted_optimization_level,
+                'can_retry_higher': bool(next_optimization_level),
+                'next_optimization_level': next_optimization_level,
+            }
+        raise RuntimeError(error_info['message']) from exc
+
+    if not generated_urls:
+        raise RuntimeError('云端未返回任何图片')
+
+    image_urls, saved_paths = _save_generated_images(model_choice, generated_urls)
+    return {
+        'model_config': model_config,
+        'provider_name': provider_name,
+        'api_args': api_args,
+        'prompt_mediation': prompt_mediation,
+        'optimized_prompt': optimized_prompt,
+        'image_urls': image_urls,
+        'saved_paths': saved_paths,
+    }
+
+
+def _parse_json_object(raw_value, default=None):
+    if default is None:
+        default = {}
+    if not raw_value:
+        return default.copy()
+    if isinstance(raw_value, dict):
+        return raw_value
+    try:
+        parsed = json.loads(raw_value)
+    except (TypeError, ValueError):
+        return default.copy()
+    return parsed if isinstance(parsed, dict) else default.copy()
+
+
+def _build_uploaded_file_from_path(file_path):
+    if not file_path or not os.path.exists(file_path):
+        raise FileNotFoundError('当前会话的基底图路径不存在，无法继续调整')
+
+    with open(file_path, 'rb') as f:
+        content = f.read()
+
+    content_type = mimetypes.guess_type(file_path)[0] or 'image/png'
+    return SimpleUploadedFile(os.path.basename(file_path), content, content_type=content_type)
+
+
+def _build_conversation_base_images(conversation):
+    if conversation.active_image_id and conversation.active_image and conversation.active_image.image:
+        return [_build_uploaded_file_from_path(conversation.active_image.image.path)]
+    if conversation.active_image_path:
+        return [_build_uploaded_file_from_path(conversation.active_image_path)]
+    if conversation.source_image_id and conversation.source_image and conversation.source_image.image:
+        return [_build_uploaded_file_from_path(conversation.source_image.image.path)]
+    return []
+
+
+def _serialize_gpt_image_conversation_turn(turn):
+    return {
+        'id': turn.id,
+        'turn_index': turn.turn_index,
+        'instruction': turn.instruction,
+        'input_image_id': turn.input_image_id,
+        'input_image_path': turn.input_image_path,
+        'mask_image_path': turn.mask_image_path,
+        'output_image_id': turn.output_image_id,
+        'output_image_path': turn.output_image_path,
+        'request_payload': turn.request_payload,
+        'response_payload': turn.response_payload,
+        'created_at': turn.created_at.isoformat(),
+    }
+
+
+def _serialize_gpt_image_conversation(conversation, include_turns=False):
+    payload = {
+        'id': conversation.id,
+        'conversation_id': str(conversation.conversation_id),
+        'source_page': conversation.source_page,
+        'source_prompt_group_id': conversation.source_prompt_group_id,
+        'source_image_id': conversation.source_image_id,
+        'active_image_id': conversation.active_image_id,
+        'active_image_path': conversation.active_image_path,
+        'model_key': conversation.model_key,
+        'model_label': conversation.model_label,
+        'provider': conversation.provider,
+        'initial_prompt': conversation.initial_prompt,
+        'last_instruction': conversation.last_instruction,
+        'latest_params': conversation.latest_params,
+        'created_at': conversation.created_at.isoformat(),
+        'updated_at': conversation.updated_at.isoformat(),
+    }
+    if include_turns:
+        payload['turns'] = [_serialize_gpt_image_conversation_turn(turn) for turn in conversation.turns.all()]
+    return payload
+
+
+def _serialize_gpt_image_conversation_summary(conversation):
+    turns = list(conversation.turns.all())
+    last_turn = turns[-1] if turns else None
+    return {
+        'id': conversation.id,
+        'conversation_id': str(conversation.conversation_id),
+        'source_page': conversation.source_page,
+        'source_prompt_group_id': conversation.source_prompt_group_id,
+        'source_image_id': conversation.source_image_id,
+        'active_image_id': conversation.active_image_id,
+        'active_image_path': conversation.active_image_path,
+        'model_key': conversation.model_key,
+        'model_label': conversation.model_label,
+        'provider': conversation.provider,
+        'initial_prompt': conversation.initial_prompt,
+        'last_instruction': conversation.last_instruction,
+        'turn_count': len(turns),
+        'last_turn_id': last_turn.id if last_turn else None,
+        'last_turn_output_path': last_turn.output_image_path if last_turn else '',
+        'updated_at': conversation.updated_at.isoformat(),
+        'created_at': conversation.created_at.isoformat(),
     }
 
 # ==========================================
@@ -1135,6 +1653,9 @@ def home(request):
             version_counts[target_id] = s['count']
         
         queryset = queryset.filter(id__in=final_ids)
+
+    if not query and not search_id:
+        queryset = queryset.order_by('-created_at', '-id')
 
     # === 统一执行 N+1 预加载 ===
     # 无论上面走了哪个分支，最后统一下达预加载指令，将首页原本的 40+ 次查询压缩到 4 次
@@ -1875,27 +2396,7 @@ def add_images_to_group(request, pk):
             if is_ajax:
                 # 重新查询以确保数据完整
                 new_images = ImageItem.objects.filter(id__in=created_ids).order_by('id')
-                new_images_data = []
-                html_list = []
-                
-                for img in new_images:
-                    # 【核心修复】上传后立即显示时，直接使用原图 URL，避免缩略图未生成导致的白图
-                    # 原来的 try-except 逻辑虽然有兜底，但 ImageKit 可能会返回一个存在的空文件路径导致白图
-                    safe_url = img.image.url if img.image else ""
-
-                    new_images_data.append({
-                        'id': img.pk,
-                        'url': img.image.url, 
-                        'isLiked': img.is_liked,
-                        'is_video': img.is_video,
-                        'isVideo': img.is_video 
-                    })
-                    
-                    html = render_to_string('gallery/components/detail_image_card.html', {
-                        'img': img, 
-                        'force_image_url': safe_url  # 强制传入原图 URL
-                    }, request=request)
-                    html_list.append(html)
+                html_list, new_images_data = _build_detail_new_images_payload(request, new_images)
 
                 msg = f"成功添加 {uploaded_count} 个文件"
                 if duplicates:
@@ -2600,155 +3101,270 @@ def api_generate_and_download(request):
         prompt = request.POST.get('prompt', '').strip()
         model_choice = request.POST.get('model_choice')
         base_image_files = request.FILES.getlist('base_images') 
-
-        if not prompt:
-            return JsonResponse({'status': 'error', 'message': '提示词不能为空'})
-            
-        model_config = AI_STUDIO_CONFIG['models'].get(model_choice)
-        if not model_config:
-            return JsonResponse({'status': 'error', 'message': f'未知的模型: {model_choice}'})
-
-        category_id = model_config['category']
-        cat_config = next((cat for cat in AI_STUDIO_CONFIG['categories'] if cat['id'] == category_id), {})
-        img_max = model_config.get('max_base_images', cat_config.get('img_max', 0))
-        img_required = model_config.get('requires_base_images', cat_config.get('img_required', True))
-        file_param_configs = model_config.get('file_params', [])
-        
-        # 1. 获取默认参数
-        api_args = {}
-        for param in model_config.get('params', []):
-            api_args[param['id']] = param['default']
-        api_args['prompt'] = prompt
-
-        # 2. 动态参数智能覆写与类型转换
-        for param in model_config.get('params', []):
-            key = param['id']
-            if key in request.POST:
-                val = request.POST.get(key)
-                default_val = param['default']
-                try:
-                    if isinstance(default_val, bool):
-                        api_args[key] = str(val).lower() in ['true', '1', 'yes', 'on']
-                    elif isinstance(default_val, int):
-                        api_args[key] = int(val)
-                    elif isinstance(default_val, float):
-                        api_args[key] = float(val)
-                    else:
-                        api_args[key] = val
-                except ValueError:
-                    pass 
-
-        custom_size_param = model_config.get('custom_size_param')
-        if custom_size_param:
-            api_args[custom_size_param] = _build_gpt_image_2_custom_size(
-                api_args.get('image_size_mode', 'custom'),
-                api_args.get('aspect_ratio', '9:16'),
-                api_args.get('resolution', '2K'),
-                output_format=model_config.get('custom_size_format', 'object'),
-            )
-            api_args.pop('image_size_mode', None)
-            api_args.pop('aspect_ratio', None)
-            api_args.pop('resolution', None)
-
-        # 3. 获取上传图片列表 (控制最大张数)
-        files_to_upload = []
-
-        if img_max > 0:
-            # 只有在强制需要图片且未上传时才拦截
-            if img_required and not base_image_files:
-                return JsonResponse({'status': 'error', 'message': '当前模型至少需要上传一张参考图片'})
-            # 如果上传了图片，则截取最大数量；没上传则保留空列表进行文生图
-            if base_image_files:
-                files_to_upload = base_image_files[:img_max]
-
         extra_files = {}
-        for file_param in file_param_configs:
+        model_config = _get_ai_studio_model_config(model_choice)
+        for file_param in model_config.get('file_params', []):
             file_obj = request.FILES.get(file_param['id'])
             if file_obj:
                 extra_files[file_param['id']] = file_obj
-                continue
-            if file_param.get('required'):
-                return JsonResponse({'status': 'error', 'message': f"请上传{file_param.get('label', file_param['id'])}"})
 
-        if extra_files.get('mask_url') and not files_to_upload:
-            return JsonResponse({'status': 'error', 'message': '使用编辑蒙版前请先上传一张参考图片'})
-
-        # ==========================================
-        # 核心修改点：使用适配器模式请求云端，解耦第三方 SDK
-        # ==========================================
-        provider_name = model_config.get('provider', 'fal_ai')
-        provider = get_ai_provider(provider_name)
-        
-        print(f"调用通道: {provider_name} | 模型: {model_choice} | 参数: {api_args}")
-        
         try:
-            # 获取统一格式的图片 URL 列表
-            generated_urls = provider.generate(model_config, api_args, files_to_upload, extra_files=extra_files)
-        except Exception as e:
-            error_str = str(e)
-            # 针对火山引擎敏感内容拦截的专项友好提示
-            if 'OutputImageSensitiveContentDetected' in error_str:
-                friendly_msg = '生成失败：触发了官方安全审核机制。生成的画面或参考垫图可能存在敏感特征，请尝试修改服装、姿态等描述词，或更换垫图！'
-                return JsonResponse({'status': 'error', 'message': friendly_msg})
-            elif 'InputSensitiveContentDetected' in error_str:
-                friendly_msg = '生成失败：输入的提示词触发了安全违规词库，请检查并修改提示词。'
-                return JsonResponse({'status': 'error', 'message': friendly_msg})
-            else:
-                return JsonResponse({'status': 'error', 'message': f'云端接口调用失败: {error_str}'})
+            generation_result = _run_ai_studio_generation(
+                model_choice,
+                prompt,
+                request.POST,
+                base_image_files=base_image_files,
+                extra_files=extra_files,
+            )
+        except (ValueError, RuntimeError) as exc:
+            return JsonResponse({'status': 'error', 'message': str(exc)})
 
-        if not generated_urls:
-            return JsonResponse({'status': 'error', 'message': '云端未返回任何图片'})
-
-        # ==========================================
-        # 5. 下载所有生成的图片 (业务逻辑保持不变)
-        # ==========================================
-        downloads_dir = r"G:\CommonData\图片\Imagegeneration_API" # 根据你的配置
-        os.makedirs(downloads_dir, exist_ok=True) 
-        
-        base_timestamp = int(time.time())
-        saved_paths = []
-        final_urls = []
-
-        print(f"云端共生成了 {len(generated_urls)} 张图片，开始处理...")
-
-        for idx, img_url in enumerate(generated_urls):
-            # 【核心修复】：增加判空保护，跳过生成失败的空 URL
-            if not img_url:
-                print(f"⚠️ 第 {idx+1} 张图片云端未返回 URL，已跳过。")
-                continue
-                
-            final_urls.append(img_url)
-            file_name = f"Gen_{model_choice}_{base_timestamp}_{idx+1}.jpg" 
-            file_path = os.path.join(downloads_dir, file_name)
-            
-            try:
-                if img_url.startswith('data:image'):
-                    # 【新增】如果是 Google 传回来的 Base64 数据，直接解码存入硬盘，无需发起网络请求
-                    header, encoded = img_url.split(",", 1)
-                    with open(file_path, 'wb') as f:
-                        f.write(base64.b64decode(encoded))
-                    saved_paths.append(file_path)
-                else:
-                    # 【保留】如果是 Fal/火山 传回来的普通公网 URL，正常使用 requests 下载
-                    img_resp = requests.get(img_url, verify=False, timeout=60)
-                    if img_resp.status_code == 200:
-                        with open(file_path, 'wb') as f:
-                            f.write(img_resp.content)
-                        saved_paths.append(file_path)
-            except Exception as e:
-                print(f"处理第 {idx+1} 张图片失败: {e}")
+        if generation_result.get('failed'):
+            return JsonResponse({
+                'status': 'moderation_failed',
+                'message': generation_result['message'],
+                'error_code': generation_result.get('error_code', ''),
+                'optimized_prompt': generation_result['optimized_prompt'],
+                'prompt_mediation': generation_result['prompt_mediation'],
+                'attempted_optimization_level': generation_result.get('attempted_optimization_level', ''),
+                'can_retry_higher': generation_result.get('can_retry_higher', False),
+                'next_optimization_level': generation_result.get('next_optimization_level', ''),
+            })
 
         return JsonResponse({
             'status': 'success',
-            'message': f'成功生成并下载了 {len(saved_paths)} 张图片！',
-            'image_urls': final_urls,
-            'saved_paths': saved_paths
+            'message': f"成功生成并下载了 {len(generation_result['saved_paths'])} 张图片！",
+            'image_urls': generation_result['image_urls'],
+            'saved_paths': generation_result['saved_paths'],
+            'optimized_prompt': generation_result['optimized_prompt'],
+            'prompt_mediation': generation_result['prompt_mediation'],
         })
 
     except Exception as e:
         import traceback
         traceback.print_exc()
         return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+
+
+@csrf_exempt
+@require_POST
+def api_create_gpt_image_conversation(request):
+    try:
+        source_page = request.POST.get('source_page', 'create').strip() or 'create'
+        valid_source_pages = {choice[0] for choice in GPT_IMAGE_CONVERSATION_SOURCE_CHOICES}
+        if source_page not in valid_source_pages:
+            return JsonResponse({'status': 'error', 'message': '无效的来源页面'}, status=400)
+
+        model_choice = request.POST.get('model_choice', '').strip()
+        try:
+            model_config = _get_ai_studio_model_config(model_choice)
+        except ValueError as exc:
+            return JsonResponse({'status': 'error', 'message': str(exc)}, status=400)
+
+        if not _is_gpt_image_2_model(model_config):
+            return JsonResponse({'status': 'error', 'message': '当前仅支持 GPT Image 2 创建对话调图会话'}, status=400)
+
+        source_prompt_group = None
+        source_prompt_group_id = request.POST.get('source_prompt_group_id')
+        if source_prompt_group_id:
+            source_prompt_group = PromptGroup.objects.filter(pk=source_prompt_group_id).first()
+            if not source_prompt_group:
+                return JsonResponse({'status': 'error', 'message': '来源作品组不存在'}, status=404)
+
+        source_image = None
+        source_image_id = request.POST.get('source_image_id')
+        if source_image_id:
+            source_image = ImageItem.objects.filter(pk=source_image_id).select_related('group').first()
+            if not source_image:
+                return JsonResponse({'status': 'error', 'message': '来源图片不存在'}, status=404)
+
+        active_image = None
+        active_image_id = request.POST.get('active_image_id')
+        if active_image_id:
+            active_image = ImageItem.objects.filter(pk=active_image_id).first()
+            if not active_image:
+                return JsonResponse({'status': 'error', 'message': '当前激活图片不存在'}, status=404)
+
+        active_image_path = request.POST.get('active_image_path', '').strip()
+        conversation = GPTImageConversation(
+            source_page=source_page,
+            source_prompt_group=source_prompt_group,
+            source_image=source_image,
+            model_key=model_choice,
+            model_label=_get_ai_studio_registry_name(model_config),
+            provider=model_config.get('provider', 'other'),
+            initial_prompt=request.POST.get('prompt', '').strip(),
+            latest_params=_parse_json_object(request.POST.get('latest_params')),
+        )
+        conversation.set_active_image_state(active_image or source_image, active_image_path)
+        conversation.save()
+
+        conversation = GPTImageConversation.objects.prefetch_related('turns').get(pk=conversation.pk)
+        return JsonResponse({'status': 'success', 'conversation': _serialize_gpt_image_conversation(conversation, include_turns=True)})
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({'status': 'error', 'message': str(exc)}, status=500)
+
+
+@require_GET
+def api_list_gpt_image_conversations(request):
+    source_page = request.GET.get('source_page', '').strip()
+    source_prompt_group_id = request.GET.get('source_prompt_group_id', '').strip()
+    limit_raw = request.GET.get('limit', '8').strip()
+
+    queryset = GPTImageConversation.objects.select_related('source_prompt_group', 'source_image', 'active_image').prefetch_related('turns').order_by('-updated_at', '-id')
+
+    if source_page:
+        queryset = queryset.filter(source_page=source_page)
+
+    if source_prompt_group_id:
+        queryset = queryset.filter(source_prompt_group_id=source_prompt_group_id)
+
+    try:
+        limit = max(1, min(int(limit_raw), 20))
+    except ValueError:
+        limit = 8
+
+    conversations = [_serialize_gpt_image_conversation_summary(conversation) for conversation in queryset[:limit]]
+    return JsonResponse({'status': 'success', 'conversations': conversations})
+
+
+@require_GET
+def api_get_gpt_image_conversation(request, conversation_id):
+    conversation = get_object_or_404(
+        GPTImageConversation.objects.select_related('source_prompt_group', 'source_image', 'active_image').prefetch_related('turns'),
+        conversation_id=conversation_id,
+    )
+    return JsonResponse({'status': 'success', 'conversation': _serialize_gpt_image_conversation(conversation, include_turns=True)})
+
+
+@csrf_exempt
+@require_POST
+def api_append_gpt_image_conversation_turn(request, conversation_id):
+    conversation = get_object_or_404(
+        GPTImageConversation.objects.select_related('active_image', 'source_image').prefetch_related('turns'),
+        conversation_id=conversation_id,
+    )
+
+    instruction = request.POST.get('instruction', '').strip() or request.POST.get('prompt', '').strip()
+    if not instruction:
+        return JsonResponse({'status': 'error', 'message': '调整指令不能为空'}, status=400)
+
+    try:
+        base_image_files = _build_conversation_base_images(conversation)
+    except FileNotFoundError as exc:
+        return JsonResponse({'status': 'error', 'message': str(exc)}, status=400)
+
+    if not base_image_files:
+        return JsonResponse({'status': 'error', 'message': '当前会话还没有可继续调整的基底图'}, status=400)
+
+    extra_files = {}
+    mask_file = request.FILES.get('mask_url')
+    if mask_file:
+        extra_files['mask_url'] = mask_file
+
+    try:
+        generation_result = _run_ai_studio_generation(
+            conversation.model_key,
+            instruction,
+            request.POST,
+            base_image_files=base_image_files,
+            extra_files=extra_files,
+        )
+    except (ValueError, RuntimeError) as exc:
+        return JsonResponse({'status': 'error', 'message': str(exc)}, status=400)
+
+    if generation_result.get('failed'):
+        return JsonResponse({
+            'status': 'moderation_failed',
+            'message': generation_result['message'],
+            'error_code': generation_result.get('error_code', ''),
+            'conversation': _serialize_gpt_image_conversation(conversation, include_turns=True),
+            'optimized_prompt': generation_result['optimized_prompt'],
+            'prompt_mediation': generation_result['prompt_mediation'],
+            'attempted_optimization_level': generation_result.get('attempted_optimization_level', ''),
+            'can_retry_higher': generation_result.get('can_retry_higher', False),
+            'next_optimization_level': generation_result.get('next_optimization_level', ''),
+        })
+
+    selected_output_index_raw = request.POST.get('selected_output_index', '0')
+    try:
+        selected_output_index = int(selected_output_index_raw)
+    except (TypeError, ValueError):
+        selected_output_index = 0
+
+    saved_paths = generation_result['saved_paths']
+    if not saved_paths:
+        return JsonResponse({'status': 'error', 'message': '本地未保存任何生成结果'}, status=500)
+
+    selected_output_index = max(0, min(selected_output_index, len(saved_paths) - 1))
+    active_output_path = saved_paths[selected_output_index]
+
+    with transaction.atomic():
+        next_turn_index = (conversation.turns.aggregate(max_turn=Max('turn_index')).get('max_turn') or 0) + 1
+        turn = GPTImageConversationTurn.objects.create(
+            conversation=conversation,
+            turn_index=next_turn_index,
+            instruction=instruction,
+            input_image=conversation.active_image,
+            input_image_path=conversation.active_image_path or getattr(getattr(conversation.active_image, 'image', None), 'name', '') or '',
+            mask_image_path=getattr(mask_file, 'name', '') if mask_file else '',
+            output_image_path=active_output_path,
+            request_payload=generation_result['api_args'],
+            response_payload={
+                'image_urls': generation_result['image_urls'],
+                'saved_paths': saved_paths,
+                'selected_output_index': selected_output_index,
+                'prompt_mediation': generation_result['prompt_mediation'],
+            },
+        )
+
+        conversation.last_instruction = instruction
+        conversation.latest_params = generation_result['api_args']
+        conversation.set_active_image_state(image_path=active_output_path)
+        conversation.save(update_fields=['active_image', 'active_image_path', 'last_instruction', 'latest_params', 'updated_at'])
+
+    refreshed_conversation = GPTImageConversation.objects.prefetch_related('turns').get(pk=conversation.pk)
+    return JsonResponse({
+        'status': 'success',
+        'conversation': _serialize_gpt_image_conversation(refreshed_conversation, include_turns=True),
+        'turn': _serialize_gpt_image_conversation_turn(turn),
+        'image_urls': generation_result['image_urls'],
+        'saved_paths': saved_paths,
+        'optimized_prompt': generation_result['optimized_prompt'],
+        'prompt_mediation': generation_result['prompt_mediation'],
+    })
+
+
+@csrf_exempt
+@require_POST
+def api_set_gpt_image_conversation_active_result(request, conversation_id):
+    conversation = get_object_or_404(GPTImageConversation, conversation_id=conversation_id)
+
+    image_item = None
+    image_id = request.POST.get('image_id')
+    image_path = request.POST.get('image_path', '').strip()
+    turn_id = request.POST.get('turn_id')
+
+    if turn_id:
+        turn = GPTImageConversationTurn.objects.filter(conversation=conversation, pk=turn_id).first()
+        if not turn:
+            return JsonResponse({'status': 'error', 'message': '指定轮次不存在'}, status=404)
+        image_item = turn.output_image
+        image_path = image_path or turn.output_image_path
+
+    if image_id:
+        image_item = ImageItem.objects.filter(pk=image_id).first()
+        if not image_item:
+            return JsonResponse({'status': 'error', 'message': '指定图片不存在'}, status=404)
+
+    if not image_item and not image_path:
+        return JsonResponse({'status': 'error', 'message': '请先指定要切换的结果图'}, status=400)
+
+    conversation.set_active_image_state(image_item=image_item, image_path=image_path)
+    conversation.save(update_fields=['active_image', 'active_image_path', 'updated_at'])
+    return JsonResponse({'status': 'success', 'conversation': _serialize_gpt_image_conversation(conversation)})
     
 @csrf_exempt
 @require_POST
@@ -3031,8 +3647,18 @@ def api_append_to_existing_group(request):
         if created_image_ids:
             from .services import trigger_background_processing
             trigger_background_processing(created_image_ids)
+
+        new_images = ImageItem.objects.filter(id__in=created_image_ids).order_by('id')
+        html_list, new_images_data = _build_detail_new_images_payload(request, new_images)
             
-        return JsonResponse({'status': 'success', 'group_id': group.id, 'message': '成功追加到该作品！'})
+        return JsonResponse({
+            'status': 'success',
+            'group_id': group.id,
+            'message': '成功追加到该作品！',
+            'new_images_html': html_list,
+            'new_images_data': new_images_data,
+            'type': 'gen',
+        })
     except PromptGroup.DoesNotExist:
         return JsonResponse({'status': 'error', 'message': '目标作品组不存在'})
     except Exception as e:

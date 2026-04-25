@@ -8,6 +8,8 @@ let currentPage = 1;
 let currentQuery = '';
 let isLoading = false;
 let IS_LIKED_FILTER = false;
+let homeCardObserver = null;
+let homeModelFilterRequestId = 0;
 const templateModal = new bootstrap.Modal(document.getElementById('templateSelectModal'));
 let templateSearchTimeout;
 document.addEventListener('DOMContentLoaded', function() {
@@ -21,6 +23,9 @@ document.addEventListener('DOMContentLoaded', function() {
     if (window.initMasonry) {
         initMasonry('#masonry-grid', '.grid-item');
     }
+
+    bindHomeModelFilterLinks();
+    initHomeCardAnimations();
     
     // 初始化 Tooltips
     var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
@@ -127,6 +132,11 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
+window.addEventListener('popstate', function() {
+    if (!document.getElementById('model-bar-wrapper')) return;
+    refreshHomeFromUrl(window.location.href, { pushState: false, preserveScroll: true, showErrorToast: false });
+});
+
 // === 业务逻辑函数 ===
 
 function copyHomePrompt(event, text) {
@@ -139,6 +149,162 @@ function toggleGroupLike(event, pk, currentIsLiked) {
     event.preventDefault(); 
     event.stopPropagation();
     toggleLikeCommon(pk, 'group', currentIsLiked, event.currentTarget, IS_LIKED_FILTER);
+}
+
+function bindHomeModelFilterLinks() {
+    document.querySelectorAll('[data-home-model-filter-link="true"]').forEach(link => {
+        if (link.dataset.ajaxBound === 'true') return;
+        link.dataset.ajaxBound = 'true';
+        link.addEventListener('click', function(event) {
+            if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+            event.preventDefault();
+            refreshHomeFromUrl(link.href, { pushState: true, preserveScroll: true, showErrorToast: true });
+        });
+    });
+}
+
+function initHomeCardAnimations() {
+    if (homeCardObserver) {
+        homeCardObserver.disconnect();
+    }
+
+    homeCardObserver = new IntersectionObserver((entries, observer) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                entry.target.classList.add('animate-show');
+                observer.unobserve(entry.target);
+            }
+        });
+    }, {
+        root: null,
+        threshold: 0.1,
+        rootMargin: '0px 0px -50px 0px'
+    });
+
+    const cards = document.querySelectorAll('.gallery-card');
+    cards.forEach((card, index) => {
+        card.classList.remove('animate-show');
+        card.style.transitionDelay = index < 10 ? `${index * 50}ms` : '0ms';
+        homeCardObserver.observe(card);
+    });
+}
+
+function setHomeAjaxLoadingState(isLoadingState) {
+    ['model-bar-wrapper', 'home-results-region', 'home-pagination-region'].forEach(id => {
+        const element = document.getElementById(id);
+        if (!element) return;
+        element.classList.toggle('home-ajax-loading', isLoadingState);
+    });
+}
+
+function syncHomeModelBarLayout(options = {}) {
+    const { keepExpanded = false } = options;
+    const container = document.getElementById('model-tags-container');
+    const btn = document.getElementById('toggle-models-btn');
+    if (!container || !btn) return;
+
+    if (container.scrollHeight <= 42) {
+        btn.style.display = 'none';
+        container.style.paddingRight = '0';
+        container.classList.remove('is-expanded');
+        container.style.maxHeight = '36px';
+        return;
+    }
+
+    btn.style.display = '';
+    container.style.paddingRight = '';
+
+    if (keepExpanded) {
+        container.classList.add('is-expanded');
+        container.style.maxHeight = `${container.scrollHeight}px`;
+        return;
+    }
+
+    if (container.classList.contains('is-expanded')) {
+        container.style.maxHeight = `${container.scrollHeight}px`;
+    } else {
+        container.style.maxHeight = '36px';
+    }
+}
+
+function replaceHomeSection(currentId, nextElement) {
+    const currentElement = document.getElementById(currentId);
+    if (!currentElement) return;
+
+    if (!nextElement) {
+        currentElement.remove();
+        return;
+    }
+
+    const clonedElement = nextElement.cloneNode(true);
+    clonedElement.classList.add('home-ajax-enter');
+    currentElement.replaceWith(clonedElement);
+    requestAnimationFrame(() => clonedElement.classList.remove('home-ajax-enter'));
+}
+
+async function refreshHomeFromUrl(url, options = {}) {
+    const {
+        pushState = false,
+        preserveScroll = true,
+        showErrorToast = true,
+    } = options;
+
+    const requestId = ++homeModelFilterRequestId;
+    const previousScrollY = window.scrollY;
+    const wasModelBarExpanded = document.getElementById('model-tags-container')?.classList.contains('is-expanded');
+    setHomeAjaxLoadingState(true);
+
+    try {
+        const response = await fetch(url, {
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+        });
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        const html = await response.text();
+        if (requestId !== homeModelFilterRequestId) return;
+
+        const parser = new DOMParser();
+        const nextDocument = parser.parseFromString(html, 'text/html');
+        replaceHomeSection('model-bar-wrapper', nextDocument.getElementById('model-bar-wrapper'));
+        replaceHomeSection('home-results-region', nextDocument.getElementById('home-results-region'));
+        replaceHomeSection('home-pagination-region', nextDocument.getElementById('home-pagination-region'));
+
+        if (pushState) {
+            window.history.pushState({}, '', url);
+        }
+
+        if (window.initMasonry) {
+            initMasonry('#masonry-grid', '.grid-item');
+        }
+        bindHomeModelFilterLinks();
+        initHomeCardAnimations();
+        syncHomeModelBarLayout({ keepExpanded: Boolean(wasModelBarExpanded) });
+
+        if (preserveScroll) {
+            window.scrollTo({ top: previousScrollY, behavior: 'auto' });
+        }
+    } catch (error) {
+        console.error('Home model filter ajax failed:', error);
+        if (showErrorToast && window.Swal) {
+            Swal.fire({
+                icon: 'error',
+                title: '筛选失败',
+                text: '已回退为普通跳转，请重试。',
+            }).then(() => {
+                window.location.href = url;
+            });
+            return;
+        }
+        window.location.href = url;
+    } finally {
+        if (requestId === homeModelFilterRequestId) {
+            setHomeAjaxLoadingState(false);
+        }
+    }
 }
 
 // === 合并功能 (Merge) 逻辑 ===
@@ -380,37 +546,11 @@ document.addEventListener('DOMContentLoaded', () => {
         seedreamModal = new bootstrap.Modal(seedreamEl);
     }
 
-    // 1. 初始化交叉观察器 (懒加载动画)
-    const cardObserver = new IntersectionObserver((entries, observer) => {
-        entries.forEach(entry => {
-            if (entry.isIntersecting) {
-                entry.target.classList.add('animate-show');
-                observer.unobserve(entry.target); 
-            }
-        });
-    }, {
-        root: null,
-        threshold: 0.1, 
-        rootMargin: "0px 0px -50px 0px"
-    });
-
-    // 2. 找到所有的卡片并开始观察
-    const cards = document.querySelectorAll('.gallery-card');
-    cards.forEach((card, index) => {
-        if (index < 10) {
-            card.style.transitionDelay = `${index * 50}ms`;
-        }
-        cardObserver.observe(card);
-    });
-
-    // 3. 如果模型本来就很少（没有换行），自动隐藏展开按钮
+    // 如果模型本来就很少（没有换行），自动隐藏展开按钮
     const container = document.getElementById('model-tags-container');
     const btn = document.getElementById('toggle-models-btn');
     if (container && btn) {
-        if (container.scrollHeight <= 42) {
-            btn.style.display = 'none';
-            container.style.paddingRight = '0'; 
-        }
+        syncHomeModelBarLayout();
     }
 });
 
@@ -449,6 +589,7 @@ function submitAddModel() {
 
 function toggleModels() {
     const container = document.getElementById('model-tags-container');
+    if (!container) return;
     const isExpanded = container.classList.contains('is-expanded');
     
     if (!isExpanded) {

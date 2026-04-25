@@ -12,6 +12,14 @@ from google import genai
 from google.genai import types
 from PIL import Image
 
+
+class AIProviderError(Exception):
+    def __init__(self, message, *, code='', error_type='', raw_error=None):
+        super().__init__(message)
+        self.code = code or ''
+        self.error_type = error_type or ''
+        self.raw_error = raw_error
+
 class BaseAIProvider:
     """AI 生图提供商的基类（接口定义）"""
     def generate(self, model_config, api_args, base_image_files=None, extra_files=None):
@@ -179,8 +187,13 @@ class OpenAIOfficialProvider(BaseAIProvider):
         if response.is_error:
             error_info = result.get('error') if isinstance(result, dict) else None
             if isinstance(error_info, dict):
-                raise Exception(error_info.get('message') or json.dumps(error_info, ensure_ascii=False))
-            raise Exception(result.get('raw_text') if isinstance(result, dict) else response.text)
+                raise AIProviderError(
+                    error_info.get('message') or json.dumps(error_info, ensure_ascii=False),
+                    code=error_info.get('code') or '',
+                    error_type=error_info.get('type') or '',
+                    raw_error=error_info,
+                )
+            raise AIProviderError(result.get('raw_text') if isinstance(result, dict) else response.text)
 
         image_urls = self._image_data_to_urls(result.get('data', []), result.get('output_format') or output_format)
         if not image_urls:

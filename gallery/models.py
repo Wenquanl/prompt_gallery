@@ -26,6 +26,11 @@ PROVIDER_CHOICES = [
     ('other', '其他渠道')
 ]
 
+GPT_IMAGE_CONVERSATION_SOURCE_CHOICES = [
+    ('create', 'AI 创作页'),
+    ('detail', '作品详情页'),
+]
+
 # === 工具函数 ===
 def unique_file_path(instance, filename):
     """生成唯一的图片/视频存储路径"""
@@ -322,6 +327,100 @@ class ReferenceItem(models.Model):
         
     def __str__(self): return f"参考图 ID: {self.id}"
     class Meta: verbose_name = "参考图"; verbose_name_plural = "参考图集"
+
+
+class GPTImageConversation(models.Model):
+    conversation_id = models.UUIDField('会话 ID', default=uuid.uuid4, editable=False, unique=True, db_index=True)
+    source_page = models.CharField('来源页面', max_length=20, choices=GPT_IMAGE_CONVERSATION_SOURCE_CHOICES)
+    source_prompt_group = models.ForeignKey(
+        PromptGroup,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='gpt_image_conversations',
+        verbose_name='来源作品组',
+    )
+    source_image = models.ForeignKey(
+        ImageItem,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='source_gpt_image_conversations',
+        verbose_name='来源图片',
+    )
+    active_image = models.ForeignKey(
+        ImageItem,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='active_gpt_image_conversations',
+        verbose_name='当前激活图片',
+    )
+    active_image_path = models.CharField('当前激活图片路径', max_length=500, blank=True)
+    model_key = models.CharField('模型 Key', max_length=100)
+    model_label = models.CharField('模型名称', max_length=100, blank=True)
+    provider = models.CharField('生成渠道', max_length=50, choices=PROVIDER_CHOICES, default='openai', blank=True)
+    initial_prompt = models.TextField('初始提示词', blank=True)
+    last_instruction = models.TextField('最近一轮调整指令', blank=True)
+    latest_params = models.JSONField('最近参数快照', default=dict, blank=True)
+    created_at = models.DateTimeField('创建时间', auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField('更新时间', auto_now=True)
+
+    class Meta:
+        verbose_name = 'GPT 调图会话'
+        verbose_name_plural = 'GPT 调图会话'
+        ordering = ['-updated_at', '-id']
+
+    def __str__(self):
+        return f"GPT 调图会话 {self.conversation_id}"
+
+    def set_active_image_state(self, image_item=None, image_path=''):
+        self.active_image = image_item
+        self.active_image_path = image_path or getattr(getattr(image_item, 'image', None), 'name', '') or ''
+
+
+class GPTImageConversationTurn(models.Model):
+    conversation = models.ForeignKey(
+        GPTImageConversation,
+        on_delete=models.CASCADE,
+        related_name='turns',
+        verbose_name='所属会话',
+    )
+    turn_index = models.PositiveIntegerField('轮次序号')
+    instruction = models.TextField('调整指令')
+    input_image = models.ForeignKey(
+        ImageItem,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='input_gpt_image_conversation_turns',
+        verbose_name='输入图片',
+    )
+    input_image_path = models.CharField('输入图片路径', max_length=500, blank=True)
+    mask_image_path = models.CharField('蒙版路径', max_length=500, blank=True)
+    output_image = models.ForeignKey(
+        ImageItem,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='output_gpt_image_conversation_turns',
+        verbose_name='输出图片',
+    )
+    output_image_path = models.CharField('输出图片路径', max_length=500, blank=True)
+    request_payload = models.JSONField('请求快照', default=dict, blank=True)
+    response_payload = models.JSONField('响应快照', default=dict, blank=True)
+    created_at = models.DateTimeField('创建时间', auto_now_add=True, db_index=True)
+
+    class Meta:
+        verbose_name = 'GPT 调图轮次'
+        verbose_name_plural = 'GPT 调图轮次'
+        ordering = ['turn_index', 'id']
+        constraints = [
+            models.UniqueConstraint(fields=['conversation', 'turn_index'], name='unique_gpt_conversation_turn_index'),
+        ]
+
+    def __str__(self):
+        return f"{self.conversation_id} - 第 {self.turn_index} 轮"
 
 # ==========================================
 # Meilisearch 搜索引擎自动同步机制

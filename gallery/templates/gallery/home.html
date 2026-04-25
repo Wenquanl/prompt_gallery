@@ -25,7 +25,7 @@
     <div class="elegant-model-bar position-relative" id="model-bar-wrapper">
         <div class="tags-wrap-container" id="model-tags-container">
             
-            <a href="/" class="tag-pill text-decoration-none {% if not request.GET.q %}active{% endif %}" style="flex-shrink: 0;">
+            <a href="/" class="tag-pill text-decoration-none {% if not request.GET.q and not f_models %}active{% endif %}" style="flex-shrink: 0;">
                 <span class="tag-pill-inner">
                     <i class="bi bi-grid-fill me-1"></i>全部
                     <span class="badge rounded-pill ms-1">{{ total_groups_count|default:"0" }}</span>
@@ -34,8 +34,9 @@
 
             {% for tag in tags_bar %}
                 {% if tag.is_model == 1 %}
-                <a href="/?q={{ tag.name|urlencode }}" 
-                   class="tag-pill text-decoration-none {% if request.GET.q == tag.name %}active{% endif %}"
+                     <a href="/?f_model={{ tag.name|urlencode }}" 
+                         class="tag-pill text-decoration-none {% if tag.name in f_models %}active{% endif %}"
+                         data-home-model-filter-link="true"
                    oncontextmenu="handleTagContextMenu(event, this)" 
                    data-tag-name="{{ tag.name }}">
                     <span class="tag-pill-inner">
@@ -73,6 +74,7 @@
     </div>
     {% endif %}
 
+    <div id="home-results-region">
     <div id="masonry-grid">
         {% for group in page_obj %}
             {% include 'gallery/components/home_group_card.html' with group=group %}
@@ -89,9 +91,12 @@
         </div>
         {% endfor %}
     </div>
+    </div>
 
     {% if not image_search_active %}
-        {% include 'gallery/components/pagination.html' %}
+        <div id="home-pagination-region">
+            {% include 'gallery/components/pagination.html' %}
+        </div>
     {% endif %}
 </div>
 

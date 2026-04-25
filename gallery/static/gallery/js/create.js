@@ -22,6 +22,12 @@ let currentSelectedChars = new Set();
 let currentSourceGroupId = null;
 let currentPublishPromptItems = [];
 let maskEditorExportCanvas = null;
+let createConversationState = {
+    conversationId: null,
+    conversation: null,
+    isSending: false,
+    selectedPath: null,
+};
 const maskEditorState = {
     imageFile: null,
     imageName: '',
@@ -44,12 +50,195 @@ function normalizeModelName(name) {
         .trim();
 }
 
+function escapeHtml(value) {
+    return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function buildPromptMediationRuleBadges(rules) {
+    if (!Array.isArray(rules) || !rules.length) {
+        return '<span class="small text-muted">未触发专门规则</span>';
+    }
+
+    return rules.map((rule) => (
+        `<span class="badge rounded-pill text-bg-light border text-secondary">${escapeHtml(rule)}</span>`
+    )).join('');
+}
+
+function buildPromptMediationRewriteDetails(details) {
+    if (!Array.isArray(details) || !details.length) {
+        return '<div class="small text-muted">没有发生逐条改写。</div>';
+    }
+
+    return details.map((detail) => `
+        <div class="border rounded-3 bg-white p-2">
+            <div class="small text-muted mb-1 d-flex align-items-center gap-2 flex-wrap"><span class="badge rounded-pill text-bg-light border text-secondary">${escapeHtml(detail.reason_tag || '表达优化')}</span><span>${escapeHtml(detail.reason || '表达优化')}</span></div>
+            <div class="small"><span class="text-danger">原文</span> ${escapeHtml(detail.before || '')}</div>
+            <div class="small mt-1"><span class="text-success">改写后</span> ${escapeHtml(detail.after || '')}</div>
+        </div>
+    `).join('');
+}
+
+function buildPromptMediationOutline(outline) {
+    if (!Array.isArray(outline) || !outline.length) {
+        return '<span class="small text-muted">暂无结构提取结果</span>';
+    }
+
+    return outline.map((block) => (
+        `<span class="badge rounded-pill text-bg-light border text-secondary">${escapeHtml(block.label || block.category)}: ${escapeHtml((block.items || []).join(' / '))}</span>`
+    )).join('');
+}
+
+function renderCreatePromptMediationCard(config, mediation, options = {}) {
+    const panel = document.getElementById(config.panelId);
+    const badge = document.getElementById(config.badgeId);
+    const summary = document.getElementById(config.summaryId);
+    const details = document.getElementById(config.detailsId);
+    const outline = document.getElementById(config.outlineId);
+    const optimized = document.getElementById(config.optimizedId);
+    const rules = document.getElementById(config.rulesId);
+    const { hideWhenEmpty = false, emptySummary = '发送后会显示实际送入模型的 Prompt。' } = options;
+
+    if (!panel || !badge || !summary || !details || !outline || !optimized || !rules) return;
+
+    if (!mediation || !mediation.optimized_prompt) {
+        if (hideWhenEmpty) {
+            panel.style.display = 'none';
+            return;
+        }
+        panel.style.display = 'block';
+        badge.textContent = '未改写';
+        summary.textContent = emptySummary;
+        details.innerHTML = '<div class="small text-muted">暂无结果</div>';
+        outline.innerHTML = '<span class="small text-muted">暂无结果</span>';
+        optimized.textContent = '';
+        rules.innerHTML = '<span class="small text-muted">暂无结果</span>';
+        return;
+    }
+
+    panel.style.display = 'block';
+    badge.textContent = mediation.changed ? '已改写' : '原样透传';
+    summary.textContent = mediation.changed ? '这次请求已先经过 GPT Image 2 专用 Prompt 优化层。' : '这次请求未触发额外改写，按原意直接发送。';
+    details.innerHTML = buildPromptMediationRewriteDetails(mediation.rewrite_details || []);
+    outline.innerHTML = buildPromptMediationOutline(mediation.structured_outline || []);
+    optimized.textContent = mediation.optimized_prompt || '';
+    rules.innerHTML = buildPromptMediationRuleBadges(mediation.applied_rules || []);
+}
+
+function hideCreatePromptMediationCard(config) {
+    const panel = document.getElementById(config.panelId);
+    if (panel) {
+        panel.style.display = 'none';
+    }
+}
+
+function renderCreateGeneratePromptMediation(mediation) {
+    renderCreatePromptMediationCard({
+        panelId: 'create-gpt-prompt-mediation-panel',
+        badgeId: 'create-gpt-prompt-mediation-badge',
+        summaryId: 'create-gpt-prompt-mediation-summary',
+        detailsId: 'create-gpt-prompt-mediation-details',
+        outlineId: 'create-gpt-prompt-mediation-outline',
+        optimizedId: 'create-gpt-prompt-mediation-optimized',
+        rulesId: 'create-gpt-prompt-mediation-rules',
+    }, mediation, {
+        hideWhenEmpty: !isCreateConversationEligibleModel(document.getElementById('ai-model-select')?.value),
+        emptySummary: '当前仅在 GPT Image 2 请求中生效。',
+    });
+}
+
+function renderCreateConversationPromptMediation(mediation) {
+    renderCreatePromptMediationCard({
+        panelId: 'create-gpt-conversation-mediation-panel',
+        badgeId: 'create-gpt-conversation-mediation-badge',
+        summaryId: 'create-gpt-conversation-mediation-summary',
+        detailsId: 'create-gpt-conversation-mediation-details',
+        outlineId: 'create-gpt-conversation-mediation-outline',
+        optimizedId: 'create-gpt-conversation-mediation-optimized',
+        rulesId: 'create-gpt-conversation-mediation-rules',
+    }, mediation, {
+        hideWhenEmpty: true,
+    });
+}
+
+function getPromptOptimizationLevelLabel(level) {
+    switch (String(level || '').trim().toLowerCase()) {
+        case 'off':
+            return '关闭优化';
+        case 'balanced':
+        case 'conservative':
+        case 'faithful':
+            return '保真';
+        case 'enhanced':
+        case 'visual_rewrite':
+            return '增强';
+        default:
+            return '当前等级';
+    }
+}
+
+async function confirmCreatePromptOptimizationEscalation(data, roundIndex) {
+    const attemptedLabel = getPromptOptimizationLevelLabel(data.attempted_optimization_level);
+    const nextLabel = getPromptOptimizationLevelLabel(data.next_optimization_level);
+    const canRetry = Boolean(data.can_retry_higher && data.next_optimization_level);
+
+    const result = await Swal.fire({
+        title: `第 ${roundIndex} 轮触发审核拦截`,
+        html: canRetry
+            ? `当前尝试等级：<b>${attemptedLabel}</b><br>是否继续升级到 <b>${nextLabel}</b> 再试一次？<br><span class="text-muted small">当前已尝试的优化结果已展示在下方卡片中。</span>`
+            : `当前尝试等级：<b>${attemptedLabel}</b><br>已没有更高的优化等级可继续尝试。<br><span class="text-muted small">当前已尝试的优化结果已展示在下方卡片中。</span>`,
+        icon: 'warning',
+        showCancelButton: canRetry,
+        confirmButtonText: canRetry ? `继续升级到${nextLabel}` : '知道了',
+        cancelButtonText: '停止本轮',
+        confirmButtonColor: '#8a2be2',
+    });
+
+    return canRetry && result.isConfirmed;
+}
+
+function getLatestCreateConversationPromptMediation(conversation) {
+    const turns = conversation?.turns || [];
+    const latestTurn = turns[turns.length - 1];
+    return latestTurn?.response_payload?.prompt_mediation || null;
+}
+
+function isCreateConversationEligibleModel(modelId) {
+    const modelConfig = getModelConfig(modelId);
+    if (!modelConfig) return false;
+    const registryName = normalizeModelName(modelConfig.registry_name || modelConfig.title);
+    return registryName === 'gpt image 2';
+}
+
+function collectCurrentDynamicParams() {
+    const params = {};
+    document.querySelectorAll('.dynamic-param-input').forEach(input => {
+        const paramId = input.getAttribute('data-param-id');
+        const paramType = input.getAttribute('data-param-type');
+        if (!paramId || paramId === 'prompt_aspect_ratio') return;
+        params[paramId] = paramType === 'checkbox' ? input.checked : input.value;
+    });
+    return params;
+}
+
 function getCategoryConfig(categoryId) {
     return (AI_CONFIG.categories || []).find(c => c.id === categoryId) || {};
 }
 
 function getModelConfig(modelId) {
     return (AI_CONFIG.models || {})[modelId] || null;
+}
+
+function modelVisibleInCategory(model, categoryId) {
+    if (!model) return false;
+    const visibleCategories = Array.isArray(model.visible_in_categories) && model.visible_in_categories.length
+        ? model.visible_in_categories
+        : [model.category];
+    return visibleCategories.includes(categoryId);
 }
 
 function getEffectiveUploadConfig(modelId, categoryId = null) {
@@ -214,8 +403,8 @@ function removeExtraFile(paramId) {
     renderPreviews();
 }
 
-function applyModelUploadConfig(modelId) {
-    const uploadConfig = getEffectiveUploadConfig(modelId);
+function applyModelUploadConfig(modelId, categoryId = null) {
+    const uploadConfig = getEffectiveUploadConfig(modelId, categoryId);
     const imgBlock = document.getElementById('ai-image-upload-block');
     const fileInput = document.getElementById('file-input-hidden');
     const imgHelp = document.getElementById('ai-img-help');
@@ -239,6 +428,11 @@ function applyModelUploadConfig(modelId) {
 
     renderPreviews();
     renderDynamicFileParams(modelId);
+    if (!isCreateConversationEligibleModel(modelId)) {
+        resetCreateConversationState();
+    } else {
+        updateCreateConversationPanelVisibility();
+    }
 }
 
 function getMaskCanvasContexts() {
@@ -477,6 +671,15 @@ document.addEventListener('DOMContentLoaded', () => {
     setupDragAndDrop();
     initPublishPromptEditor();
 
+    const createConversationSendBtn = document.getElementById('create-gpt-conversation-send');
+    if (createConversationSendBtn) {
+        createConversationSendBtn.addEventListener('click', sendCreateConversationMessage);
+    }
+    const createConversationResetBtn = document.getElementById('create-gpt-conversation-reset');
+    if (createConversationResetBtn) {
+        createConversationResetBtn.addEventListener('click', () => resetCreateConversationState({ preserveSelection: true }));
+    }
+
     maskEditorState.baseCanvas = document.getElementById('mask-base-canvas');
     maskEditorState.drawCanvas = document.getElementById('mask-draw-canvas');
     if (maskEditorState.drawCanvas) {
@@ -596,11 +799,33 @@ document.addEventListener('DOMContentLoaded', () => {
             let modelToastMsg = null;
             
             if (initialData.model_info && typeof initialData.model_info === 'string') {
+                const rawModelName = String(initialData.model_info).trim();
                 const dbModelName = normalizeModelName(initialData.model_info);
                 let targetModelId = null;
                 let targetCategoryId = null;
 
                 for (const [key, model] of Object.entries(AI_CONFIG.models)) {
+                    const exactTitle = String(model.title || '').trim().toLowerCase();
+                    if (exactTitle && exactTitle === rawModelName.toLowerCase()) {
+                        targetModelId = key;
+                        targetCategoryId = model.category;
+                        break;
+                    }
+                }
+
+                if (!targetModelId) {
+                    for (const [key, model] of Object.entries(AI_CONFIG.models)) {
+                        const exactRegistryName = String(model.registry_name || '').trim().toLowerCase();
+                        if (exactRegistryName && exactRegistryName === rawModelName.toLowerCase()) {
+                            targetModelId = key;
+                            targetCategoryId = model.category;
+                            break;
+                        }
+                    }
+                }
+
+                if (!targetModelId) {
+                    for (const [key, model] of Object.entries(AI_CONFIG.models)) {
                     const titleName = normalizeModelName(model.title);
                     const registryName = normalizeModelName(model.registry_name);
                     if (titleName === dbModelName || registryName === dbModelName) {
@@ -608,6 +833,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         targetCategoryId = model.category;
                         break;
                     }
+                }
                 }
 
                 if (targetModelId) {
@@ -693,6 +919,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     dynamicContainer.addEventListener('input', handleDynamicInput);
     dynamicContainer.addEventListener('change', handleDynamicInput);
+    loadRecentCreateConversations();
+    updateCreateConversationPanelVisibility();
 });
 
 function normalizePublishPromptItems(items) {
@@ -865,7 +1093,7 @@ function initDynamicUI() {
         const showClass = index === 0 ? 'show active' : '';
         let cardsHtml = `<div class="tab-pane fade ${showClass}" id="tab-${cat.id}" role="tabpanel"><div class="row g-2">`;
         for (const [modelId, model] of Object.entries(AI_CONFIG.models)) {
-            if (model.category === cat.id) {
+            if (modelVisibleInCategory(model, cat.id)) {
                 cardsHtml += `
                     <div class="col-6">
                         <div class="model-card" id="card-${modelId}" onclick="selectModel('${modelId}', '${cat.id}', this)">
@@ -900,7 +1128,7 @@ function selectModel(modelId, categoryId, element) {
     document.getElementById('ai-model-select').value = modelId;
     currentExtraFiles = {};
     renderDynamicParams(modelId);
-    applyModelUploadConfig(modelId);
+    applyModelUploadConfig(modelId, categoryId);
 }
 
 function renderDynamicParams(modelId) {
@@ -1137,6 +1365,13 @@ function removeFile(index) {
 
 function toggleGenResultSelect(element) {
     element.classList.toggle('selected');
+    if (element.classList.contains('selected')) {
+        createConversationState.selectedPath = element.getAttribute('data-path');
+        syncCreateConversationActiveResult(createConversationState.selectedPath);
+    } else if (createConversationState.selectedPath === element.getAttribute('data-path')) {
+        createConversationState.selectedPath = getCreateConversationSelectedPath();
+    }
+    updateCreateConversationPanelVisibility();
 }
 
 function getSelectedSavedPaths() {
@@ -1146,6 +1381,482 @@ function getSelectedSavedPaths() {
         paths.push(card.getAttribute('data-path'));
     });
     return paths;
+}
+
+function getCreateConversationPanel() {
+    return document.getElementById('create-gpt-conversation-panel');
+}
+
+function getCreateConversationRecentPanel() {
+    return document.getElementById('create-gpt-conversation-recent');
+}
+
+function getCreateConversationRecentList() {
+    return document.getElementById('create-gpt-conversation-recent-list');
+}
+
+function getCreateConversationParamOverrides() {
+    return {
+        quality: document.getElementById('create-gpt-conversation-quality')?.value || 'medium',
+        image_size_mode: document.getElementById('create-gpt-conversation-size-mode')?.value || 'custom',
+        resolution: document.getElementById('create-gpt-conversation-resolution')?.value || '2K',
+        aspect_ratio: document.getElementById('create-gpt-conversation-aspect-ratio')?.value || '9:16',
+        prompt_optimization_level: document.getElementById('create-gpt-conversation-optimization-level')?.value || 'balanced',
+    };
+}
+
+function normalizeCreateConversationOptimizationLevel(value) {
+    if (value === 'conservative' || value === 'faithful') return 'balanced';
+    if (value === 'visual_rewrite') return 'enhanced';
+    return value || 'balanced';
+}
+
+function applyCreateConversationParamOverrides(params = {}) {
+    const qualityEl = document.getElementById('create-gpt-conversation-quality');
+    const sizeModeEl = document.getElementById('create-gpt-conversation-size-mode');
+    const resolutionEl = document.getElementById('create-gpt-conversation-resolution');
+    const aspectRatioEl = document.getElementById('create-gpt-conversation-aspect-ratio');
+    const optimizationLevelEl = document.getElementById('create-gpt-conversation-optimization-level');
+
+    if (qualityEl && params.quality) qualityEl.value = params.quality;
+    if (sizeModeEl && params.image_size_mode) sizeModeEl.value = params.image_size_mode;
+    if (resolutionEl && params.resolution) resolutionEl.value = params.resolution;
+    if (aspectRatioEl && params.aspect_ratio) aspectRatioEl.value = params.aspect_ratio;
+    if (optimizationLevelEl && params.prompt_optimization_level) optimizationLevelEl.value = normalizeCreateConversationOptimizationLevel(params.prompt_optimization_level);
+}
+
+function collectCreateConversationParams() {
+    return {
+        ...collectCurrentDynamicParams(),
+        ...getCreateConversationParamOverrides(),
+    };
+}
+
+function setCreateConversationStatus(message) {
+    const statusEl = document.getElementById('create-gpt-conversation-status');
+    if (statusEl) {
+        statusEl.innerText = message;
+    }
+}
+
+function getCreateConversationSelectedPath() {
+    const selectedCards = Array.from(document.querySelectorAll('.gen-result-card.selected'));
+    if (
+        createConversationState.selectedPath
+        && selectedCards.some(card => card.getAttribute('data-path') === createConversationState.selectedPath)
+    ) {
+        return createConversationState.selectedPath;
+    }
+
+    const selectedCard = selectedCards[selectedCards.length - 1] || document.querySelector('.gen-result-card');
+    return selectedCard ? selectedCard.getAttribute('data-path') : '';
+}
+
+function renderCreateConversationHistory() {
+    const historyEl = document.getElementById('create-gpt-conversation-history');
+    if (!historyEl) return;
+
+    const conversation = createConversationState.conversation;
+    const turns = conversation?.turns || [];
+    const activePath = conversation?.active_image_path || '';
+    if (!turns.length) {
+        historyEl.innerHTML = '<div class="text-muted small">还没有对话记录。</div>';
+        return;
+    }
+
+    historyEl.innerHTML = turns.map(turn => `
+        <div class="border rounded-4 bg-white p-3 mb-2 ${turn.output_image_path === activePath ? 'border-primary' : ''}">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="badge bg-primary-subtle text-primary border">第 ${turn.turn_index} 轮</span>
+                <span class="text-muted small">${new Date(turn.created_at).toLocaleString()}</span>
+            </div>
+            <div class="fw-semibold mb-2">${escapeHtml(turn.instruction)}</div>
+            <div class="small text-muted mb-2">当前输出：${escapeHtml(turn.output_image_path || '未记录')}</div>
+            <div class="d-flex flex-wrap gap-2">
+                <button type="button" class="btn btn-sm ${turn.output_image_path === activePath ? 'btn-primary' : 'btn-outline-primary'} rounded-pill" data-turn-id="${turn.id}" data-output-path="${escapeHtml(turn.output_image_path || '')}" onclick="activateCreateConversationTurn(this)">
+                    <i class="bi bi-arrow-repeat me-1"></i>${turn.output_image_path === activePath ? '当前基底' : '切换为当前基底'}
+                </button>
+                ${turn.output_image_path ? `<button type="button" class="btn btn-sm btn-outline-success rounded-pill" data-output-path="${escapeHtml(turn.output_image_path)}" onclick="publishCreateConversationTurn(this)"><i class="bi bi-box-arrow-up me-1"></i>保存为新作品</button>` : ''}
+                ${turn.output_image_path ? `<button type="button" class="btn btn-sm btn-outline-secondary rounded-pill" data-output-path="${escapeHtml(turn.output_image_path)}" onclick="appendCreateConversationTurn(this)"><i class="bi bi-collection me-1"></i>追加到现有作品</button>` : ''}
+            </div>
+        </div>
+    `).join('');
+}
+
+function updateCreateConversationPanelVisibility() {
+    const panel = getCreateConversationPanel();
+    if (!panel) return;
+
+    const modelId = document.getElementById('ai-model-select')?.value;
+    const hasResults = document.querySelectorAll('.gen-result-card').length > 0;
+    const eligible = isCreateConversationEligibleModel(modelId) && hasResults;
+
+    panel.style.display = eligible ? 'block' : 'none';
+    if (!isCreateConversationEligibleModel(modelId)) {
+        hideCreatePromptMediationCard({ panelId: 'create-gpt-prompt-mediation-panel' });
+        hideCreatePromptMediationCard({ panelId: 'create-gpt-conversation-mediation-panel' });
+    }
+    const recentPanel = getCreateConversationRecentPanel();
+    if (recentPanel && !eligible) {
+        recentPanel.style.display = 'none';
+    }
+    if (!eligible) return;
+
+    const selectedPath = getCreateConversationSelectedPath();
+    if (!createConversationState.conversationId) {
+        setCreateConversationStatus(selectedPath ? `当前基底图：${selectedPath}` : '请先选中一张结果图作为当前基底。');
+        return;
+    }
+
+    setCreateConversationStatus(selectedPath ? `当前会话基底：${selectedPath}` : '当前会话缺少基底图，请重新选择。');
+}
+
+function clearCreateConversationGallery() {
+    const gallery = document.getElementById('result-gallery');
+    if (!gallery) return;
+    gallery.innerHTML = '';
+    gallery.style.display = 'none';
+    lastSavedPaths = [];
+}
+
+function resetCreateConversationState(options = {}) {
+    const { preserveSelection = false } = options;
+    createConversationState.conversationId = null;
+    createConversationState.conversation = null;
+    createConversationState.isSending = false;
+    if (!preserveSelection) {
+        createConversationState.selectedPath = null;
+    }
+    hideCreatePromptMediationCard({ panelId: 'create-gpt-conversation-mediation-panel' });
+    renderCreateConversationHistory();
+    updateCreateConversationPanelVisibility();
+}
+
+function updateResultGalleryLayout() {
+    const gallery = document.getElementById('result-gallery');
+    if (!gallery) return;
+
+    const totalImages = gallery.querySelectorAll('.gen-result-card').length;
+    if (totalImages === 1) {
+        gallery.style.gridTemplateColumns = '1fr';
+        gallery.style.gridTemplateRows = '1fr';
+        gallery.style.gridAutoRows = 'auto';
+    } else if (totalImages === 2) {
+        gallery.style.gridTemplateColumns = '1fr 1fr';
+        gallery.style.gridTemplateRows = '1fr';
+        gallery.style.gridAutoRows = 'auto';
+    } else {
+        gallery.style.gridTemplateColumns = '1fr 1fr';
+        gallery.style.gridTemplateRows = 'none';
+        gallery.style.gridAutoRows = 'minmax(250px, auto)';
+    }
+}
+
+function appendGeneratedResultCards(imageUrls, savedPaths, options = {}) {
+    const { clearExistingSelection = false, resetGallery = false } = options;
+    const gallery = document.getElementById('result-gallery');
+    if (!gallery) return;
+
+    if (resetGallery) {
+        clearCreateConversationGallery();
+    }
+
+    gallery.style.display = 'grid';
+    gallery.style.overflowY = 'auto';
+    gallery.style.alignContent = 'start';
+    gallery.style.paddingBottom = '100px';
+
+    if (clearExistingSelection) {
+        gallery.querySelectorAll('.gen-result-card.selected').forEach(card => card.classList.remove('selected'));
+    }
+
+    imageUrls.forEach((url, index) => {
+        const localPath = savedPaths[index];
+        if (!localPath) return;
+        lastSavedPaths.push(localPath);
+        gallery.insertAdjacentHTML('beforeend', `
+            <div class="gen-result-card selected" data-path="${escapeHtml(localPath)}" onclick="toggleGenResultSelect(this)" style="min-height: 250px;">
+                <img src="${url}" style="width: 100%; height: 100%; object-fit: contain; border-radius: 8px;">
+                <div class="select-badge"><i class="bi bi-check-lg"></i></div>
+            </div>
+        `);
+        createConversationState.selectedPath = localPath;
+    });
+
+    updateResultGalleryLayout();
+    updateCreateConversationPanelVisibility();
+}
+
+function selectCreateConversationModel(modelKey) {
+    if (!modelKey || !AI_CONFIG.models[modelKey]) return;
+    const modelConfig = AI_CONFIG.models[modelKey];
+    switchCategory(modelConfig.category);
+    const targetCard = document.getElementById(`card-${modelKey}`);
+    if (targetCard) {
+        targetCard.click();
+    }
+}
+
+function renderCreateConversationRecentList(conversations) {
+    const recentPanel = getCreateConversationRecentPanel();
+    const recentList = getCreateConversationRecentList();
+    if (!recentPanel || !recentList) return;
+
+    if (!conversations || conversations.length === 0) {
+        recentPanel.style.display = 'none';
+        recentList.innerHTML = '';
+        return;
+    }
+
+    recentPanel.style.display = 'block';
+    recentList.innerHTML = conversations.map(conversation => `
+        <button type="button" class="btn btn-sm btn-outline-secondary text-start rounded-4 px-3 py-2" data-conversation-id="${conversation.conversation_id}" onclick="restoreCreateConversation(this)">
+            <div class="fw-semibold text-truncate">${escapeHtml(conversation.last_instruction || conversation.initial_prompt || '未命名会话')}</div>
+            <div class="small text-muted d-flex justify-content-between gap-2">
+                <span>${escapeHtml(conversation.model_label || 'GPT Image 2')} · ${conversation.turn_count} 轮</span>
+                <span>${new Date(conversation.updated_at).toLocaleString()}</span>
+            </div>
+        </button>
+    `).join('');
+}
+
+async function loadRecentCreateConversations() {
+    try {
+        const response = await fetch('/api/gpt-image-conversations/recent/?source_page=create&limit=6');
+        const data = await response.json();
+        if (data.status === 'success') {
+            renderCreateConversationRecentList(data.conversations || []);
+        }
+    } catch (error) {
+        console.error(error);
+    }
+}
+
+function rebuildCreateConversationGallery(conversation) {
+    clearCreateConversationGallery();
+    const turns = conversation?.turns || [];
+    turns.forEach((turn, index) => {
+        const imageUrls = turn.response_payload?.image_urls || [];
+        const savedPaths = turn.response_payload?.saved_paths || [];
+        if (imageUrls.length && savedPaths.length) {
+            appendGeneratedResultCards(imageUrls, savedPaths, {
+                resetGallery: index === 0,
+                clearExistingSelection: false,
+            });
+        }
+    });
+
+    if (conversation?.active_image_path) {
+        setCreateConversationSelectedCard(conversation.active_image_path);
+    }
+    if (document.querySelectorAll('.gen-result-card').length > 0) {
+        document.getElementById('publish-bar').style.display = 'block';
+    }
+}
+
+async function restoreCreateConversation(buttonEl) {
+    const conversationId = buttonEl?.dataset?.conversationId;
+    if (!conversationId) return;
+
+    try {
+        const response = await fetch(`/api/gpt-image-conversations/${conversationId}/`);
+        const data = await response.json();
+        if (data.status !== 'success') {
+            throw new Error(data.message || '恢复会话失败');
+        }
+
+        const conversation = data.conversation;
+        selectCreateConversationModel(conversation.model_key);
+        if (conversation.initial_prompt) {
+            document.getElementById('ai-prompt').value = conversation.initial_prompt;
+        }
+        applyCreateConversationParamOverrides(conversation.latest_params || {});
+        renderCreateConversationPromptMediation(getLatestCreateConversationPromptMediation(conversation));
+
+        createConversationState.conversationId = conversation.conversation_id;
+        createConversationState.conversation = conversation;
+        createConversationState.selectedPath = conversation.active_image_path || '';
+        rebuildCreateConversationGallery(conversation);
+        renderCreateConversationHistory();
+        updateCreateConversationPanelVisibility();
+        Swal.fire({ toast: true, position: 'top', icon: 'success', title: '已恢复最近会话', showConfirmButton: false, timer: 1800 });
+    } catch (error) {
+        Swal.fire('恢复失败', error.message || '未知错误', 'error');
+    }
+}
+
+function setCreateConversationSelectedCard(path) {
+    if (!path) return;
+    const cards = Array.from(document.querySelectorAll('.gen-result-card'));
+    if (!cards.length) return;
+
+    cards.forEach(card => {
+        card.classList.toggle('selected', card.getAttribute('data-path') === path);
+    });
+    createConversationState.selectedPath = path;
+    updateCreateConversationPanelVisibility();
+}
+
+function publishCreateConversationTurn(buttonEl) {
+    const outputPath = buttonEl?.dataset?.outputPath || '';
+    if (!outputPath) return;
+    setCreateConversationSelectedCard(outputPath);
+    publishCreation();
+}
+
+function appendCreateConversationTurn(buttonEl) {
+    const outputPath = buttonEl?.dataset?.outputPath || '';
+    if (!outputPath) return;
+    setCreateConversationSelectedCard(outputPath);
+    openAddToGroupModal();
+}
+
+async function syncCreateConversationActiveResult(path) {
+    if (!createConversationState.conversationId || !path) return;
+
+    const formData = new FormData();
+    formData.append('image_path', path);
+
+    try {
+        const response = await fetch(`/api/gpt-image-conversations/${createConversationState.conversationId}/active-result/`, {
+            method: 'POST',
+            body: formData,
+        });
+        const data = await response.json();
+        if (data.status === 'success') {
+            createConversationState.conversation = {
+                ...(createConversationState.conversation || {}),
+                ...data.conversation,
+            };
+            setCreateConversationStatus(`当前会话基底：${path}`);
+        }
+    } catch (error) {
+        console.error(error);
+    }
+}
+
+async function activateCreateConversationTurn(buttonEl) {
+    const turnId = buttonEl?.dataset?.turnId;
+    const outputPath = buttonEl?.dataset?.outputPath || '';
+    if (!createConversationState.conversationId || !turnId) return;
+
+    const formData = new FormData();
+    formData.append('turn_id', turnId);
+    if (outputPath) {
+        formData.append('image_path', outputPath);
+    }
+
+    try {
+        const response = await fetch(`/api/gpt-image-conversations/${createConversationState.conversationId}/active-result/`, {
+            method: 'POST',
+            body: formData,
+        });
+        const data = await response.json();
+        if (data.status !== 'success') {
+            throw new Error(data.message || '切换当前基底失败');
+        }
+
+        createConversationState.conversation = {
+            ...(createConversationState.conversation || {}),
+            ...data.conversation,
+        };
+        if (outputPath) {
+            setCreateConversationSelectedCard(outputPath);
+        }
+        renderCreateConversationHistory();
+    } catch (error) {
+        Swal.fire('切换失败', error.message || '未知错误', 'error');
+    }
+}
+
+async function ensureCreateConversation() {
+    if (createConversationState.conversationId) {
+        return createConversationState.conversation;
+    }
+
+    const modelChoice = document.getElementById('ai-model-select')?.value;
+    if (!isCreateConversationEligibleModel(modelChoice)) {
+        throw new Error('当前只有 GPT Image 2 支持对话式调图');
+    }
+
+    const activeImagePath = getCreateConversationSelectedPath();
+    if (!activeImagePath) {
+        throw new Error('请先选中一张生成结果，再开始对话调整');
+    }
+
+    const formData = new FormData();
+    formData.append('source_page', 'create');
+    formData.append('model_choice', modelChoice);
+    formData.append('active_image_path', activeImagePath);
+    formData.append('prompt', document.getElementById('ai-prompt')?.value || '');
+    formData.append('latest_params', JSON.stringify(collectCreateConversationParams()));
+
+    const response = await fetch('/api/gpt-image-conversations/', {
+        method: 'POST',
+        body: formData,
+    });
+    const data = await response.json();
+    if (data.status !== 'success') {
+        throw new Error(data.message || '创建调图会话失败');
+    }
+
+    createConversationState.conversationId = data.conversation.conversation_id;
+    createConversationState.conversation = data.conversation;
+    createConversationState.selectedPath = activeImagePath;
+    renderCreateConversationHistory();
+    updateCreateConversationPanelVisibility();
+    loadRecentCreateConversations();
+    return data.conversation;
+}
+
+async function sendCreateConversationMessage() {
+    const inputEl = document.getElementById('create-gpt-conversation-input');
+    const sendBtn = document.getElementById('create-gpt-conversation-send');
+    if (!inputEl || !sendBtn || createConversationState.isSending) return;
+
+    const instruction = inputEl.value.trim();
+    if (!instruction) {
+        Swal.fire('提示', '请输入本轮调图指令', 'warning');
+        return;
+    }
+
+    createConversationState.isSending = true;
+    sendBtn.disabled = true;
+    sendBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>发送中';
+
+    try {
+        await ensureCreateConversation();
+        const formData = new FormData();
+        formData.append('instruction', instruction);
+        Object.entries(collectCreateConversationParams()).forEach(([key, value]) => formData.append(key, value));
+        if (currentExtraFiles.mask_url) {
+            formData.append('mask_url', currentExtraFiles.mask_url);
+        }
+
+        const response = await fetch(`/api/gpt-image-conversations/${createConversationState.conversationId}/turns/`, {
+            method: 'POST',
+            body: formData,
+        });
+        const data = await response.json();
+        if (data.status !== 'success') {
+            throw new Error(data.message || '追加对话轮次失败');
+        }
+
+        createConversationState.conversation = data.conversation;
+        renderCreateConversationPromptMediation(data.prompt_mediation || getLatestCreateConversationPromptMediation(data.conversation));
+        renderCreateConversationHistory();
+        appendGeneratedResultCards(data.image_urls || [], data.saved_paths || [], { clearExistingSelection: true });
+        inputEl.value = '';
+        loadRecentCreateConversations();
+        Swal.fire({ toast: true, position: 'top', icon: 'success', title: '已追加一轮对话调图', showConfirmButton: false, timer: 2200 });
+    } catch (error) {
+        Swal.fire('对话调图失败', error.message || '未知错误', 'error');
+    } finally {
+        createConversationState.isSending = false;
+        sendBtn.disabled = false;
+        sendBtn.innerHTML = '<i class="bi bi-send me-1"></i>发送';
+        updateCreateConversationPanelVisibility();
+    }
 }
 
 function playNotificationSound(type) {
@@ -1198,6 +1909,7 @@ async function startGeneration() {
         gallery.innerHTML = ''; 
         lastSavedPaths = []; 
     }
+    resetCreateConversationState();
     document.getElementById('canvas-scanning').style.display = 'block';
     document.getElementById('canvas-loading').style.display = 'block';
 
@@ -1253,6 +1965,9 @@ async function startGeneration() {
             formData.append(paramId, input.value);
         }
     });
+    if (isCreateConversationEligibleModel(modelChoice)) {
+        formData.append('adaptive_prompt_optimization', 'true');
+    }
 
     let successCount = 0;
     let failCount = 0;
@@ -1269,72 +1984,63 @@ async function startGeneration() {
         }
 
         try {
-            const response = await fetch('/api/generate-direct/', {
-                method: 'POST',
-                body: formData 
-            });
-            const data = await response.json();
+            let nextOptimizationLevel = '';
+            formData.delete('next_optimization_level');
 
-            if (data.status === 'success') {
-                playNotificationSound('success');
-                successCount++;
-                document.getElementById('canvas-scanning').style.display = 'none';
-                document.getElementById('canvas-loading').style.display = 'none';
-                lastSavedPaths.push(...data.saved_paths);
-                document.getElementById('publish-bar').style.display = 'block';
-
-                gallery.style.display = 'grid';
-                gallery.style.overflowY = 'auto'; 
-                gallery.style.alignContent = 'start'; 
-                gallery.style.paddingBottom = '100px'; 
-
-                data.image_urls.forEach((url, index) => {
-                    const localPath = data.saved_paths[index];
-                    gallery.innerHTML += `
-                        <div class="gen-result-card selected" data-path="${localPath}" onclick="toggleGenResultSelect(this)" style="min-height: 250px;">
-                            <img src="${url}" style="width: 100%; height: 100%; object-fit: contain; border-radius: 8px;">
-                            <div class="select-badge"><i class="bi bi-check-lg"></i></div>
-                        </div>
-                    `;
-                });
-
-                const totalImages = gallery.querySelectorAll('.gen-result-card').length;
-                if (totalImages === 1) {
-                    gallery.style.gridTemplateColumns = '1fr';
-                    gallery.style.gridTemplateRows = '1fr';
-                    gallery.style.gridAutoRows = 'auto';
-                } else if (totalImages === 2) {
-                    gallery.style.gridTemplateColumns = '1fr 1fr';
-                    gallery.style.gridTemplateRows = '1fr';
-                    gallery.style.gridAutoRows = 'auto';
+            while (true) {
+                if (nextOptimizationLevel) {
+                    formData.set('next_optimization_level', nextOptimizationLevel);
                 } else {
-                    gallery.style.gridTemplateColumns = '1fr 1fr'; 
-                    gallery.style.gridTemplateRows = 'none'; 
-                    gallery.style.gridAutoRows = 'minmax(250px, auto)'; 
+                    formData.delete('next_optimization_level');
                 }
 
-                if (typeof notifyWhenBackground === 'function') {
-                    notifyWhenBackground(`🎨 第 ${i} 轮生图完成！`, "已有新图片追加到画板，您可以回来看一眼。");
+                const response = await fetch('/api/generate-direct/', {
+                    method: 'POST',
+                    body: formData 
+                });
+                const data = await response.json();
+
+                if (data.status === 'success') {
+                    playNotificationSound('success');
+                    successCount++;
+                    renderCreateGeneratePromptMediation(data.prompt_mediation || null);
+                    document.getElementById('canvas-scanning').style.display = 'none';
+                    document.getElementById('canvas-loading').style.display = 'none';
+                    document.getElementById('publish-bar').style.display = 'block';
+                    appendGeneratedResultCards(data.image_urls || [], data.saved_paths || []);
+
+                    if (typeof notifyWhenBackground === 'function') {
+                        notifyWhenBackground(`🎨 第 ${i} 轮生图完成！`, "已有新图片追加到画板，您可以回来看一眼。");
+                    }
+                    break;
                 }
 
-            } else {
+                renderCreateGeneratePromptMediation(data.prompt_mediation || null);
+                if (data.status === 'moderation_failed') {
+                    const shouldRetry = await confirmCreatePromptOptimizationEscalation(data, i);
+                    if (shouldRetry) {
+                        nextOptimizationLevel = data.next_optimization_level || '';
+                        continue;
+                    }
+                } else {
+                    Swal.fire({
+                        title: `第 ${i} 轮生成失败`,
+                        text: data.message,
+                        icon: 'error',
+                        toast: true,
+                        position: 'top',
+                        timer: 3000,
+                        showConfirmButton: false
+                    });
+                }
+
                 playNotificationSound('error');
                 failCount++;
                 errorMessages.push(`<strong>第 ${i} 轮:</strong> ${data.message || '未知错误'}`);
-
-                Swal.fire({
-                    title: `第 ${i} 轮生成失败`,
-                    text: data.message,
-                    icon: 'error',
-                    toast: true,
-                    position: 'top',
-                    timer: 3000,
-                    showConfirmButton: false
-                });
                 if (typeof notifyWhenBackground === 'function') {
                     notifyWhenBackground("❌ 任务异常", `第 ${i} 轮触发了报错或拦截，已自动跳过。`);
                 }
-                continue;
+                break;
             }
         } catch (error) {
             playNotificationSound('error');

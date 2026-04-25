@@ -13,15 +13,18 @@ let detailLayoutRestoreFrameId = null;
 let detailGridTransitionTimeoutId = null;
 let detailRatioGroupsPromise = null;
 let detailRatioGroupsLoaded = false;
+let detailConversationState = {
+    conversationId: null,
+    conversation: null,
+    isSending: false,
+};
 
 // === 多选关联状态 ===
 let selectedLinkIds = new Set();
 
-// === 辅助函数：精准获取当前作品 ID ===
 function getCurrentGroupId() {
-    // 【修改】正则表达式改为同时支持 /detail/ 和 /image/ 路径
     const match = location.pathname.match(/\/(?:detail|image)\/(\d+)/);
-    return match ? parseInt(match[1]) : null;
+    return match ? parseInt(match[1], 10) : null;
 }
 
 function getDetailPageConfig() {
@@ -43,6 +46,545 @@ function getDetailPageConfig() {
     } catch (error) {
         console.error('Failed to parse detail config:', error);
         return fallback;
+    }
+}
+
+function escapeDetailConversationHtml(value) {
+    return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function getDetailConversationPanel() {
+    return document.getElementById('detail-gpt-conversation-panel');
+}
+
+function getDetailConversationRecentPanel() {
+    return document.getElementById('detail-gpt-conversation-recent');
+}
+
+function getDetailConversationRecentList() {
+    return document.getElementById('detail-gpt-conversation-recent-list');
+}
+
+function buildDetailPromptMediationRuleBadges(rules) {
+    if (!Array.isArray(rules) || !rules.length) {
+        return '<span class="small text-muted">未触发专门规则</span>';
+    }
+
+    return rules.map((rule) => (
+        `<span class="badge rounded-pill text-bg-light border text-secondary">${escapeDetailConversationHtml(rule)}</span>`
+    )).join('');
+}
+
+function buildDetailPromptMediationRewriteDetails(details) {
+    if (!Array.isArray(details) || !details.length) {
+        return '<div class="small text-muted">没有发生逐条改写。</div>';
+    }
+
+    return details.map((detail) => `
+        <div class="border rounded-3 bg-light p-2">
+            <div class="small text-muted mb-1 d-flex align-items-center gap-2 flex-wrap"><span class="badge rounded-pill text-bg-light border text-secondary">${escapeDetailConversationHtml(detail.reason_tag || '表达优化')}</span><span>${escapeDetailConversationHtml(detail.reason || '表达优化')}</span></div>
+            <div class="small"><span class="text-danger">原文</span> ${escapeDetailConversationHtml(detail.before || '')}</div>
+            <div class="small mt-1"><span class="text-success">改写后</span> ${escapeDetailConversationHtml(detail.after || '')}</div>
+        </div>
+    `).join('');
+}
+
+function buildDetailPromptMediationOutline(outline) {
+    if (!Array.isArray(outline) || !outline.length) {
+        return '<span class="small text-muted">暂无结构提取结果</span>';
+    }
+
+    return outline.map((block) => (
+        `<span class="badge rounded-pill text-bg-light border text-secondary">${escapeDetailConversationHtml(block.label || block.category)}: ${escapeDetailConversationHtml((block.items || []).join(' / '))}</span>`
+    )).join('');
+}
+
+function renderDetailConversationPromptMediation(mediation) {
+    const panel = document.getElementById('detail-gpt-conversation-mediation-panel');
+    const badge = document.getElementById('detail-gpt-conversation-mediation-badge');
+    const summary = document.getElementById('detail-gpt-conversation-mediation-summary');
+    const details = document.getElementById('detail-gpt-conversation-mediation-details');
+    const outline = document.getElementById('detail-gpt-conversation-mediation-outline');
+    const optimized = document.getElementById('detail-gpt-conversation-mediation-optimized');
+    const rules = document.getElementById('detail-gpt-conversation-mediation-rules');
+    if (!panel || !badge || !summary || !details || !outline || !optimized || !rules) return;
+
+    if (!mediation || !mediation.optimized_prompt) {
+        panel.style.display = 'none';
+        return;
+    }
+
+    panel.style.display = 'block';
+    badge.textContent = mediation.changed ? '已改写' : '原样透传';
+    summary.textContent = mediation.changed ? '这次请求已先经过 GPT Image 2 专用 Prompt 优化层。' : '这次请求未触发额外改写，按原意直接发送。';
+    details.innerHTML = buildDetailPromptMediationRewriteDetails(mediation.rewrite_details || []);
+    outline.innerHTML = buildDetailPromptMediationOutline(mediation.structured_outline || []);
+    optimized.textContent = mediation.optimized_prompt || '';
+    rules.innerHTML = buildDetailPromptMediationRuleBadges(mediation.applied_rules || []);
+}
+
+function hideDetailConversationPromptMediation() {
+    const panel = document.getElementById('detail-gpt-conversation-mediation-panel');
+    if (panel) {
+        panel.style.display = 'none';
+    }
+}
+
+function getLatestDetailConversationPromptMediation(conversation) {
+    const turns = conversation?.turns || [];
+    const latestTurn = turns[turns.length - 1];
+    return latestTurn?.response_payload?.prompt_mediation || null;
+}
+
+function getDetailConversationParams() {
+    return {
+        quality: document.getElementById('detail-gpt-conversation-quality')?.value || 'medium',
+        image_size_mode: document.getElementById('detail-gpt-conversation-size-mode')?.value || 'custom',
+        resolution: document.getElementById('detail-gpt-conversation-resolution')?.value || '2K',
+        aspect_ratio: document.getElementById('detail-gpt-conversation-aspect-ratio')?.value || '9:16',
+        prompt_optimization_level: document.getElementById('detail-gpt-conversation-optimization-level')?.value || 'balanced',
+    };
+}
+
+function normalizeDetailConversationOptimizationLevel(value) {
+    if (value === 'conservative' || value === 'faithful') return 'balanced';
+    if (value === 'visual_rewrite') return 'enhanced';
+    return value || 'balanced';
+}
+
+function getDetailPromptOptimizationLevelLabel(value) {
+    switch (normalizeDetailConversationOptimizationLevel(value)) {
+        case 'off':
+            return '关闭优化';
+        case 'balanced':
+            return '保真';
+        case 'enhanced':
+            return '增强';
+        default:
+            return '当前等级';
+    }
+}
+
+async function confirmDetailPromptOptimizationEscalation(data) {
+    const attemptedLabel = getDetailPromptOptimizationLevelLabel(data.attempted_optimization_level);
+    const nextLabel = getDetailPromptOptimizationLevelLabel(data.next_optimization_level);
+    const canRetry = Boolean(data.can_retry_higher && data.next_optimization_level);
+
+    const result = await Swal.fire({
+        title: '本轮调图触发审核拦截',
+        html: canRetry
+            ? `当前尝试等级：<b>${attemptedLabel}</b><br>是否继续升级到 <b>${nextLabel}</b> 再试一次？<br><span class="text-muted small">当前已尝试的优化结果已展示在下方卡片中。</span>`
+            : `当前尝试等级：<b>${attemptedLabel}</b><br>已没有更高的优化等级可继续尝试。<br><span class="text-muted small">当前已尝试的优化结果已展示在下方卡片中。</span>`,
+        icon: 'warning',
+        showCancelButton: canRetry,
+        confirmButtonText: canRetry ? `继续升级到${nextLabel}` : '知道了',
+        cancelButtonText: '停止本轮',
+        confirmButtonColor: '#8a2be2',
+    });
+
+    return canRetry && result.isConfirmed;
+}
+
+function applyDetailConversationParams(params = {}) {
+    const qualityEl = document.getElementById('detail-gpt-conversation-quality');
+    const sizeModeEl = document.getElementById('detail-gpt-conversation-size-mode');
+    const resolutionEl = document.getElementById('detail-gpt-conversation-resolution');
+    const aspectRatioEl = document.getElementById('detail-gpt-conversation-aspect-ratio');
+    const optimizationLevelEl = document.getElementById('detail-gpt-conversation-optimization-level');
+
+    if (qualityEl && params.quality) qualityEl.value = params.quality;
+    if (sizeModeEl && params.image_size_mode) sizeModeEl.value = params.image_size_mode;
+    if (resolutionEl && params.resolution) resolutionEl.value = params.resolution;
+    if (aspectRatioEl && params.aspect_ratio) aspectRatioEl.value = params.aspect_ratio;
+    if (optimizationLevelEl && params.prompt_optimization_level) optimizationLevelEl.value = normalizeDetailConversationOptimizationLevel(params.prompt_optimization_level);
+}
+
+function resolveDetailConversationModelKey() {
+    const panel = getDetailConversationPanel();
+    if (!panel) return null;
+
+    const modelInfo = String(panel.dataset.modelInfo || '').trim().toLowerCase();
+    const provider = String(panel.dataset.provider || '').trim().toLowerCase();
+    if (modelInfo !== 'gpt image 2') {
+        return null;
+    }
+    if (provider === 'openai' || provider === 'chatgpt') {
+        return 'gpt-image-2-openai';
+    }
+    if (provider === 'fal_ai') {
+        return 'gpt-image-2-edit-fal';
+    }
+    return null;
+}
+
+function getCurrentDetailConversationImage() {
+    if (!Array.isArray(window.galleryImages) || window.galleryImages.length === 0) {
+        return null;
+    }
+
+    const activeItem = window.galleryImages[currentIndex];
+    if (activeItem && !activeItem.isVideo) {
+        return activeItem;
+    }
+
+    return window.galleryImages.find((item) => !item.isVideo) || null;
+}
+
+function setDetailConversationStatus(message) {
+    const statusEl = document.getElementById('detail-gpt-conversation-status');
+    if (statusEl) {
+        statusEl.innerText = message;
+    }
+}
+
+function renderDetailConversationHistory() {
+    const historyEl = document.getElementById('detail-gpt-conversation-history');
+    if (!historyEl) return;
+
+    const turns = detailConversationState.conversation?.turns || [];
+    const activePath = detailConversationState.conversation?.active_image_path || '';
+    if (!turns.length) {
+        historyEl.innerHTML = '<div class="text-muted small">还没有对话记录。</div>';
+        return;
+    }
+
+    historyEl.innerHTML = turns.map((turn) => {
+        const previewUrl = turn.response_payload?.image_urls?.[0] || '';
+        return `
+            <div class="border rounded-4 bg-white p-3 mb-2 ${turn.output_image_path === activePath ? 'border-primary' : ''}">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span class="badge bg-primary-subtle text-primary border">第 ${turn.turn_index} 轮</span>
+                    <span class="text-muted small">${new Date(turn.created_at).toLocaleString()}</span>
+                </div>
+                <div class="fw-semibold mb-2">${escapeDetailConversationHtml(turn.instruction)}</div>
+                ${previewUrl ? `<img src="${previewUrl}" class="img-fluid rounded-3 border mb-2" style="max-height: 160px; object-fit: contain;">` : ''}
+                <div class="small text-muted mb-2">${escapeDetailConversationHtml(turn.output_image_path || '本轮输出尚未落地记录')}</div>
+                <div class="d-flex flex-wrap gap-2">
+                    <button type="button" class="btn btn-sm ${turn.output_image_path === activePath ? 'btn-primary' : 'btn-outline-primary'} rounded-pill" data-turn-id="${turn.id}" data-output-path="${escapeDetailConversationHtml(turn.output_image_path || '')}" onclick="activateDetailConversationTurn(this)">
+                        <i class="bi bi-arrow-repeat me-1"></i>${turn.output_image_path === activePath ? '当前基底' : '切换为当前基底'}
+                    </button>
+                    ${turn.output_image_path ? `<button type="button" class="btn btn-sm btn-outline-success rounded-pill" data-output-path="${escapeDetailConversationHtml(turn.output_image_path)}" onclick="appendDetailConversationTurnToGroup(this)"><i class="bi bi-plus-circle me-1"></i>追加到当前作品</button>` : ''}
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function renderDetailConversationRecentList(conversations) {
+    const recentPanel = getDetailConversationRecentPanel();
+    const recentList = getDetailConversationRecentList();
+    if (!recentPanel || !recentList) return;
+
+    if (!conversations || conversations.length === 0) {
+        recentPanel.style.display = 'none';
+        recentList.innerHTML = '';
+        return;
+    }
+
+    recentPanel.style.display = 'block';
+    recentList.innerHTML = conversations.map((conversation) => `
+        <button type="button" class="btn btn-sm btn-outline-secondary text-start rounded-4 px-3 py-2" data-conversation-id="${conversation.conversation_id}" onclick="restoreDetailConversation(this)">
+            <div class="fw-semibold text-truncate">${escapeDetailConversationHtml(conversation.last_instruction || conversation.initial_prompt || '未命名会话')}</div>
+            <div class="small text-muted d-flex justify-content-between gap-2">
+                <span>${escapeDetailConversationHtml(conversation.model_label || 'GPT Image 2')} · ${conversation.turn_count} 轮</span>
+                <span>${new Date(conversation.updated_at).toLocaleString()}</span>
+            </div>
+        </button>
+    `).join('');
+}
+
+async function loadRecentDetailConversations() {
+    const detailConfig = window.detailConfig || getDetailPageConfig();
+    if (!detailConfig.groupId) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/gpt-image-conversations/recent/?source_page=detail&source_prompt_group_id=${detailConfig.groupId}&limit=6`);
+        const data = await response.json();
+        if (data.status === 'success') {
+            renderDetailConversationRecentList(data.conversations || []);
+        }
+    } catch (error) {
+        console.error(error);
+    }
+}
+
+function updateDetailConversationPanelVisibility() {
+    const panel = getDetailConversationPanel();
+    if (!panel) return;
+
+    const modelKey = resolveDetailConversationModelKey();
+    panel.style.display = modelKey ? 'block' : 'none';
+    if (!modelKey) {
+        hideDetailConversationPromptMediation();
+    }
+    const recentPanel = getDetailConversationRecentPanel();
+    if (recentPanel && !modelKey) {
+        recentPanel.style.display = 'none';
+    }
+    if (!modelKey) return;
+
+    const currentImage = getCurrentDetailConversationImage();
+    if (!detailConversationState.conversationId) {
+        setDetailConversationStatus(currentImage ? `将基于当前图片 #${currentImage.id} 发起对话调整。` : '当前作品没有可用于调图的图片。');
+        return;
+    }
+
+    setDetailConversationStatus('会话已创建，后续每轮将基于当前会话的激活结果继续调整。');
+}
+
+function resetDetailConversationState() {
+    detailConversationState.conversationId = null;
+    detailConversationState.conversation = null;
+    detailConversationState.isSending = false;
+    hideDetailConversationPromptMediation();
+    renderDetailConversationHistory();
+    updateDetailConversationPanelVisibility();
+}
+
+async function restoreDetailConversation(buttonEl) {
+    const conversationId = buttonEl?.dataset?.conversationId;
+    if (!conversationId) return;
+
+    try {
+        const response = await fetch(`/api/gpt-image-conversations/${conversationId}/`);
+        const data = await response.json();
+        if (data.status !== 'success') {
+            throw new Error(data.message || '恢复会话失败');
+        }
+
+        detailConversationState.conversationId = data.conversation.conversation_id;
+        detailConversationState.conversation = data.conversation;
+        applyDetailConversationParams(data.conversation.latest_params || {});
+        renderDetailConversationPromptMediation(getLatestDetailConversationPromptMediation(data.conversation));
+        renderDetailConversationHistory();
+
+        const activeImageId = data.conversation.active_image_id;
+        if (activeImageId && Array.isArray(window.galleryImages)) {
+            const index = window.galleryImages.findIndex((item) => item.id === activeImageId);
+            if (index !== -1) {
+                currentIndex = index;
+            }
+        }
+
+        updateDetailConversationPanelVisibility();
+        Swal.fire({ toast: true, position: 'top', icon: 'success', title: '已恢复最近会话', showConfirmButton: false, timer: 1800 });
+    } catch (error) {
+        Swal.fire('恢复失败', error.message || '未知错误', 'error');
+    }
+}
+
+async function syncDetailConversationActiveImage(imageId, imageUrl = '') {
+    if (!detailConversationState.conversationId || !imageId) return;
+
+    const formData = new FormData();
+    formData.append('image_id', imageId);
+    if (imageUrl) {
+        formData.append('image_path', imageUrl);
+    }
+
+    try {
+        const response = await fetch(`/api/gpt-image-conversations/${detailConversationState.conversationId}/active-result/`, {
+            method: 'POST',
+            body: formData,
+        });
+        const data = await response.json();
+        if (data.status === 'success') {
+            detailConversationState.conversation = {
+                ...(detailConversationState.conversation || {}),
+                ...data.conversation,
+            };
+            renderDetailConversationHistory();
+            updateDetailConversationPanelVisibility();
+        }
+    } catch (error) {
+        console.error(error);
+    }
+}
+
+async function activateDetailConversationTurn(buttonEl) {
+    const turnId = buttonEl?.dataset?.turnId;
+    const outputPath = buttonEl?.dataset?.outputPath || '';
+    if (!detailConversationState.conversationId || !turnId) return;
+
+    const formData = new FormData();
+    formData.append('turn_id', turnId);
+    if (outputPath) {
+        formData.append('image_path', outputPath);
+    }
+
+    try {
+        const response = await fetch(`/api/gpt-image-conversations/${detailConversationState.conversationId}/active-result/`, {
+            method: 'POST',
+            body: formData,
+        });
+        const data = await response.json();
+        if (data.status !== 'success') {
+            throw new Error(data.message || '切换当前基底失败');
+        }
+
+        detailConversationState.conversation = {
+            ...(detailConversationState.conversation || {}),
+            ...data.conversation,
+        };
+        renderDetailConversationHistory();
+        updateDetailConversationPanelVisibility();
+    } catch (error) {
+        Swal.fire('切换失败', error.message || '未知错误', 'error');
+    }
+}
+
+async function appendDetailConversationTurnToGroup(buttonEl) {
+    const outputPath = buttonEl?.dataset?.outputPath || '';
+    const detailConfig = window.detailConfig || getDetailPageConfig();
+    const groupId = detailConfig.groupId || getCurrentGroupId();
+    if (!outputPath || !groupId) {
+        Swal.fire('追加失败', '缺少当前作品或输出图片路径', 'error');
+        return;
+    }
+
+    buttonEl.disabled = true;
+    const originalHtml = buttonEl.innerHTML;
+    buttonEl.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>追加中';
+
+    try {
+        const formData = new FormData();
+        formData.append('group_id', groupId);
+        formData.append('saved_paths', outputPath);
+
+        const response = await fetch('/api/append-to-existing-group/', {
+            method: 'POST',
+            body: formData,
+        });
+        const data = await response.json();
+        if (data.status !== 'success') {
+            throw new Error(data.message || '追加失败');
+        }
+
+        applyDetailNewImagesResponse(data);
+        Swal.fire({ toast: true, position: 'top', icon: 'success', title: '已追加到当前作品', showConfirmButton: false, timer: 1600 });
+        buttonEl.disabled = false;
+        buttonEl.innerHTML = '<i class="bi bi-check2 me-1"></i>已追加';
+    } catch (error) {
+        Swal.fire('追加失败', error.message || '未知错误', 'error');
+        buttonEl.disabled = false;
+        buttonEl.innerHTML = originalHtml;
+    }
+}
+
+async function ensureDetailConversation() {
+    if (detailConversationState.conversationId) {
+        return detailConversationState.conversation;
+    }
+
+    const modelKey = resolveDetailConversationModelKey();
+    if (!modelKey) {
+        throw new Error('当前作品不是可对话调图的 GPT Image 2 作品');
+    }
+
+    const currentImage = getCurrentDetailConversationImage();
+    if (!currentImage || !currentImage.id) {
+        throw new Error('当前没有可作为基底图的图片');
+    }
+
+    const detailConfig = window.detailConfig || getDetailPageConfig();
+    const formData = new FormData();
+    formData.append('source_page', 'detail');
+    formData.append('model_choice', modelKey);
+    formData.append('source_prompt_group_id', detailConfig.groupId || getCurrentGroupId());
+    formData.append('source_image_id', currentImage.id);
+    formData.append('active_image_id', currentImage.id);
+    formData.append('prompt', detailConfig.rawPromptContent || '');
+    formData.append('latest_params', JSON.stringify(getDetailConversationParams()));
+
+    const response = await fetch('/api/gpt-image-conversations/', {
+        method: 'POST',
+        body: formData,
+    });
+    const data = await response.json();
+    if (data.status !== 'success') {
+        throw new Error(data.message || '创建详情页调图会话失败');
+    }
+
+    detailConversationState.conversationId = data.conversation.conversation_id;
+    detailConversationState.conversation = data.conversation;
+    renderDetailConversationHistory();
+    updateDetailConversationPanelVisibility();
+    loadRecentDetailConversations();
+    return data.conversation;
+}
+
+async function sendDetailConversationMessage() {
+    const inputEl = document.getElementById('detail-gpt-conversation-input');
+    const sendBtn = document.getElementById('detail-gpt-conversation-send');
+    if (!inputEl || !sendBtn || detailConversationState.isSending) return;
+
+    const instruction = inputEl.value.trim();
+    if (!instruction) {
+        Swal.fire('提示', '请输入本轮调图指令', 'warning');
+        return;
+    }
+
+    detailConversationState.isSending = true;
+    sendBtn.disabled = true;
+    sendBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>发送中';
+
+    try {
+        await ensureDetailConversation();
+        let nextOptimizationLevel = '';
+
+        while (true) {
+            const formData = new FormData();
+            formData.append('instruction', instruction);
+            formData.append('adaptive_prompt_optimization', 'true');
+            Object.entries(getDetailConversationParams()).forEach(([key, value]) => formData.append(key, value));
+            if (nextOptimizationLevel) {
+                formData.append('next_optimization_level', nextOptimizationLevel);
+            }
+
+            const response = await fetch(`/api/gpt-image-conversations/${detailConversationState.conversationId}/turns/`, {
+                method: 'POST',
+                body: formData,
+            });
+            const data = await response.json();
+            if (data.status === 'success') {
+                detailConversationState.conversation = data.conversation;
+                renderDetailConversationPromptMediation(data.prompt_mediation || getLatestDetailConversationPromptMediation(data.conversation));
+                renderDetailConversationHistory();
+                inputEl.value = '';
+                loadRecentDetailConversations();
+                Swal.fire({ toast: true, position: 'top', icon: 'success', title: '已追加一轮对话调图', showConfirmButton: false, timer: 2200 });
+                break;
+            }
+
+            if (data.prompt_mediation) {
+                renderDetailConversationPromptMediation(data.prompt_mediation);
+            }
+            if (data.status === 'moderation_failed') {
+                const shouldRetry = await confirmDetailPromptOptimizationEscalation(data);
+                if (shouldRetry) {
+                    nextOptimizationLevel = data.next_optimization_level || '';
+                    continue;
+                }
+                setDetailConversationStatus('本轮触发审核拦截，已保留当前尝试的优化结果。');
+                break;
+            }
+
+            throw new Error(data.message || '详情页对话调图失败');
+        }
+    } catch (error) {
+        Swal.fire('对话调图失败', error.message || '未知错误', 'error');
+    } finally {
+        detailConversationState.isSending = false;
+        sendBtn.disabled = false;
+        sendBtn.innerHTML = '<i class="bi bi-send me-1"></i>发送';
+        updateDetailConversationPanelVisibility();
     }
 }
 
@@ -573,6 +1115,10 @@ function showModal(id) {
             currentIndex = index;
             updateModalImage();
             imageModal.show();
+            const currentItem = window.galleryImages[index];
+            if (currentItem && !currentItem.isVideo) {
+                syncDetailConversationActiveImage(currentItem.id, currentItem.url);
+            }
         } else {
             console.error("Image ID not found:", id);
         }
@@ -1482,6 +2028,96 @@ function handleImageUpload(event) {
         console.error(error);
         Swal.fire({ icon: 'error', title: '上传错误', text: error.message });
     });
+}
+
+function applyDetailNewImagesResponse(data) {
+    if (!data || data.type !== 'gen') {
+        return;
+    }
+
+    let addedImages = 0;
+    let addedVideos = 0;
+
+    if (data.new_images_data && window.galleryImages) {
+        [...data.new_images_data].reverse().forEach(img => {
+            img.isVideo = img.is_video || img.isVideo || false;
+            window.galleryImages.unshift(img);
+            if (img.isVideo) {
+                addedVideos++;
+            } else {
+                addedImages++;
+            }
+        });
+    }
+
+    const imgBadge = document.getElementById('image-count-badge');
+    if (imgBadge && addedImages > 0) {
+        imgBadge.innerText = (parseInt(imgBadge.innerText, 10) || 0) + addedImages;
+        imgBadge.classList.add('text-primary');
+        setTimeout(() => imgBadge.classList.remove('text-primary'), 2000);
+    }
+
+    const vidBadge = document.getElementById('video-count-badge');
+    if (vidBadge && addedVideos > 0) {
+        vidBadge.innerText = (parseInt(vidBadge.innerText, 10) || 0) + addedVideos;
+        vidBadge.classList.add('text-primary');
+        setTimeout(() => vidBadge.classList.remove('text-primary'), 2000);
+    }
+
+    if (data.new_images_html && data.new_images_html.length > 0) {
+        const imgContainer = document.getElementById('detail-masonry-grid-images');
+        const vidContainer = document.getElementById('detail-masonry-grid-videos');
+
+        const tempDiv = document.createElement('div');
+        const newImagesNodes = [];
+
+        data.new_images_html.forEach((html, index) => {
+            const meta = data.new_images_data ? data.new_images_data[index] : null;
+            const isVideo = meta ? (meta.is_video || meta.isVideo) : false;
+            const targetContainer = isVideo ? vidContainer : imgContainer;
+            if (!targetContainer) {
+                return;
+            }
+
+            const emptyPlaceholder = targetContainer.querySelector('.alert');
+            if (emptyPlaceholder) {
+                emptyPlaceholder.parentNode.remove();
+            }
+
+            tempDiv.innerHTML = html;
+            const node = tempDiv.firstElementChild;
+            if (!node) {
+                return;
+            }
+
+            const img = node.querySelector('img');
+            if (img && meta?.url) {
+                img.setAttribute('loading', 'eager');
+                img.onerror = function () {
+                    if (!this.dataset.retried) {
+                        this.dataset.retried = true;
+                        this.src = meta.url;
+                    }
+                };
+            }
+
+            targetContainer.prepend(node);
+
+            if (isVideo) {
+                const newVid = node.querySelector('video');
+                if (newVid) {
+                    newVid.addEventListener('loadedmetadata', () => adjustVideoLayout(newVid));
+                }
+            } else {
+                newImagesNodes.push(node);
+            }
+        });
+
+        if (window.msnryImages && newImagesNodes.length > 0) {
+            newImagesNodes.forEach(node => window.msnryImages.prepended(node));
+            window.msnryImages.layout();
+        }
+    }
 }
 
 // ================= 拖拽上传辅助函数 (修复 Video 预览) =================
@@ -2860,3 +3496,18 @@ function toggleDiff(event, btn) {
         btn.style.background = '#e2e8f0'; 
     }
 }
+
+document.addEventListener('DOMContentLoaded', function () {
+    const detailConversationSendBtn = document.getElementById('detail-gpt-conversation-send');
+    if (detailConversationSendBtn) {
+        detailConversationSendBtn.addEventListener('click', sendDetailConversationMessage);
+    }
+
+    const detailConversationResetBtn = document.getElementById('detail-gpt-conversation-reset');
+    if (detailConversationResetBtn) {
+        detailConversationResetBtn.addEventListener('click', resetDetailConversationState);
+    }
+
+    loadRecentDetailConversations();
+    updateDetailConversationPanelVisibility();
+});

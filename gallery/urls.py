@@ -44,6 +44,11 @@ urlpatterns = [
     path('api/merge-variants/', views.merge_variants_api, name='merge_variants'),
     # fal.ai接口外部图生成模型api接入
     path('api/generate-direct/', views.api_generate_and_download, name='api_generate_direct'),
+    path('api/gpt-image-conversations/', views.api_create_gpt_image_conversation, name='api_create_gpt_image_conversation'),
+    path('api/gpt-image-conversations/recent/', views.api_list_gpt_image_conversations, name='api_list_gpt_image_conversations'),
+    path('api/gpt-image-conversations/<uuid:conversation_id>/', views.api_get_gpt_image_conversation, name='api_get_gpt_image_conversation'),
+    path('api/gpt-image-conversations/<uuid:conversation_id>/turns/', views.api_append_gpt_image_conversation_turn, name='api_append_gpt_image_conversation_turn'),
+    path('api/gpt-image-conversations/<uuid:conversation_id>/active-result/', views.api_set_gpt_image_conversation_active_result, name='api_set_gpt_image_conversation_active_result'),
     # 【新增】工作室一键发布作品卡片接口
     path('api/publish-studio/', views.api_publish_studio_creation, name='api_publish_studio'),
     path('api/launch-comfyui/', views.launch_comfyui, name='launch_comfyui'),

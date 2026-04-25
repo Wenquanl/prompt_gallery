@@ -156,6 +156,26 @@
     box-shadow: 0 2px 8px rgba(99, 102, 241, 0.15);
 }
 
+#home-results-region,
+#home-pagination-region,
+#model-bar-wrapper {
+    transition: opacity 0.22s ease, transform 0.22s ease;
+}
+
+.home-ajax-loading {
+    opacity: 0.45;
+    pointer-events: none;
+}
+
+#home-results-region.home-ajax-loading {
+    transform: translateY(6px);
+}
+
+.home-ajax-enter {
+    opacity: 0;
+    transform: translateY(10px);
+}
+
 .toggle-icon {
     transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     display: inline-block;
