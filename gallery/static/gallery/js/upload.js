@@ -8,6 +8,7 @@
 let genFiles = []; // 生成图
 let refFiles = []; // 参考图
 let uploadPromptItems = [];
+let uploadPromptExpandedIndex = null;
 
 // 专门存储从服务器带入的生成图信息，用于前端去重
 let serverGenFiles = []; 
@@ -33,7 +34,65 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     initUploadPromptList();
+    initUploadTitleCharacterSync();
+    initUploadPromptDuplicateSubmitCheck();
 });
+
+function normalizeUploadCharacterName(value) {
+    return String(value || '')
+        .trim()
+        .replace(/^[\s"'“”‘’《》「」『』【】\[\]（）()]+|[\s"'“”‘’《》「」『』【】\[\]（）()]+$/g, '')
+        .replace(/^(?:标题|作品|人物|角色|主角)\s*[:：]\s*/i, '')
+        .replace(/\s+/g, ' ')
+        .toLowerCase();
+}
+
+function getUploadCharacterOptions() {
+    return Array.from(document.querySelectorAll('input[name="characters"]')).map(input => {
+        const label = input.closest('label');
+        const labelText = label ? label.textContent : '';
+        return {
+            input,
+            name: labelText.replace(/\s+/g, ' ').trim(),
+        };
+    }).filter(item => item.name);
+}
+
+function findUploadCharacterByTitle(title) {
+    const normalizedTitle = normalizeUploadCharacterName(title);
+    if (!normalizedTitle) return null;
+
+    const options = getUploadCharacterOptions();
+    const exactMatch = options.find(item => normalizeUploadCharacterName(item.name) === normalizedTitle);
+    if (exactMatch) return exactMatch;
+
+    const containedMatches = options.filter(item => {
+        const normalizedName = normalizeUploadCharacterName(item.name);
+        return normalizedName.length >= 2 && normalizedTitle.includes(normalizedName);
+    });
+    return containedMatches.length === 1 ? containedMatches[0] : null;
+}
+
+function syncUploadCharacterFromTitle() {
+    const titleInput = document.querySelector('input[name="title"]');
+    const matched = findUploadCharacterByTitle(titleInput?.value || '');
+    if (!matched || matched.input.checked) return;
+
+    matched.input.checked = true;
+    matched.input.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+function initUploadTitleCharacterSync() {
+    const titleInput = document.querySelector('input[name="title"]');
+    if (!titleInput) return;
+
+    titleInput.addEventListener('input', syncUploadCharacterFromTitle);
+    titleInput.addEventListener('keyup', syncUploadCharacterFromTitle);
+    titleInput.addEventListener('change', syncUploadCharacterFromTitle);
+    titleInput.addEventListener('blur', syncUploadCharacterFromTitle);
+    titleInput.addEventListener('paste', () => setTimeout(syncUploadCharacterFromTitle, 0));
+    setTimeout(syncUploadCharacterFromTitle, 0);
+}
 
 function normalizeUploadPromptItems(items) {
     const normalized = [];
@@ -61,6 +120,189 @@ function escapeUploadPromptHtml(text) {
     return div.innerHTML;
 }
 
+function getUploadPromptSummaryText(text, maxLength = 88) {
+    const normalized = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!normalized) return '未填写';
+    return normalized.length > maxLength ? `${normalized.slice(0, maxLength)}...` : normalized;
+}
+
+function getUploadPromptMetaText(text) {
+    const source = String(text || '').trim();
+    if (!source) return '空内容';
+    const lineCount = source.split(/\r?\n/).filter(line => line.trim()).length || 1;
+    return `${source.length} 字 · ${lineCount} 行`;
+}
+
+function toggleUploadPromptExpanded(index) {
+    syncUploadPromptItemsFromDom();
+    uploadPromptExpandedIndex = uploadPromptExpandedIndex === index ? null : index;
+    renderUploadPromptList();
+}
+
+function normalizeUploadPromptForDuplicateCheck(text) {
+    return String(text || '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function buildUploadPromptDuplicateReport(items) {
+    const seen = new Map();
+    const duplicates = [];
+
+    (items || []).forEach((item, index) => {
+        const text = String(item?.text || '').trim();
+        const normalized = normalizeUploadPromptForDuplicateCheck(text);
+        if (!normalized) return;
+
+        if (seen.has(normalized)) {
+            const first = seen.get(normalized);
+            let duplicate = duplicates.find(row => row.normalized === normalized);
+            if (!duplicate) {
+                duplicate = {
+                    normalized,
+                    text: first.text,
+                    indexes: [first.index + 1],
+                };
+                duplicates.push(duplicate);
+            }
+            duplicate.indexes.push(index + 1);
+            return;
+        }
+
+        seen.set(normalized, { text, index });
+    });
+
+    return duplicates;
+}
+
+function dedupeUploadPromptItems(items) {
+    const seen = new Set();
+    const deduped = [];
+
+    (items || []).forEach((item) => {
+        const text = String(item?.text || '').trim();
+        const normalized = normalizeUploadPromptForDuplicateCheck(text);
+        if (!normalized || seen.has(normalized)) return;
+        seen.add(normalized);
+        deduped.push({
+            id: `prompt_${deduped.length + 1}`,
+            label: `提示词${deduped.length + 1}`,
+            text,
+        });
+    });
+
+    return deduped;
+}
+
+function buildUploadPromptDuplicateAlertHtml(duplicates) {
+    const rows = (duplicates || []).map((item, index) => `
+        <div class="text-start border rounded-3 p-2 mb-2 bg-light">
+            <div class="small fw-bold text-danger mb-1">重复项 ${index + 1}：提示词 ${item.indexes.join('、')}</div>
+            <div class="small text-break">${escapeUploadPromptHtml(item.text)}</div>
+        </div>
+    `).join('');
+
+    return `
+        <div class="text-start">
+            <div class="mb-3">检测到多个提示词内容相同。点击确认后会保留每组重复里的第一条，并删除后面的重复项。</div>
+            ${rows}
+        </div>
+    `;
+}
+
+function initUploadPromptDuplicateSubmitCheck() {
+    const form = document.getElementById('uploadForm');
+    if (!form) return;
+
+    form.addEventListener('submit', async (event) => {
+        syncUploadPromptItemsFromDom();
+        const duplicates = buildUploadPromptDuplicateReport(uploadPromptItems);
+        if (!duplicates.length) return;
+
+        event.preventDefault();
+        event.stopPropagation();
+
+        const result = await Swal.fire({
+            icon: 'warning',
+            title: '检测到重复提示词',
+            html: buildUploadPromptDuplicateAlertHtml(duplicates),
+            width: 680,
+            showCancelButton: true,
+            confirmButtonText: '确认去重并发布',
+            cancelButtonText: '返回修改',
+        });
+
+        if (!result.isConfirmed) return;
+
+        uploadPromptItems = dedupeUploadPromptItems(uploadPromptItems);
+        uploadPromptExpandedIndex = null;
+        renderUploadPromptList();
+
+        if (typeof form.requestSubmit === 'function') {
+            if (event.submitter) {
+                form.requestSubmit(event.submitter);
+            } else {
+                form.requestSubmit();
+            }
+        } else {
+            form.submit();
+        }
+    });
+}
+
+function getUploadPromptTranslationLabel(targetLanguage) {
+    return targetLanguage === 'zh' ? '中文' : '英文';
+}
+
+async function translateUploadPromptText(text, targetLanguage = 'en') {
+    const promptText = String(text || '').trim();
+    if (!promptText) {
+        Swal.fire('提示', '请先输入需要翻译的提示词。', 'info');
+        return '';
+    }
+
+    Swal.fire({
+        title: `正在翻译为${getUploadPromptTranslationLabel(targetLanguage)}...`,
+        allowOutsideClick: false,
+        didOpen: () => Swal.showLoading(),
+    });
+
+    const response = await fetch('/api/translate-prompt/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': window.getCookie ? getCookie('csrftoken') : '',
+        },
+        body: JSON.stringify({
+            text: promptText,
+            target_language: targetLanguage,
+        }),
+    });
+    const data = await response.json();
+    if (!response.ok || data.status !== 'success') {
+        throw new Error(data.message || '翻译失败');
+    }
+    return data.translated_text || '';
+}
+
+async function confirmUploadPromptTranslation(translatedText, targetLanguage, confirmButtonText = '替换当前输入框') {
+    const result = await Swal.fire({
+        title: `翻译为${getUploadPromptTranslationLabel(targetLanguage)}`,
+        html: `<textarea class="form-control text-start" rows="9" readonly>${escapeUploadPromptHtml(translatedText)}</textarea>`,
+        width: 720,
+        showCancelButton: true,
+        showDenyButton: true,
+        confirmButtonText,
+        denyButtonText: '复制',
+        cancelButtonText: '取消',
+    });
+
+    if (result.isDenied) {
+        copyToClipboard(translatedText);
+        return 'copied';
+    }
+
+    return result.isConfirmed ? 'replace' : 'cancel';
+}
+
 function initUploadPromptList() {
     const dataEl = document.getElementById('upload-prompt-list-data');
     if (!dataEl) return;
@@ -81,6 +323,7 @@ function initUploadPromptList() {
                 label: `提示词${uploadPromptItems.length + 1}`,
                 text: '',
             });
+            uploadPromptExpandedIndex = uploadPromptItems.length - 1;
             renderUploadPromptList();
 
             const inputs = document.querySelectorAll('#upload-prompt-list .upload-prompt-input');
@@ -99,6 +342,10 @@ function initUploadPromptList() {
         }
     }
 
+    if (uploadPromptExpandedIndex === null && uploadPromptItems.length > 0 && uploadPromptItems.every(item => !String(item.text || '').trim())) {
+        uploadPromptExpandedIndex = 0;
+    }
+
     renderUploadPromptList();
 }
 
@@ -112,18 +359,66 @@ function renderUploadPromptList() {
 
     container.innerHTML = displayItems.map((item, index) => {
         const safeText = escapeUploadPromptHtml(item.text);
+        const isExpanded = uploadPromptExpandedIndex === index;
+        const safeSummary = escapeUploadPromptHtml(getUploadPromptSummaryText(item.text));
+        const safeMeta = escapeUploadPromptHtml(getUploadPromptMetaText(item.text));
         return `
-            <div class="border rounded-4 bg-light-subtle p-3">
-                <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
-                    <span class="badge bg-white text-primary border rounded-pill px-3 py-2">提示词${index + 1}</span>
+            <div class="upload-prompt-card ${isExpanded ? 'is-expanded' : ''}">
+                <div class="upload-prompt-card-header">
+                    <div class="upload-prompt-title">
+                        <span class="badge bg-white text-primary border rounded-pill px-3 py-2">提示词${index + 1}</span>
+                        <span class="upload-prompt-meta">${safeMeta}</span>
+                    </div>
+                    <div class="upload-prompt-actions">
+                    <button type="button" class="btn btn-sm btn-outline-dark rounded-pill px-3" onclick="toggleUploadPromptExpanded(${index})">
+                        <i class="bi ${isExpanded ? 'bi-chevron-up' : 'bi-pencil'} me-1"></i>${isExpanded ? '收起' : '编辑'}
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-primary rounded-pill px-3" onclick="translateUploadPromptItem(${index}, 'en')">
+                        <i class="bi bi-translate me-1"></i>译英
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3" onclick="translateUploadPromptItem(${index}, 'zh')">
+                        <i class="bi bi-translate me-1"></i>译中
+                    </button>
                     <button type="button" class="btn btn-sm btn-outline-danger rounded-pill px-3" onclick="removeUploadPromptItem(${index})">
                         <i class="bi bi-trash3 me-1"></i>删除
                     </button>
+                    </div>
                 </div>
-                <textarea class="form-control upload-prompt-input" name="prompts" rows="4" data-index="${index}" placeholder="请输入提示词${index + 1}...">${safeText}</textarea>
+                <div class="upload-prompt-summary ${isExpanded ? 'd-none' : ''}">${safeSummary}</div>
+                <textarea class="form-control upload-prompt-input upload-prompt-textarea ${isExpanded ? '' : 'd-none'}" name="prompts" rows="5" data-index="${index}" placeholder="请输入提示词${index + 1}...">${safeText}</textarea>
             </div>
         `;
     }).join('');
+}
+
+async function translateUploadPromptItem(index, targetLanguage) {
+    syncUploadPromptItemsFromDom();
+    const input = document.querySelector(`#upload-prompt-list .upload-prompt-input[data-index="${index}"]`);
+    if (!input) return;
+
+    try {
+        const translatedText = await translateUploadPromptText(input.value, targetLanguage);
+        if (!translatedText) return;
+        const action = await confirmUploadPromptTranslation(translatedText, targetLanguage);
+        if (action !== 'replace') return;
+
+        input.value = translatedText;
+        uploadPromptExpandedIndex = index;
+        uploadPromptItems[index] = {
+            ...(uploadPromptItems[index] || { text: '' }),
+            text: translatedText,
+        };
+        Swal.fire({
+            icon: 'success',
+            title: '已替换当前输入框',
+            toast: true,
+            position: 'top-end',
+            showConfirmButton: false,
+            timer: 1600,
+        });
+    } catch (error) {
+        Swal.fire('翻译失败', error.message || '请确认本地 Qwen3 服务已启动。', 'error');
+    }
 }
 
 function syncUploadPromptItemsFromDom() {
@@ -135,9 +430,27 @@ function syncUploadPromptItemsFromDom() {
     }));
 }
 
-function removeUploadPromptItem(index) {
+async function removeUploadPromptItem(index) {
     syncUploadPromptItemsFromDom();
+    const promptText = uploadPromptItems[index]?.text || '';
+    const preview = getUploadPromptSummaryText(promptText, 80);
+    const result = await Swal.fire({
+        title: `删除提示词${index + 1}？`,
+        html: `<div class="text-start small text-muted">删除后这条提示词不会随本次发布保存。</div><div class="text-start border rounded-3 bg-light p-2 mt-3">${escapeUploadPromptHtml(preview)}</div>`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: '确认删除',
+        cancelButtonText: '取消',
+        confirmButtonColor: '#dc3545',
+    });
+    if (!result.isConfirmed) return;
+
     uploadPromptItems.splice(index, 1);
+    if (uploadPromptExpandedIndex === index) {
+        uploadPromptExpandedIndex = null;
+    } else if (uploadPromptExpandedIndex > index) {
+        uploadPromptExpandedIndex -= 1;
+    }
     renderUploadPromptList();
 }
 

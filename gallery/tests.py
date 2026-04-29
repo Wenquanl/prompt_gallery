@@ -16,7 +16,7 @@ from django.utils import timezone
 from .ai_providers import get_ai_provider
 from .models import AIModel, GPTImageConversation, GPTImageConversationTurn, ImageItem, PromptGroup, Tag
 from .prompt_mediation import mediate_gpt_image_prompt
-from .views import _order_images_by_similarity
+from .views import _clean_prompt_diff_summary, _get_prompt_diff_summary_signature, _normalize_prompt_content_tags, _order_images_by_similarity
 
 
 class PromptGroupPromptStorageTests(TestCase):
@@ -105,14 +105,146 @@ class PromptGroupPromptStorageTests(TestCase):
 		group.refresh_from_db()
 		self.assertEqual(group.prompt_text, '旧提示词1')
 
+	def test_upload_post_preserves_multiple_prompt_fields(self):
+		response = self.client.post(reverse('upload'), {
+			'title': '多提示词发布',
+			'provider': 'other',
+			'prompts': ['提示词一', '提示词二', '提示词三'],
+		})
+
+		self.assertEqual(response.status_code, 302)
+		group = PromptGroup.objects.get(title='多提示词发布')
+		self.assertEqual([item['text'] for item in group.prompts], ['提示词一', '提示词二', '提示词三'])
+		self.assertEqual(group.prompt_text, '提示词一')
+		self.assertEqual(group.prompt_text_zh, '提示词二')
+		self.assertEqual(group.negative_prompt, '提示词三')
+
+	@patch('gallery.views._call_local_qwen_prompt_diff_summarizer')
+	def test_prompt_diff_summary_api_returns_local_ai_summaries(self, mock_summarizer):
+		group = PromptGroup.objects.create(
+			title='差异缓存',
+			prompts=[{'text': '基础提示词A'}, {'text': '基础提示词B'}],
+		)
+		mock_summarizer.return_value = (
+			[{
+				'index': 0,
+				'label': '提示词1',
+				'summary': '雨夜街头近景构图，蓝色霓虹光照，人物动作更偏动态抓拍',
+				'content_tags': [
+					{'key': 'action', 'label': '动作', 'text': '人物动作更偏动态抓拍'},
+					{'key': 'environment', 'label': '环境', 'text': '雨夜街头与蓝色霓虹光照'},
+				],
+			}],
+			{'model': 'qwen3:14b', 'url': 'http://127.0.0.1:11434/api/chat'},
+		)
+
+		response = self.client.post(
+			reverse('api_summarize_prompt_diffs'),
+			data=json.dumps({
+				'group_id': group.pk,
+				'items': [
+					{
+						'index': 0,
+						'label': '提示词1',
+						'meta': '差异 1 行',
+						'folded': '已折叠公共前文 8 行',
+						'diff_lines': ['雨夜街头近景，蓝色霓虹光'],
+					}
+				]
+			}),
+			content_type='application/json',
+		)
+
+		self.assertEqual(response.status_code, 200)
+		payload = response.json()
+		self.assertEqual(payload['status'], 'success')
+		self.assertEqual(payload['summaries'][0]['summary'], '雨夜街头近景构图，蓝色霓虹光照，人物动作更偏动态抓拍')
+		self.assertEqual(payload['summaries'][0]['content_tags'][0]['label'], '动作')
+		group.refresh_from_db()
+		self.assertEqual(group.prompt_diff_summary_cache['version'], 7)
+		self.assertEqual(group.prompt_diff_summary_cache['summaries'][0]['summary'], '雨夜街头近景构图，蓝色霓虹光照，人物动作更偏动态抓拍')
+		self.assertEqual(group.prompt_diff_summary_cache['summaries'][0]['content_tags'][1]['label'], '环境')
+		self.assertTrue(group.prompt_diff_summary_cache['signature'])
+		mock_summarizer.assert_called_once()
+
+	def test_detail_outputs_saved_prompt_diff_summary_cache(self):
+		group = PromptGroup.objects.create(
+			title='读取缓存',
+			prompts=[{'text': '共同部分\n雨夜街头'}, {'text': '共同部分\n晴天海边'}],
+		)
+		group.prompt_diff_summary_cache = {
+			'version': 7,
+			'signature': _get_prompt_diff_summary_signature(group.get_prompt_items()),
+			'summaries': [{
+				'index': 0,
+				'label': '提示词1',
+				'summary': '雨夜街头场景，冷色路灯和湿润地面质感更明显',
+				'content_tags': [{'key': 'environment', 'label': '环境', 'text': '雨夜街头场景'}],
+			}],
+		}
+		group.save(update_fields=['prompt_diff_summary_cache'])
+
+		response = self.client.get(reverse('detail', args=[group.pk]))
+
+		self.assertEqual(response.status_code, 200)
+		self.assertContains(response, 'prompt-diff-summary-data')
+		self.assertContains(response, '雨夜街头场景，冷色路灯和湿润地面质感更明显')
+		self.assertContains(response, '雨夜街头场景')
+
+	def test_prompt_diff_summary_cleaner_removes_self_reference_and_missing_detail(self):
+		summary = _clean_prompt_diff_summary(
+			'与提示词5重复唇部水光描写，但未明确肢体动作细节，雨夜街头近景构图，蓝色霓虹光照',
+			fallback_text='雨夜街头近景构图，蓝色霓虹光照，唇部水光描写',
+		)
+
+		self.assertNotIn('提示词5', summary)
+		self.assertNotIn('重复', summary)
+		self.assertNotIn('未明确', summary)
+		self.assertIn('雨夜街头近景构图', summary)
+
+	def test_prompt_diff_summary_cleaner_falls_back_to_content_for_generic_no_difference(self):
+		summary = _clean_prompt_diff_summary(
+			'未见独特差异',
+			fallback_text='',
+			source_text='近景人像，雨夜街头，蓝色霓虹光，黑色外套，手持透明雨伞',
+		)
+
+		self.assertNotIn('未见独特差异', summary)
+		self.assertIn('近景人像', summary)
+		self.assertIn('透明雨伞', summary)
+
+	def test_prompt_diff_summary_cleaner_keeps_longer_detail_summary(self):
+		long_summary = (
+			'近景人像采用雨夜街头构图，蓝色霓虹与湿润地面反光形成冷色氛围；'
+			'人物穿黑色外套并手持透明雨伞，动作更偏动态抓拍，保留唇部水光、发丝湿润和肩颈高光等细节。'
+		)
+		summary = _clean_prompt_diff_summary(long_summary)
+
+		self.assertIn('透明雨伞', summary)
+		self.assertIn('发丝湿润', summary)
+		self.assertIn('肩颈高光', summary)
+
+	def test_prompt_content_tags_normalizer_accepts_ai_tag_dict(self):
+		tags = _normalize_prompt_content_tags({
+			'动作': '撑透明雨伞，回头看向镜头',
+			'妆容': '水光唇，细眼线，淡粉腮红',
+			'服饰': '黑色皮质外套和银色耳饰',
+			'环境': '雨夜街头，蓝色霓虹反光',
+		})
+
+		self.assertEqual([item['label'] for item in tags], ['动作', '妆容', '服饰', '环境'])
+		self.assertIn('透明雨伞', tags[0]['text'])
+
 
 class PromptMediationTests(TestCase):
-	def test_mediation_flattens_structured_prompt_and_rewrites_sensitive_phrases(self):
+	def test_balanced_mediation_preserves_layout_and_rewrites_sensitive_phrases(self):
 		result = mediate_gpt_image_prompt(
 			'皮肤：玻璃肌\n动作：手指停留在下唇前方极近的位置（几乎接触但不触碰）\n氛围：轻微暧昧氛围\n嘴唇：湿润嘴唇'
 		)
 
 		self.assertTrue(result['changed'])
+		self.assertIn('\n', result['optimized_prompt'])
+		self.assertIn('皮肤：玻璃肌', result['optimized_prompt'])
 		self.assertIn('玻璃肌', result['optimized_prompt'])
 		self.assertIn('finger gently posed near lips, relaxed and natural', result['optimized_prompt'])
 		self.assertIn('subtle cinematic mood', result['optimized_prompt'])
@@ -224,7 +356,7 @@ class PromptMediationTests(TestCase):
 		result = mediate_gpt_image_prompt(prompt, optimization_level='balanced')
 
 		self.assertIn('比例：9:16', result['optimized_prompt'])
-		self.assertIn('负面约束：不要改发型, 不要改服装, 不要改构图比例', result['optimized_prompt'])
+		self.assertIn('负面约束：不要改发型，不要改服装，不要改构图比例', result['optimized_prompt'])
 		self.assertIn('finger gently posed near lips, relaxed and natural', result['optimized_prompt'])
 		self.assertIn('比例', [item['label'] for item in result['structured_outline']])
 		self.assertIn('约束', [item['label'] for item in result['structured_outline']])
@@ -233,7 +365,7 @@ class PromptMediationTests(TestCase):
 		prompt = '负面约束：不要出现湿润嘴唇，不要暧昧氛围'
 		result = mediate_gpt_image_prompt(prompt, optimization_level='enhanced')
 
-		self.assertEqual(result['optimized_prompt'], '负面约束：不要出现湿润嘴唇, 不要暧昧氛围')
+		self.assertEqual(result['optimized_prompt'], '负面约束：不要出现湿润嘴唇，不要暧昧氛围')
 		self.assertEqual(result['rewrite_details'], [])
 
 	def test_create_view_supports_numbered_prompt_selection(self):
@@ -386,8 +518,9 @@ class PromptMediationTests(TestCase):
 		self.assertContains(response, 'create-gpt-conversation-resolution')
 		self.assertContains(response, 'create-gpt-conversation-aspect-ratio')
 		self.assertContains(response, 'create-gpt-conversation-optimization-level')
-		self.assertContains(response, '增强')
-		self.assertNotContains(response, '视觉重写')
+		self.assertContains(response, '增强视觉重写')
+		self.assertContains(response, '保真清洗 + 本地 Qwen3')
+		self.assertContains(response, '增强视觉重写 + 本地 Qwen3')
 		self.assertContains(response, 'create-gpt-prompt-mediation-panel')
 		self.assertContains(response, 'create-gpt-conversation-mediation-panel')
 		self.assertContains(response, 'create-gpt-prompt-mediation-details')
@@ -534,6 +667,52 @@ class PromptMediationTests(TestCase):
 		self.assertContains(response, 'detail-gpt-conversation-mediation-outline')
 
 
+class PromptTranslationApiTests(TestCase):
+	@patch('gallery.views.requests.post')
+	def test_api_translate_prompt_uses_local_qwen_without_rewriting(self, mock_requests_post):
+		mock_response = Mock()
+		mock_response.json.return_value = {
+			'message': {
+				'content': 'A silver-haired girl standing in a rainy neon alley, cinematic lighting.'
+			}
+		}
+		mock_response.raise_for_status.return_value = None
+		mock_requests_post.return_value = mock_response
+
+		response = self.client.post(
+			reverse('api_translate_prompt'),
+			data=json.dumps({
+				'text': '银发少女站在霓虹雨巷中，电影光影。',
+				'target_language': 'en',
+			}),
+			content_type='application/json',
+		)
+
+		self.assertEqual(response.status_code, 200)
+		payload = response.json()
+		self.assertEqual(payload['status'], 'success')
+		self.assertEqual(
+			payload['translated_text'],
+			'A silver-haired girl standing in a rainy neon alley, cinematic lighting.'
+		)
+		self.assertEqual(payload['target_language'], 'en')
+
+		call_payload = mock_requests_post.call_args.kwargs['json']
+		self.assertEqual(call_payload['model'], 'qwen3:14b')
+		self.assertIn('只翻译用户提供的提示词，不优化、不扩写、不删减', call_payload['messages'][0]['content'])
+		self.assertIn('目标语言：英文', call_payload['messages'][1]['content'])
+
+	def test_api_translate_prompt_rejects_empty_prompt(self):
+		response = self.client.post(
+			reverse('api_translate_prompt'),
+			data=json.dumps({'text': '', 'target_language': 'en'}),
+			content_type='application/json',
+		)
+
+		self.assertEqual(response.status_code, 400)
+		self.assertEqual(response.json()['status'], 'error')
+
+
 class AIStudioGenerateDirectTests(TestCase):
 	@patch('builtins.open', new_callable=mock_open)
 	@patch('gallery.views.requests.get')
@@ -589,6 +768,136 @@ class AIStudioGenerateDirectTests(TestCase):
 		call_args = mock_provider.generate.call_args
 		self.assertEqual(call_args.args[1]['prompt'], payload['optimized_prompt'])
 		self.assertIn('soft glossy lips', call_args.args[1]['prompt'])
+
+	@patch('builtins.open', new_callable=mock_open)
+	@patch('gallery.views.requests.get')
+	@patch('gallery.views.os.makedirs')
+	@patch('gallery.views.get_ai_provider')
+	def test_character_ip_prompt_is_preserved_while_scene_prompt_is_optimized(self, mock_get_provider, mock_makedirs, mock_requests_get, mock_file_open):
+		mock_provider = Mock()
+		mock_provider.generate.return_value = ['data:image/png;base64,ZmFrZS1pbWFnZQ==']
+		mock_get_provider.return_value = mock_provider
+
+		character_ip_prompt = '人物IP：湿润嘴唇，暧昧眼神，泪痣必须保留'
+		scene_prompt = '动作：手指停留在下唇前方极近的位置（几乎接触但不触碰）\n氛围：轻微暧昧氛围'
+		response = self.client.post(reverse('api_generate_direct'), {
+			'model_choice': 'gpt-image-2-openai',
+			'prompt': scene_prompt,
+			'scene_prompt': scene_prompt,
+			'character_ip_prompt': character_ip_prompt,
+		})
+
+		self.assertEqual(response.status_code, 200)
+		payload = response.json()
+		self.assertEqual(payload['status'], 'success')
+		self.assertIn(character_ip_prompt, payload['optimized_prompt'])
+		self.assertIn('finger gently posed near lips', payload['optimized_prompt'])
+		self.assertNotIn('几乎接触', payload['prompt_mediation']['optimized_scene_prompt'])
+		self.assertIn('湿润嘴唇，暧昧眼神', payload['prompt_mediation']['protected_prompt_prefix'])
+		self.assertTrue(payload['prompt_mediation']['protected_prompt_prefix_unchanged'])
+
+		call_args = mock_provider.generate.call_args
+		self.assertEqual(call_args.args[1]['prompt'], payload['optimized_prompt'])
+		self.assertIn(character_ip_prompt, call_args.args[1]['prompt'])
+
+	@override_settings(
+		LOCAL_PROMPT_OPTIMIZER_URL='http://127.0.0.1:11434/api/chat',
+		LOCAL_PROMPT_OPTIMIZER_MODEL='qwen3:14b',
+		LOCAL_PROMPT_OPTIMIZER_TIMEOUT=10,
+	)
+	@patch('builtins.open', new_callable=mock_open)
+	@patch('gallery.views.requests.get')
+	@patch('gallery.views.requests.post')
+	@patch('gallery.views.os.makedirs')
+	@patch('gallery.views.get_ai_provider')
+	def test_openai_gpt_image_2_uses_enhanced_local_qwen_optimizer_for_scene_prompt_only(self, mock_get_provider, mock_makedirs, mock_requests_post, mock_requests_get, mock_file_open):
+		mock_provider = Mock()
+		mock_provider.generate.return_value = ['data:image/png;base64,ZmFrZS1pbWFnZQ==']
+		mock_get_provider.return_value = mock_provider
+
+		mock_response = Mock()
+		mock_response.json.return_value = {
+			'message': {
+				'content': '<think>分析过程不应出现在结果里</think>\n动作：自然站姿，手部放松\n氛围：电影感柔光，画面干净'
+			}
+		}
+		mock_response.raise_for_status.return_value = None
+		mock_requests_post.return_value = mock_response
+
+		character_ip_prompt = '人物IP：湿润嘴唇，暧昧眼神，泪痣必须保留'
+		scene_prompt = '动作：手指停留在下唇前方极近的位置（几乎接触但不触碰）\n氛围：轻微暧昧氛围'
+		response = self.client.post(reverse('api_generate_direct'), {
+			'model_choice': 'gpt-image-2-openai',
+			'prompt': scene_prompt,
+			'scene_prompt': scene_prompt,
+			'character_ip_prompt': character_ip_prompt,
+			'prompt_optimization_level': 'enhanced_local_ai',
+		})
+
+		self.assertEqual(response.status_code, 200)
+		payload = response.json()
+		self.assertEqual(payload['status'], 'success')
+		self.assertEqual(payload['prompt_mediation']['optimization_level'], 'enhanced_local_ai')
+		self.assertEqual(payload['prompt_mediation']['local_ai_optimizer']['base_optimization_level'], 'enhanced')
+		self.assertIn(character_ip_prompt, payload['optimized_prompt'])
+		self.assertIn('动作：自然站姿，手部放松', payload['optimized_prompt'])
+		self.assertNotIn('分析过程', payload['optimized_prompt'])
+		self.assertEqual(payload['prompt_mediation']['original_scene_prompt'], scene_prompt)
+		self.assertEqual(payload['prompt_mediation']['optimized_scene_prompt'], '动作：自然站姿，手部放松\n氛围：电影感柔光，画面干净')
+		self.assertIn('湿润嘴唇，暧昧眼神', payload['prompt_mediation']['protected_prompt_prefix'])
+		self.assertTrue(payload['prompt_mediation']['protected_prompt_prefix_unchanged'])
+
+		local_call = mock_requests_post.call_args
+		self.assertEqual(local_call.args[0], 'http://127.0.0.1:11434/api/chat')
+		self.assertEqual(local_call.kwargs['json']['model'], 'qwen3:14b')
+		self.assertIn('当前强度：增强视觉重写', local_call.kwargs['json']['messages'][0]['content'])
+		self.assertIn(scene_prompt, local_call.kwargs['json']['messages'][1]['content'])
+		self.assertNotIn(character_ip_prompt, local_call.kwargs['json']['messages'][1]['content'])
+
+		call_args = mock_provider.generate.call_args
+		self.assertEqual(call_args.args[1]['prompt'], payload['optimized_prompt'])
+		self.assertIn(character_ip_prompt, call_args.args[1]['prompt'])
+
+	@override_settings(
+		LOCAL_PROMPT_OPTIMIZER_URL='http://127.0.0.1:11434/api/chat',
+		LOCAL_PROMPT_OPTIMIZER_MODEL='qwen3:14b',
+		LOCAL_PROMPT_OPTIMIZER_TIMEOUT=10,
+	)
+	@patch('builtins.open', new_callable=mock_open)
+	@patch('gallery.views.requests.get')
+	@patch('gallery.views.requests.post')
+	@patch('gallery.views.os.makedirs')
+	@patch('gallery.views.get_ai_provider')
+	def test_openai_gpt_image_2_uses_balanced_local_qwen_optimizer(self, mock_get_provider, mock_makedirs, mock_requests_post, mock_requests_get, mock_file_open):
+		mock_provider = Mock()
+		mock_provider.generate.return_value = ['data:image/png;base64,ZmFrZS1pbWFnZQ==']
+		mock_get_provider.return_value = mock_provider
+
+		mock_response = Mock()
+		mock_response.json.return_value = {
+			'message': {
+				'content': '动作：手部自然停留在脸侧\n氛围：柔和电影感'
+			}
+		}
+		mock_response.raise_for_status.return_value = None
+		mock_requests_post.return_value = mock_response
+
+		scene_prompt = '动作：手指停留在下唇前方极近的位置（几乎接触但不触碰）\n氛围：轻微暧昧氛围'
+		response = self.client.post(reverse('api_generate_direct'), {
+			'model_choice': 'gpt-image-2-openai',
+			'prompt': scene_prompt,
+			'prompt_optimization_level': 'balanced_local_ai',
+		})
+
+		self.assertEqual(response.status_code, 200)
+		payload = response.json()
+		self.assertEqual(payload['status'], 'success')
+		self.assertEqual(payload['prompt_mediation']['optimization_level'], 'balanced_local_ai')
+		self.assertEqual(payload['prompt_mediation']['local_ai_optimizer']['base_optimization_level'], 'balanced')
+		self.assertIn('动作：手部自然停留在脸侧', payload['optimized_prompt'])
+
+		local_call = mock_requests_post.call_args
+		self.assertIn('当前强度：保真清洗', local_call.kwargs['json']['messages'][0]['content'])
 
 	@patch('builtins.open', new_callable=mock_open)
 	@patch('gallery.views.requests.get')
@@ -714,7 +1023,28 @@ class AIStudioGenerateDirectTests(TestCase):
 		self.assertIn('subtle cinematic mood', payload['optimized_prompt'])
 		self.assertIn('soft glossy lips', payload['optimized_prompt'])
 		self.assertTrue(payload['can_retry_higher'])
-		self.assertEqual(payload['next_optimization_level'], 'enhanced')
+		self.assertEqual(payload['next_optimization_level'], 'balanced_local_ai')
+
+	@patch('gallery.views.get_ai_provider')
+	def test_openai_gpt_image_2_adaptive_mode_respects_explicit_balanced_selection(self, mock_get_provider):
+		mock_provider = Mock()
+		mock_provider.generate.side_effect = RuntimeError('InputSensitiveContentDetected')
+		mock_get_provider.return_value = mock_provider
+
+		response = self.client.post(reverse('api_generate_direct'), {
+			'model_choice': 'gpt-image-2-openai',
+			'prompt': '动作：手指停留在下唇前方极近的位置（几乎接触但不触碰）\n氛围：轻微暧昧氛围',
+			'adaptive_prompt_optimization': 'true',
+			'prompt_optimization_level': 'balanced',
+		})
+
+		self.assertEqual(response.status_code, 200)
+		payload = response.json()
+		self.assertEqual(payload['status'], 'moderation_failed')
+		self.assertEqual(payload['prompt_mediation']['optimization_level'], 'balanced')
+		self.assertTrue(payload['prompt_mediation']['changed'])
+		self.assertTrue(payload['can_retry_higher'])
+		self.assertEqual(payload['next_optimization_level'], 'balanced_local_ai')
 
 	@patch('gallery.views.get_ai_provider')
 	def test_openai_gpt_image_2_adaptive_mode_recognizes_openai_safety_system_message(self, mock_get_provider):

@@ -46,6 +46,13 @@ def reference_file_path(instance, filename):
     today = timezone.localtime(timezone.now())
     return f"references/{today.year}/{today.month}/{today.day}/{filename}"
 
+def character_ip_file_path(instance, filename):
+    """生成人物 IP 参考图存储路径"""
+    ext = filename.split('.')[-1]
+    filename = f"character_ip_{uuid.uuid4().hex}.{ext}"
+    today = timezone.localtime(timezone.now())
+    return f"character_ips/{today.year}/{today.month}/{today.day}/{filename}"
+
 # === 1. 标签模型 ===
 class Tag(models.Model):
     name = models.CharField("标签名", max_length=30, unique=True)
@@ -76,6 +83,30 @@ class Character(models.Model):
         verbose_name_plural = "人物标签管理"
         ordering = ['-order', 'name']        
 
+
+class CharacterIP(models.Model):
+    name = models.CharField("人物名称", max_length=80, unique=True, help_text="每个人物 IP 名称必须唯一")
+    prompt_text = models.TextField("人物 IP 提示词", blank=True)
+    prompt_text_zh = models.TextField("人物 IP 中文提示词", blank=True)
+    prompt_text_en = models.TextField("人物 IP 英文提示词", blank=True)
+    image = models.ImageField("人物参考图", upload_to=character_ip_file_path, blank=True, null=True)
+    order = models.IntegerField("排序权重", default=0, help_text="数字越大越靠前")
+    created_at = models.DateTimeField("创建时间", auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField("更新时间", auto_now=True)
+
+    thumbnail = ImageSpecField(source='image',
+                               processors=[ResizeToFit(width=300, upscale=False)],
+                               format='JPEG',
+                               options={'quality': 85})
+
+    def __str__(self):
+        return self.name
+
+    class Meta:
+        verbose_name = "人物 IP"
+        verbose_name_plural = "人物 IP 管理"
+        ordering = ['-order', 'name']
+
 # === 3. 提示词组 (卡片) ===
 class PromptGroup(models.Model):
     title = models.CharField("主题/标题", max_length=200, default="未命名组")
@@ -85,6 +116,7 @@ class PromptGroup(models.Model):
     negative_prompt = models.TextField("负向提示词 (Negative Prompt)", blank=True, null=True)
     prompts = models.JSONField("统一提示词列表", default=list, blank=True)
     searchable_prompts = models.TextField("提示词检索缓存", blank=True, default="")
+    prompt_diff_summary_cache = models.JSONField("提示词差异摘要缓存", default=dict, blank=True)
     model_info = models.CharField("模型信息", max_length=200, blank=True)
     characters = models.ManyToManyField('Character', blank=True, verbose_name="包含人物")
     tags = models.ManyToManyField(Tag, blank=True, verbose_name="关联标签")

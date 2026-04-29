@@ -464,6 +464,12 @@
                             <button type="button" id="btnAddPromptItem" onclick="addPromptItem()" class="btn btn-sm btn-outline-primary rounded-pill px-3" style="display:none;">
                                 <i class="bi bi-plus-lg me-1"></i>新增提示词
                             </button>
+                            <button type="button" id="btnCheckPromptDuplicates" onclick="checkPromptListDuplicates()" class="btn btn-sm btn-outline-warning rounded-pill px-3">
+                                <i class="bi bi-search me-1"></i>查重
+                            </button>
+                            <button type="button" id="btnSummarizePromptDiffs" onclick="summarizePromptDiffsWithAi(this)" class="btn btn-sm btn-outline-info rounded-pill px-3">
+                                <i class="bi bi-stars me-1"></i>AI 概括差异
+                            </button>
                             <button type="button" id="btnEditPromptList" onclick="enablePromptListEdit()" class="btn btn-sm btn-outline-secondary rounded-pill px-3 btn-edit-prompt">
                                 <i class="bi bi-pencil me-1"></i>编辑
                             </button>
@@ -473,7 +479,7 @@
                             </div>
                         </div>
                     </div>
-                    <div id="promptListContainer" class="d-flex flex-column gap-3"></div>
+                    <div id="promptListContainer" class="prompt-list-grid"></div>
                 </div>
 
                 <div class="card shadow-sm border-0 mb-4" style="background: rgba(230, 240, 255, 0.5);">
@@ -733,39 +739,65 @@
 </div>
 
 <div class="modal fade" id="aiStudioModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content border-0 shadow-lg rounded-4">
-            <div class="modal-header border-0 pb-0">
-                <h5 class="modal-title fw-bold"><i class="bi bi-magic text-primary me-2"></i>导入 AI 工作室</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable ai-studio-dialog">
+        <div class="modal-content border-0 shadow-lg ai-studio-modal-content">
+            <div class="modal-header ai-studio-modal-header">
+                <div>
+                    <div class="ai-studio-modal-kicker">AI 工作室导入</div>
+                    <h5 class="modal-title fw-bold mb-0"><i class="bi bi-magic text-primary me-2"></i>选择创作基础</h5>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
             </div>
-            <div class="modal-body">
-                <p class="text-muted small mb-3">将自动带入当前作品的<strong>参考图</strong>和<strong>标签</strong>。如果有多个提示词，请选择您想要带入的一项作为基础：</p>
+            <div class="modal-body ai-studio-modal-body">
+                <div class="ai-studio-import-summary">
+                    <div class="ai-studio-import-copy">
+                        <div class="fw-semibold text-dark">将自动带入当前作品的参考图和标签</div>
+                        <div class="text-muted small">选择一个提示词作为创作页的画面描述基础。</div>
+                    </div>
+                    <button type="button" onclick="summarizePromptDiffsWithAi(this)" class="btn btn-sm btn-outline-info rounded-pill px-3 flex-shrink-0">
+                        <i class="bi bi-stars me-1"></i>AI 概括差异
+                    </button>
+                </div>
                 
-                <form id="aiStudioForm" action="{% url 'create' %}" method="get" target="_blank" onsubmit="setTimeout(() => bootstrap.Modal.getInstance(document.getElementById('aiStudioModal')).hide(), 100)">
+                <form id="aiStudioForm" class="ai-studio-form" action="{% url 'create' %}" method="get" target="_blank" onsubmit="setTimeout(() => bootstrap.Modal.getInstance(document.getElementById('aiStudioModal')).hide(), 100)">
                     <input type="hidden" name="template_id" value="{{ group.pk }}">
                     
-                    <div class="list-group mb-4">
+                    <div class="ai-studio-choice-list" id="aiStudioPromptChoiceList">
                         {% if prompt_entries %}
                             {% for entry in prompt_entries %}
-                            <label class="list-group-item d-flex gap-3 align-items-center cursor-pointer">
-                                <input class="form-check-input flex-shrink-0" type="radio" name="prompt_type" value="{{ forloop.counter }}" {% if forloop.first %}checked{% endif %}>
-                                <div class="flex-grow-1 overflow-hidden">
-                                    <strong class="text-primary d-block mb-1">{{ entry.label }}</strong>
-                                    <small class="d-block text-muted text-truncate">{{ entry.text }}</small>
+                            <label class="ai-studio-choice-card cursor-pointer {% if forloop.first %}is-selected{% endif %}">
+                                <input class="form-check-input ai-studio-choice-radio" type="radio" name="prompt_type" value="{{ forloop.counter }}" {% if forloop.first %}checked{% endif %}>
+                                <div class="ai-studio-choice-main">
+                                    <div class="ai-studio-choice-top">
+                                        <div class="ai-studio-choice-title">
+                                            <span class="ai-studio-choice-number">{{ forloop.counter }}</span>
+                                            <strong>{{ entry.label }}</strong>
+                                        </div>
+                                        <span class="badge rounded-pill bg-light text-secondary border ai-studio-prompt-diff-meta" data-ai-studio-prompt-diff-meta="{{ forloop.counter0 }}">差异</span>
+                                    </div>
+                                    <div class="ai-studio-prompt-diff" data-ai-studio-prompt-diff="{{ forloop.counter0 }}">
+                                        正在整理提示词差异...
+                                    </div>
                                 </div>
                             </label>
                             {% endfor %}
                         {% else %}
-                            <div class="alert alert-light border text-center text-muted mb-0">
-                                该作品暂无提示词文本，将仅带入参考图和标签。
+                            <div class="ai-studio-empty-state">
+                                <i class="bi bi-card-text"></i>
+                                <div>
+                                    <div class="fw-semibold text-dark">暂无提示词文本</div>
+                                    <div class="text-muted small">将仅带入参考图和标签。</div>
+                                </div>
                                 <input type="hidden" name="prompt_type" value="none">
                             </div>
                         {% endif %}
                     </div>
                     
-                    <div class="d-grid">
-                        <button type="submit" class="btn btn-primary rounded-pill fw-bold py-2" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border: none;">
+                    <div class="ai-studio-modal-footer">
+                        <div class="ai-studio-footer-hint">
+                            <i class="bi bi-image me-1"></i>参考图、标签会一起带入
+                        </div>
+                        <button type="submit" class="btn btn-primary fw-bold ai-studio-submit-btn">
                             <i class="bi bi-rocket-takeoff me-2"></i>前往创作
                         </button>
                     </div>
@@ -892,6 +924,7 @@
     </script>
 
     <script id="prompt-list-data" type="application/json">{{ prompt_entries_json|safe|default:"[]" }}</script>
+    <script id="prompt-diff-summary-data" type="application/json">{{ prompt_diff_summaries_json|safe|default:"[]" }}</script>
     
     <script src="{% static 'gallery/js/detail.js' %}"></script>
 {% endblock %}

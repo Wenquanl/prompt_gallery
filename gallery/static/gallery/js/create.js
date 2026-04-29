@@ -11,12 +11,14 @@ try {
 
 let currentFiles = []; 
 let currentExtraFiles = {};
+let draggedReferenceIndex = null;
 let maxImagesAllowed = 0;
 let lastSavedPaths = []; 
 let initialTagsForPublish = [];
 let initialCharsForPublish = [];
 let allAvailableTags = [];
 let allAvailableChars = [];
+let characterIpProfiles = [];
 let currentSelectedTags = new Set(); 
 let currentSelectedChars = new Set();
 let currentSourceGroupId = null;
@@ -57,6 +59,533 @@ function escapeHtml(value) {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
+}
+
+function normalizeCharacterIpProfile(profile) {
+    const legacyPrompt = profile.prompt_text || '';
+    let promptZh = profile.prompt_text_zh || '';
+    let promptEn = profile.prompt_text_en || '';
+    if (legacyPrompt && !promptZh && !promptEn) {
+        if (/[\u4e00-\u9fff]/.test(legacyPrompt)) {
+            promptZh = legacyPrompt;
+        } else {
+            promptEn = legacyPrompt;
+        }
+    }
+    return {
+        id: profile.id,
+        name: profile.name || '',
+        prompt_text: profile.prompt_text || promptZh || promptEn,
+        prompt_text_zh: promptZh,
+        prompt_text_en: promptEn,
+        image_url: profile.image_url || '',
+        thumbnail_url: profile.thumbnail_url || profile.image_url || '',
+        order: Number(profile.order || 0),
+        updated_at: profile.updated_at || '',
+    };
+}
+
+function loadCharacterIpProfilesFromDom() {
+    try {
+        const dataEl = document.getElementById('character-ip-data');
+        characterIpProfiles = dataEl ? JSON.parse(dataEl.textContent).map(normalizeCharacterIpProfile) : [];
+    } catch (error) {
+        console.error('加载人物 IP 数据失败', error);
+        characterIpProfiles = [];
+    }
+}
+
+function getCharacterIpPromptText() {
+    return (document.getElementById('character-ip-prompt')?.value || '').trim();
+}
+
+function getCharacterIpLanguage() {
+    return document.getElementById('character-ip-language')?.value === 'en' ? 'en' : 'zh';
+}
+
+function getCharacterIpPromptByLanguage(profile, language = getCharacterIpLanguage()) {
+    if (!profile) return '';
+    if (language === 'en') {
+        return profile.prompt_text_en || profile.prompt_text_zh || profile.prompt_text || '';
+    }
+    return profile.prompt_text_zh || profile.prompt_text || profile.prompt_text_en || '';
+}
+
+function getScenePromptText() {
+    return (document.getElementById('ai-prompt')?.value || '').trim();
+}
+
+function getPromptTranslationLabel(targetLanguage) {
+    return targetLanguage === 'zh' ? '中文' : '英文';
+}
+
+async function translatePromptText(text, targetLanguage = 'en') {
+    const promptText = String(text || '').trim();
+    if (!promptText) {
+        Swal.fire('提示', '请先输入需要翻译的提示词。', 'info');
+        return '';
+    }
+
+    Swal.fire({
+        title: `正在翻译为${getPromptTranslationLabel(targetLanguage)}...`,
+        allowOutsideClick: false,
+        didOpen: () => Swal.showLoading(),
+    });
+
+    const response = await fetch('/api/translate-prompt/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': window.getCookie ? getCookie('csrftoken') : '',
+        },
+        body: JSON.stringify({
+            text: promptText,
+            target_language: targetLanguage,
+        }),
+    });
+    const data = await response.json();
+    if (!response.ok || data.status !== 'success') {
+        throw new Error(data.message || '翻译失败');
+    }
+    return data.translated_text || '';
+}
+
+async function confirmCreatePromptTranslation(translatedText, targetLanguage, confirmButtonText = '替换当前输入框') {
+    const result = await Swal.fire({
+        title: `翻译为${getPromptTranslationLabel(targetLanguage)}`,
+        html: `<textarea class="form-control text-start" rows="9" readonly>${escapeHtml(translatedText)}</textarea>`,
+        width: 720,
+        showCancelButton: true,
+        showDenyButton: true,
+        confirmButtonText,
+        denyButtonText: '复制',
+        cancelButtonText: '取消',
+    });
+
+    if (result.isDenied) {
+        copyToClipboard(translatedText);
+        return 'copied';
+    }
+
+    return result.isConfirmed ? 'replace' : 'cancel';
+}
+
+async function translateCreatePrompt(targetLanguage) {
+    const promptInput = document.getElementById('ai-prompt');
+    if (!promptInput) return;
+
+    try {
+        const translatedText = await translatePromptText(promptInput.value, targetLanguage);
+        if (!translatedText) return;
+        const action = await confirmCreatePromptTranslation(translatedText, targetLanguage);
+        if (action !== 'replace') return;
+
+        promptInput.value = translatedText;
+        promptInput.dispatchEvent(new Event('input', { bubbles: true }));
+        refreshPromptAssistants();
+        Swal.fire({
+            icon: 'success',
+            title: '已替换当前输入框',
+            toast: true,
+            position: 'top-end',
+            showConfirmButton: false,
+            timer: 1600,
+        });
+    } catch (error) {
+        Swal.fire('翻译失败', error.message || '请确认本地 Qwen3 服务已启动。', 'error');
+    }
+}
+
+function buildFinalGenerationPrompt() {
+    return [getCharacterIpPromptText(), getScenePromptText()].filter(Boolean).join('\n\n');
+}
+
+function updateFinalPromptPreview() {
+    const wrap = document.getElementById('final-prompt-preview-wrap');
+    const preview = document.getElementById('final-prompt-preview');
+    if (!wrap || !preview) return;
+
+    const finalPrompt = buildFinalGenerationPrompt();
+    if (!finalPrompt) {
+        wrap.classList.add('d-none');
+        preview.textContent = '';
+        return;
+    }
+
+    wrap.classList.remove('d-none');
+    preview.textContent = finalPrompt;
+}
+
+const FACE_DESCRIPTION_RULES = [
+    { label: '脸型/骨相', pattern: /(脸型|脸部结构|骨相|颧骨|下颌|下颚|下巴|额骨|眉骨|面部轮廓|jawline|cheekbone|facial structure|face shape)/ig },
+    { label: '五官比例', pattern: /(五官|三庭五眼|比例|眼距|中庭|上庭|下庭|facial proportion|features proportion|eye spacing)/ig },
+    { label: '眼型', pattern: /(眼型|杏眼|桃花眼|丹凤眼|下垂眼|上扬眼|双眼皮|单眼皮|眼裂|eyeshape|almond eyes|monolid|double eyelid)/ig },
+    { label: '鼻型', pattern: /(鼻型|鼻梁|鼻尖|鼻翼|驼峰鼻|高鼻梁|塌鼻梁|nose shape|nose bridge|nostril)/ig },
+    { label: '唇型', pattern: /(唇型|嘴唇|唇峰|薄唇|厚唇|微笑唇|cupid'?s bow|lip shape|full lips|thin lips)/ig },
+    { label: '微特征', pattern: /(痣|泪痣|疤|酒窝|法令纹|肌肉走向|面部肌肉|mole|beauty mark|scar|dimple|facial muscle)/ig },
+];
+
+function detectFaceDescriptionHighlights(text) {
+    const found = [];
+    const seen = new Set();
+    const sourceText = String(text || '');
+
+    FACE_DESCRIPTION_RULES.forEach(rule => {
+        rule.pattern.lastIndex = 0;
+        let match;
+        while ((match = rule.pattern.exec(sourceText)) !== null) {
+            const start = Math.max(0, match.index - 14);
+            const end = Math.min(sourceText.length, match.index + match[0].length + 18);
+            const snippet = sourceText.slice(start, end).replace(/\s+/g, ' ').trim();
+            const key = `${rule.label}:${snippet}`;
+            if (!seen.has(key)) {
+                found.push({ label: rule.label, snippet });
+                seen.add(key);
+            }
+            if (found.length >= 8) return found;
+        }
+    });
+
+    return found.slice(0, 8);
+}
+
+function updatePromptFaceHighlights() {
+    const alert = document.getElementById('prompt-face-alert');
+    const container = document.getElementById('prompt-face-highlights');
+    if (!alert || !container) return;
+
+    const matches = detectFaceDescriptionHighlights(getScenePromptText());
+    if (!matches.length) {
+        alert.classList.add('d-none');
+        container.innerHTML = '';
+        return;
+    }
+
+    alert.classList.remove('d-none');
+    container.innerHTML = matches.map(item => (
+        `<span class="prompt-face-highlight"><span class="me-1">${escapeHtml(item.label)}</span>${escapeHtml(item.snippet)}</span>`
+    )).join('');
+}
+
+function refreshPromptAssistants() {
+    updateFinalPromptPreview();
+    updatePromptFaceHighlights();
+}
+
+function renderCharacterIpPicker(selectedId = '') {
+    const select = document.getElementById('character-ip-select');
+    if (!select) return;
+
+    const currentValue = selectedId || select.value || '';
+    select.innerHTML = '<option value="">不使用预设人物 IP</option>' + characterIpProfiles.map(profile => (
+        `<option value="${profile.id}">${escapeHtml(profile.name)}</option>`
+    )).join('');
+
+    if (currentValue && characterIpProfiles.some(profile => String(profile.id) === String(currentValue))) {
+        select.value = String(currentValue);
+    }
+}
+
+function renderCharacterIpSelectedPreview(profile = null) {
+    const preview = document.getElementById('character-ip-selected-preview');
+    const image = preview?.querySelector('img');
+    const nameEl = document.getElementById('character-ip-selected-name');
+    if (!preview || !image || !nameEl) return;
+
+    if (!profile) {
+        preview.classList.add('d-none');
+        image.src = '';
+        nameEl.textContent = '';
+        return;
+    }
+
+    nameEl.textContent = profile.name;
+    image.src = profile.thumbnail_url || profile.image_url || '';
+    image.style.display = profile.thumbnail_url || profile.image_url ? 'block' : 'none';
+    preview.classList.remove('d-none');
+}
+
+function fetchImageAsFile(url, fallbackName = 'character_ip_reference.jpg') {
+    return fetch(url)
+        .then(res => {
+            if (!res.ok) throw new Error('图片读取失败');
+            return res.blob();
+        })
+        .then(blob => {
+            const filename = url.split('/').pop().split('?')[0] || fallbackName;
+            return new File([blob], filename, { type: blob.type || 'image/jpeg' });
+        });
+}
+
+function addReferenceFile(file) {
+    if (!file || maxImagesAllowed === 0) return false;
+    clearMaskFileForReferenceChange();
+
+    if (maxImagesAllowed === 1) {
+        currentFiles = [file];
+    } else {
+        const duplicateIndex = currentFiles.findIndex(item => item.name === file.name && item.size === file.size);
+        if (duplicateIndex === -1) {
+            currentFiles = [...currentFiles, file].slice(0, maxImagesAllowed);
+        }
+    }
+    renderPreviews();
+    return true;
+}
+
+async function applyCharacterIpProfile(profileId) {
+    const profile = characterIpProfiles.find(item => String(item.id) === String(profileId));
+    const promptInput = document.getElementById('character-ip-prompt');
+    if (!promptInput) return;
+
+    if (!profile) {
+        renderCharacterIpSelectedPreview(null);
+        refreshPromptAssistants();
+        return;
+    }
+
+    promptInput.value = getCharacterIpPromptByLanguage(profile);
+    renderCharacterIpSelectedPreview(profile);
+    refreshPromptAssistants();
+
+    if (!profile.image_url) return;
+
+    if (maxImagesAllowed === 0) {
+        Swal.fire('提示', '已反显人物 IP 提示词；当前模型不支持参考图上传。', 'info');
+        return;
+    }
+
+    try {
+        const file = await fetchImageAsFile(profile.image_url, `${profile.name || 'character'}_reference.jpg`);
+        addReferenceFile(file);
+        Swal.fire({
+            toast: true,
+            position: 'top',
+            icon: 'success',
+            title: '已同步人物 IP 到参考图和提示词',
+            showConfirmButton: false,
+            timer: 2200,
+        });
+    } catch (error) {
+        console.error(error);
+        Swal.fire('参考图同步失败', '人物提示词已填入，但参考图读取失败。', 'warning');
+    }
+}
+
+function applyCharacterIpLanguageSelection() {
+    const selectedId = document.getElementById('character-ip-select')?.value || '';
+    const profile = characterIpProfiles.find(item => String(item.id) === String(selectedId));
+    if (!profile) return;
+
+    const promptInput = document.getElementById('character-ip-prompt');
+    if (promptInput) {
+        promptInput.value = getCharacterIpPromptByLanguage(profile);
+    }
+    refreshPromptAssistants();
+}
+
+function resetCharacterIpForm() {
+    const idEl = document.getElementById('character-ip-edit-id');
+    const nameEl = document.getElementById('character-ip-name');
+    const imageEl = document.getElementById('character-ip-image');
+    const orderEl = document.getElementById('character-ip-order');
+    const promptZhEl = document.getElementById('character-ip-form-prompt-zh');
+    const promptEnEl = document.getElementById('character-ip-form-prompt-en');
+    const previewEl = document.getElementById('character-ip-image-preview');
+    if (idEl) idEl.value = '';
+    if (nameEl) nameEl.value = '';
+    if (imageEl) imageEl.value = '';
+    if (orderEl) orderEl.value = '0';
+    if (promptZhEl) promptZhEl.value = '';
+    if (promptEnEl) promptEnEl.value = '';
+    if (previewEl) previewEl.innerHTML = '';
+}
+
+function renderCharacterIpImagePreview(src, label = '人物参考图') {
+    const previewEl = document.getElementById('character-ip-image-preview');
+    if (!previewEl) return;
+
+    if (!src) {
+        previewEl.innerHTML = '';
+        return;
+    }
+
+    previewEl.innerHTML = `
+        <div class="character-ip-form-preview">
+            <img src="${escapeHtml(src)}" alt="${escapeHtml(label)}">
+            <div class="small">
+                <div class="fw-bold text-dark">${escapeHtml(label || '人物参考图')}</div>
+                <div class="text-muted">当前表单图片预览</div>
+            </div>
+        </div>
+    `;
+}
+
+function handleCharacterIpImageFile(file) {
+    if (!file) return;
+    if (!file.type || !file.type.startsWith('image/')) {
+        Swal.fire('提示', '请上传图片文件。', 'warning');
+        return;
+    }
+
+    const input = document.getElementById('character-ip-image');
+    if (input) {
+        const transfer = new DataTransfer();
+        transfer.items.add(file);
+        input.files = transfer.files;
+    }
+
+    renderCharacterIpImagePreview(URL.createObjectURL(file), file.name);
+}
+
+function editCharacterIpProfile(profileId) {
+    const profile = characterIpProfiles.find(item => String(item.id) === String(profileId));
+    if (!profile) return;
+
+    document.getElementById('character-ip-edit-id').value = profile.id;
+    document.getElementById('character-ip-name').value = profile.name;
+    document.getElementById('character-ip-order').value = profile.order || 0;
+    document.getElementById('character-ip-form-prompt-zh').value = profile.prompt_text_zh || profile.prompt_text || '';
+    document.getElementById('character-ip-form-prompt-en').value = profile.prompt_text_en || '';
+    document.getElementById('character-ip-image').value = '';
+    renderCharacterIpImagePreview(profile.thumbnail_url || profile.image_url || '', profile.name);
+}
+
+function renderCharacterIpList() {
+    const container = document.getElementById('character-ip-list');
+    if (!container) return;
+
+    const query = (document.getElementById('character-ip-search')?.value || '').trim().toLowerCase();
+    const profiles = characterIpProfiles.filter(profile => {
+        if (!query) return true;
+        return profile.name.toLowerCase().includes(query)
+            || profile.prompt_text_zh.toLowerCase().includes(query)
+            || profile.prompt_text_en.toLowerCase().includes(query);
+    });
+
+    if (!profiles.length) {
+        container.innerHTML = '<div class="text-center text-muted py-5"><i class="bi bi-inbox fs-1 d-block mb-2 opacity-50"></i>暂无人物 IP。</div>';
+        return;
+    }
+
+    container.innerHTML = profiles.map(profile => {
+        const thumb = profile.thumbnail_url || profile.image_url
+            ? `<img src="${escapeHtml(profile.thumbnail_url || profile.image_url)}" class="character-ip-row-thumb" alt="${escapeHtml(profile.name)}">`
+            : '<div class="character-ip-empty-thumb"><i class="bi bi-person"></i></div>';
+
+        return `
+            <div class="character-ip-row">
+                ${thumb}
+                <div class="flex-grow-1 overflow-hidden">
+                    <div class="d-flex justify-content-between align-items-start gap-2 mb-1">
+                        <div class="fw-bold text-dark text-truncate">${escapeHtml(profile.name)}</div>
+                        <span class="badge bg-light text-secondary border">权重 ${profile.order || 0}</span>
+                    </div>
+                    <div class="character-ip-prompt-snippet mb-1"><span class="fw-bold text-secondary">中</span> ${escapeHtml(profile.prompt_text_zh || '暂无中文提示词')}</div>
+                    <div class="character-ip-prompt-snippet mb-2"><span class="fw-bold text-secondary">EN</span> ${escapeHtml(profile.prompt_text_en || 'No English prompt')}</div>
+                    <div class="d-flex gap-2 flex-wrap">
+                        <button type="button" class="btn btn-sm btn-outline-primary rounded-pill px-3" onclick="useCharacterIpFromManager(${profile.id})">
+                            <i class="bi bi-check2 me-1"></i>使用
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3" onclick="editCharacterIpProfile(${profile.id})">
+                            <i class="bi bi-pencil me-1"></i>编辑
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-danger rounded-pill px-3" onclick="deleteCharacterIpProfile(${profile.id})">
+                            <i class="bi bi-trash3 me-1"></i>删除
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function refreshCharacterIpUi(selectedId = '') {
+    renderCharacterIpPicker(selectedId);
+    renderCharacterIpList();
+}
+
+async function saveCharacterIpProfile() {
+    const id = document.getElementById('character-ip-edit-id')?.value || '';
+    const formData = new FormData();
+    formData.append('name', document.getElementById('character-ip-name')?.value || '');
+    formData.append('prompt_text_zh', document.getElementById('character-ip-form-prompt-zh')?.value || '');
+    formData.append('prompt_text_en', document.getElementById('character-ip-form-prompt-en')?.value || '');
+    formData.append('order', document.getElementById('character-ip-order')?.value || '0');
+
+    const imageFile = document.getElementById('character-ip-image')?.files?.[0];
+    if (imageFile) formData.append('image', imageFile);
+
+    const saveBtn = document.getElementById('btn-character-ip-save');
+    if (saveBtn) {
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>保存中';
+    }
+
+    try {
+        const response = await fetch(id ? `/api/character-ips/${id}/` : '/api/character-ips/', {
+            method: 'POST',
+            body: formData,
+        });
+        const data = await response.json();
+        if (data.status !== 'success') {
+            throw new Error(data.message || '保存失败');
+        }
+
+        characterIpProfiles = (data.results || []).map(normalizeCharacterIpProfile);
+        refreshCharacterIpUi(data.profile?.id || '');
+        resetCharacterIpForm();
+        Swal.fire({ toast: true, position: 'top', icon: 'success', title: '人物 IP 已保存', showConfirmButton: false, timer: 1800 });
+    } catch (error) {
+        Swal.fire('保存失败', error.message || '请稍后重试', 'error');
+    } finally {
+        if (saveBtn) {
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = '<i class="bi bi-check2-circle me-1"></i>保存人物';
+        }
+    }
+}
+
+async function deleteCharacterIpProfile(profileId) {
+    const profile = characterIpProfiles.find(item => String(item.id) === String(profileId));
+    const result = await Swal.fire({
+        title: '删除人物 IP？',
+        text: profile ? `将删除「${profile.name}」的图片和提示词记录。` : '将删除这条人物 IP 记录。',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: '确认删除',
+        cancelButtonText: '取消',
+        confirmButtonColor: '#dc3545',
+    });
+    if (!result.isConfirmed) return;
+
+    try {
+        const response = await fetch(`/api/character-ips/${profileId}/delete/`, { method: 'POST' });
+        const data = await response.json();
+        if (data.status !== 'success') {
+            throw new Error(data.message || '删除失败');
+        }
+
+        characterIpProfiles = (data.results || []).map(normalizeCharacterIpProfile);
+        refreshCharacterIpUi();
+        const select = document.getElementById('character-ip-select');
+        if (select && String(select.value) === String(profileId)) {
+            select.value = '';
+            renderCharacterIpSelectedPreview(null);
+        }
+        Swal.fire({ toast: true, position: 'top', icon: 'success', title: '已删除人物 IP', showConfirmButton: false, timer: 1800 });
+    } catch (error) {
+        Swal.fire('删除失败', error.message || '请稍后重试', 'error');
+    }
+}
+
+function useCharacterIpFromManager(profileId) {
+    const select = document.getElementById('character-ip-select');
+    if (select) select.value = String(profileId);
+    applyCharacterIpProfile(profileId);
+    const modalEl = document.getElementById('characterIpManagerModal');
+    const modalInstance = bootstrap.Modal.getInstance(modalEl);
+    if (modalInstance) modalInstance.hide();
 }
 
 function buildPromptMediationRuleBadges(rules) {
@@ -172,10 +701,28 @@ function getPromptOptimizationLevelLabel(level) {
         case 'balanced':
         case 'conservative':
         case 'faithful':
-            return '保真';
+            return '保真清洗';
+        case 'balanced_local_ai':
+        case 'balanced_qwen3':
+        case 'balanced_qwen3_14b':
+        case 'balanced_local':
+        case 'faithful_local':
+        case 'local_balanced':
+            return '保真清洗 + 本地 Qwen3';
         case 'enhanced':
         case 'visual_rewrite':
-            return '增强';
+            return '增强视觉重写';
+        case 'enhanced_local_ai':
+        case 'enhanced_qwen3':
+        case 'enhanced_qwen3_14b':
+        case 'enhanced_local':
+        case 'local_enhanced':
+        case 'local_ai':
+        case 'qwen3':
+        case 'qwen3_14b':
+        case 'local':
+        case 'local_qwen':
+            return '增强视觉重写 + 本地 Qwen3';
         default:
             return '当前等级';
     }
@@ -670,6 +1217,78 @@ document.addEventListener('DOMContentLoaded', () => {
     initDynamicUI();
     setupDragAndDrop();
     initPublishPromptEditor();
+    loadCharacterIpProfilesFromDom();
+    refreshCharacterIpUi();
+
+    const characterIpSelect = document.getElementById('character-ip-select');
+    if (characterIpSelect) {
+        characterIpSelect.addEventListener('change', function() {
+            applyCharacterIpProfile(this.value);
+        });
+    }
+    const characterIpLanguage = document.getElementById('character-ip-language');
+    if (characterIpLanguage) {
+        characterIpLanguage.addEventListener('change', applyCharacterIpLanguageSelection);
+    }
+
+    const characterIpPrompt = document.getElementById('character-ip-prompt');
+    if (characterIpPrompt) {
+        characterIpPrompt.addEventListener('input', refreshPromptAssistants);
+    }
+
+    const promptInput = document.getElementById('ai-prompt');
+    if (promptInput) {
+        promptInput.addEventListener('input', refreshPromptAssistants);
+    }
+
+    const characterIpSaveBtn = document.getElementById('btn-character-ip-save');
+    if (characterIpSaveBtn) {
+        characterIpSaveBtn.addEventListener('click', saveCharacterIpProfile);
+    }
+    const characterIpResetBtn = document.getElementById('btn-character-ip-reset');
+    if (characterIpResetBtn) {
+        characterIpResetBtn.addEventListener('click', resetCharacterIpForm);
+    }
+    const characterIpSearch = document.getElementById('character-ip-search');
+    if (characterIpSearch) {
+        characterIpSearch.addEventListener('input', renderCharacterIpList);
+    }
+    const characterIpImageInput = document.getElementById('character-ip-image');
+    if (characterIpImageInput) {
+        characterIpImageInput.addEventListener('change', function() {
+            handleCharacterIpImageFile(this.files?.[0]);
+        });
+    }
+    const characterIpUploadZone = document.getElementById('character-ip-upload-zone');
+    if (characterIpUploadZone) {
+        characterIpUploadZone.addEventListener('click', () => document.getElementById('character-ip-image')?.click());
+        characterIpUploadZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            characterIpUploadZone.classList.add('dragover');
+        });
+        characterIpUploadZone.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            characterIpUploadZone.classList.remove('dragover');
+        });
+        characterIpUploadZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            characterIpUploadZone.classList.remove('dragover');
+            handleCharacterIpImageFile(e.dataTransfer?.files?.[0]);
+        });
+    }
+
+    const publishTitleInput = document.getElementById('pub-title');
+    if (publishTitleInput) {
+        publishTitleInput.addEventListener('input', syncPublishCharacterFromTitle);
+        publishTitleInput.addEventListener('keyup', syncPublishCharacterFromTitle);
+        publishTitleInput.addEventListener('change', syncPublishCharacterFromTitle);
+        publishTitleInput.addEventListener('blur', syncPublishCharacterFromTitle);
+        publishTitleInput.addEventListener('paste', () => setTimeout(syncPublishCharacterFromTitle, 0));
+    }
+    const publishModal = document.getElementById('publishModal');
+    if (publishModal) {
+        publishModal.addEventListener('shown.bs.modal', syncPublishCharacterFromTitle);
+    }
 
     const createConversationSendBtn = document.getElementById('create-gpt-conversation-send');
     if (createConversationSendBtn) {
@@ -783,6 +1402,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (initialData.prompt) {
                 document.getElementById('ai-prompt').value = initialData.prompt;
+                refreshPromptAssistants();
             }
             if (initialData.prompts && initialData.prompts.length > 0) {
                 currentPublishPromptItems = normalizePublishPromptItems(initialData.prompts);
@@ -921,6 +1541,7 @@ document.addEventListener('DOMContentLoaded', () => {
     dynamicContainer.addEventListener('change', handleDynamicInput);
     loadRecentCreateConversations();
     updateCreateConversationPanelVisibility();
+    refreshPromptAssistants();
 });
 
 function normalizePublishPromptItems(items) {
@@ -996,7 +1617,7 @@ function syncPublishPromptItemsFromDom() {
 }
 
 function preparePublishPromptItems() {
-    const activePrompt = document.getElementById('ai-prompt').value.trim();
+    const activePrompt = buildFinalGenerationPrompt().trim();
     const existing = normalizePublishPromptItems(currentPublishPromptItems);
     const remainder = existing.filter(item => item.text.trim() && item.text.trim() !== activePrompt);
     const items = [];
@@ -1018,6 +1639,12 @@ function renderPublishPromptItems() {
         <div class="border rounded-4 bg-light p-3">
             <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
                 <span class="badge bg-white text-primary border rounded-pill px-3 py-2">提示词${index + 1}</span>
+                <button type="button" class="btn btn-sm btn-outline-primary rounded-pill px-3" onclick="translateCreatePublishPromptItem(${index}, 'en')">
+                    <i class="bi bi-translate me-1"></i>译英
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3" onclick="translateCreatePublishPromptItem(${index}, 'zh')">
+                    <i class="bi bi-translate me-1"></i>译中
+                </button>
                 <button type="button" class="btn btn-sm btn-outline-danger rounded-pill px-3" onclick="removePublishPromptItem(${index})">
                     <i class="bi bi-trash3 me-1"></i>删除
                 </button>
@@ -1027,8 +1654,52 @@ function renderPublishPromptItems() {
     `).join('');
 }
 
-function removePublishPromptItem(index) {
+async function translateCreatePublishPromptItem(index, targetLanguage) {
     syncPublishPromptItemsFromDom();
+    const input = document.querySelector(`#pub-prompts-container .pub-prompt-input[data-index="${index}"]`);
+    if (!input) return;
+
+    try {
+        const translatedText = await translatePromptText(input.value, targetLanguage);
+        if (!translatedText) return;
+        const action = await confirmCreatePromptTranslation(translatedText, targetLanguage);
+        if (action !== 'replace') return;
+
+        input.value = translatedText;
+        currentPublishPromptItems[index] = {
+            ...(currentPublishPromptItems[index] || { text: '' }),
+            text: translatedText,
+        };
+        Swal.fire({
+            icon: 'success',
+            title: '已替换当前输入框',
+            toast: true,
+            position: 'top-end',
+            showConfirmButton: false,
+            timer: 1600,
+        });
+    } catch (error) {
+        Swal.fire('翻译失败', error.message || '请确认本地 Qwen3 服务已启动。', 'error');
+    }
+}
+
+async function removePublishPromptItem(index) {
+    syncPublishPromptItemsFromDom();
+    const promptText = currentPublishPromptItems[index]?.text || '';
+    const preview = typeof getPromptSummaryText === 'function'
+        ? getPromptSummaryText(promptText, 80)
+        : (String(promptText || '').replace(/\s+/g, ' ').trim().slice(0, 80) || '未填写');
+    const result = await Swal.fire({
+        title: `删除提示词${index + 1}？`,
+        html: `<div class="text-start small text-muted">删除后这条提示词不会随本次发布保存。</div><div class="text-start border rounded-3 bg-light p-2 mt-3">${escapePublishPromptHtml(preview || '未填写')}</div>`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: '确认删除',
+        cancelButtonText: '取消',
+        confirmButtonColor: '#dc3545',
+    });
+    if (!result.isConfirmed) return;
+
     currentPublishPromptItems.splice(index, 1);
     renderPublishPromptItems();
 }
@@ -1045,6 +1716,7 @@ function updateSeedreamPrompt(count) {
     } else {
         promptInput.value = `生成${count}张图片：` + text;
     }
+    refreshPromptAssistants();
 }
 
 function removeSeedreamPrompt() {
@@ -1053,6 +1725,7 @@ function removeSeedreamPrompt() {
     if (prefixRegex.test(promptInput.value)) {
         promptInput.value = promptInput.value.replace(prefixRegex, '');
     }
+    refreshPromptAssistants();
 }
 
 function updateSeedreamAspectRatio(ratio) {
@@ -1068,12 +1741,14 @@ function updateSeedreamAspectRatio(ratio) {
         }
     }
     promptInput.value = text;
+    refreshPromptAssistants();
 }
 
 function removeSeedreamAspectRatio() {
     const promptInput = document.getElementById('ai-prompt');
     const ratioRegex = /(?:，|\s)*画面比例：\d+:\d+/g;
     promptInput.value = promptInput.value.replace(ratioRegex, '').trim();
+    refreshPromptAssistants();
 }
 
 function initDynamicUI() {
@@ -1274,6 +1949,60 @@ function renderPublishChars(preSelectedChars) {
     });
 }
 
+function normalizePublishCharacterName(value) {
+    return String(value || '')
+        .trim()
+        .replace(/^[\s"'“”‘’《》「」『』【】\[\]（）()]+|[\s"'“”‘’《》「」『』【】\[\]（）()]+$/g, '')
+        .replace(/^(?:标题|作品|人物|角色|主角)\s*[:：]\s*/i, '')
+        .replace(/\s+/g, ' ')
+        .toLowerCase();
+}
+
+function getPublishCharacterNameCandidates() {
+    const names = [
+        ...allAvailableChars,
+        ...characterIpProfiles.map(profile => profile.name || ''),
+    ].map(name => String(name || '').trim()).filter(Boolean);
+    const seen = new Set();
+    return names.filter(name => {
+        const key = normalizePublishCharacterName(name);
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+}
+
+function findPublishCharacterByTitle(title) {
+    const normalizedTitle = normalizePublishCharacterName(title);
+    if (!normalizedTitle) return '';
+
+    const candidates = getPublishCharacterNameCandidates();
+    const exactMatch = candidates.find(char => normalizePublishCharacterName(char) === normalizedTitle);
+    if (exactMatch) return exactMatch;
+
+    const containedMatches = candidates.filter(char => {
+        const normalizedChar = normalizePublishCharacterName(char);
+        return normalizedChar.length >= 2 && normalizedTitle.includes(normalizedChar);
+    });
+    return containedMatches.length === 1 ? containedMatches[0] : '';
+}
+
+function syncPublishCharacterFromTitle() {
+    const title = document.getElementById('pub-title')?.value || '';
+    const matchedCharacter = findPublishCharacterByTitle(title);
+    if (!matchedCharacter) return;
+
+    const matchedKey = normalizePublishCharacterName(matchedCharacter);
+    const existingSelected = Array.from(currentSelectedChars).find(char => normalizePublishCharacterName(char) === matchedKey);
+    if (!existingSelected) {
+        currentSelectedChars.add(matchedCharacter);
+    }
+    if (!allAvailableChars.some(char => normalizePublishCharacterName(char) === matchedKey)) {
+        allAvailableChars.push(matchedCharacter);
+    }
+    renderPublishChars(Array.from(currentSelectedChars));
+}
+
 function handleFiles(files) {
     if (!files || files.length === 0 || maxImagesAllowed === 0) return;
     clearMaskFileForReferenceChange();
@@ -1293,6 +2022,37 @@ function renderPreviews() {
         const canOpenMaskEditor = index === 0 && supportsMaskEditor;
         const wrapper = document.createElement('div');
         wrapper.className = 'preview-wrapper m-1';
+        wrapper.draggable = currentFiles.length > 1;
+        wrapper.dataset.index = String(index);
+        wrapper.title = currentFiles.length > 1 ? '拖动可调整参考图顺序' : '';
+
+        wrapper.addEventListener('dragstart', (e) => {
+            draggedReferenceIndex = index;
+            wrapper.classList.add('preview-dragging');
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', String(index));
+        });
+        wrapper.addEventListener('dragend', () => {
+            draggedReferenceIndex = null;
+            document.querySelectorAll('.preview-drop-target, .preview-dragging').forEach(el => {
+                el.classList.remove('preview-drop-target', 'preview-dragging');
+            });
+        });
+        wrapper.addEventListener('dragover', (e) => {
+            if (draggedReferenceIndex === null || draggedReferenceIndex === index) return;
+            e.preventDefault();
+            wrapper.classList.add('preview-drop-target');
+            e.dataTransfer.dropEffect = 'move';
+        });
+        wrapper.addEventListener('dragleave', () => {
+            wrapper.classList.remove('preview-drop-target');
+        });
+        wrapper.addEventListener('drop', (e) => {
+            e.preventDefault();
+            wrapper.classList.remove('preview-drop-target');
+            reorderReferenceFile(draggedReferenceIndex, index);
+        });
+
         const img = document.createElement('img');
         img.className = `preview-item shadow-sm ${canOpenMaskEditor ? 'preview-item-clickable' : ''}`;
         if (canOpenMaskEditor) {
@@ -1363,6 +2123,19 @@ function removeFile(index) {
     renderPreviews();
 }
 
+function reorderReferenceFile(fromIndex, toIndex) {
+    const sourceIndex = Number(fromIndex);
+    const targetIndex = Number(toIndex);
+    if (!Number.isInteger(sourceIndex) || !Number.isInteger(targetIndex)) return;
+    if (sourceIndex === targetIndex || sourceIndex < 0 || targetIndex < 0) return;
+    if (sourceIndex >= currentFiles.length || targetIndex >= currentFiles.length) return;
+
+    clearMaskFileForReferenceChange();
+    const [movedFile] = currentFiles.splice(sourceIndex, 1);
+    currentFiles.splice(targetIndex, 0, movedFile);
+    renderPreviews();
+}
+
 function toggleGenResultSelect(element) {
     element.classList.toggle('selected');
     if (element.classList.contains('selected')) {
@@ -1408,6 +2181,8 @@ function getCreateConversationParamOverrides() {
 function normalizeCreateConversationOptimizationLevel(value) {
     if (value === 'conservative' || value === 'faithful') return 'balanced';
     if (value === 'visual_rewrite') return 'enhanced';
+    if (['balanced_qwen3', 'balanced_qwen3_14b', 'balanced_local', 'faithful_local', 'local_balanced'].includes(value)) return 'balanced_local_ai';
+    if (['qwen3', 'qwen3_14b', 'local', 'local_qwen', 'local_ai', 'enhanced_qwen3', 'enhanced_qwen3_14b', 'enhanced_local', 'local_enhanced'].includes(value)) return 'enhanced_local_ai';
     return value || 'balanced';
 }
 
@@ -1669,6 +2444,7 @@ async function restoreCreateConversation(buttonEl) {
         selectCreateConversationModel(conversation.model_key);
         if (conversation.initial_prompt) {
             document.getElementById('ai-prompt').value = conversation.initial_prompt;
+            refreshPromptAssistants();
         }
         applyCreateConversationParamOverrides(conversation.latest_params || {});
         renderCreateConversationPromptMediation(getLatestCreateConversationPromptMediation(conversation));
@@ -1788,7 +2564,7 @@ async function ensureCreateConversation() {
     formData.append('source_page', 'create');
     formData.append('model_choice', modelChoice);
     formData.append('active_image_path', activeImagePath);
-    formData.append('prompt', document.getElementById('ai-prompt')?.value || '');
+    formData.append('prompt', buildFinalGenerationPrompt());
     formData.append('latest_params', JSON.stringify(collectCreateConversationParams()));
 
     const response = await fetch('/api/gpt-image-conversations/', {
@@ -1873,7 +2649,7 @@ async function startGeneration() {
     }
 
     const modelChoice = document.getElementById('ai-model-select').value;
-    const promptText = document.getElementById('ai-prompt').value;
+    const promptText = getScenePromptText();
     const loopCount = parseInt(document.getElementById('ai-loop-count').value) || 1;
 
     const categoryId = document.getElementById('ai-category-select').value;
@@ -1895,6 +2671,7 @@ async function startGeneration() {
         Swal.fire('提示', '请输入画面描述！', 'warning');
         return;
     }
+    refreshPromptAssistants();
 
     const btn = document.getElementById('btn-generate');
     btn.disabled = true;
@@ -1948,6 +2725,8 @@ async function startGeneration() {
     const formData = new FormData();
     formData.append('model_choice', modelChoice);
     formData.append('prompt', promptText);
+    formData.append('scene_prompt', promptText);
+    formData.append('character_ip_prompt', getCharacterIpPromptText());
     if (maxImagesAllowed > 0) {
         currentFiles.forEach(file => formData.append('base_images', file));
     }
@@ -2128,7 +2907,7 @@ function publishCreation() {
     preparePublishPromptItems();
     renderPublishPromptItems();
     
-    const promptText = document.getElementById('ai-prompt').value.trim();
+    const promptText = buildFinalGenerationPrompt().trim();
     const titleInput = document.getElementById('pub-title');
     
     if (promptText) {
@@ -2144,6 +2923,7 @@ function publishCreation() {
         .then(data => {
             if (data.status === 'success' && data.title) {
                 titleInput.value = data.title;
+                syncPublishCharacterFromTitle();
             } else {
                 titleInput.value = ""; 
                 titleInput.placeholder = "自动概括失败，请手动输入";
@@ -2155,10 +2935,12 @@ function publishCreation() {
         })
         .finally(() => {
             titleInput.disabled = false;
+            syncPublishCharacterFromTitle();
         });
     } else {
         titleInput.value = "";
         titleInput.placeholder = "请输入标题...";
+        syncPublishCharacterFromTitle();
     }
 
     new bootstrap.Modal(document.getElementById('publishModal')).show();
@@ -2180,7 +2962,7 @@ function confirmPublish() {
     const formData = new FormData();
     syncPublishPromptItemsFromDom();
     const normalizedPrompts = normalizePublishPromptItems(currentPublishPromptItems);
-    formData.append('prompt', document.getElementById('ai-prompt').value);
+    formData.append('prompt', buildFinalGenerationPrompt());
     formData.append('prompts_json', JSON.stringify(normalizedPrompts));
     formData.append('title', titleInput);
     formData.append('model_info', document.getElementById('pub-model').value.trim());
@@ -2294,7 +3076,7 @@ function openAddToGroupModal() {
 }
 
 function fetchSimilarGroupsForAppend() {
-    const promptText = document.getElementById('ai-prompt').value.trim();
+    const promptText = buildFinalGenerationPrompt().trim();
     const container = document.getElementById('similarGroupsContainer');
     const activeModelCard = document.querySelector('.model-card.active');
     const currentModelName = activeModelCard ? activeModelCard.querySelector('.model-card-title').innerText.trim() : '';

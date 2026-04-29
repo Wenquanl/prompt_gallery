@@ -134,6 +134,9 @@ VISUALS_FFPROBE_EXE = os.getenv('VISUALS_FFPROBE_EXE', 'ffprobe')
 VISUALS_SYNC_MINUTES = int(os.getenv('VISUALS_SYNC_MINUTES', '5'))
 MEILI_URL = os.getenv('MEILI_URL', 'http://127.0.0.1:7700')
 MEILI_KEY = os.getenv('MEILI_KEY', 'dq49aaqs-RYHbIfKGMOFJRrfco3jP-0Ubj4gcX9caBc')
+LOCAL_PROMPT_OPTIMIZER_URL = os.getenv('LOCAL_PROMPT_OPTIMIZER_URL', 'http://127.0.0.1:11434/api/chat')
+LOCAL_PROMPT_OPTIMIZER_MODEL = os.getenv('LOCAL_PROMPT_OPTIMIZER_MODEL', 'qwen3:14b')
+LOCAL_PROMPT_OPTIMIZER_TIMEOUT = float(os.getenv('LOCAL_PROMPT_OPTIMIZER_TIMEOUT', '120'))
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field

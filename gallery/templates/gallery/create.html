@@ -43,7 +43,101 @@
                     <div id="preview-container"></div>
                 </div>
 
+                <div class="mb-4 p-3 bg-light rounded-3 border" id="character-ip-panel">
+                    <div class="d-flex justify-content-between align-items-center mb-2 gap-2">
+                        <label class="form-label fw-bold text-secondary small mb-0">人物 IP 提示词</label>
+                        <button type="button" class="btn btn-sm btn-outline-primary rounded-pill px-3" data-bs-toggle="modal" data-bs-target="#characterIpManagerModal">
+                            <i class="bi bi-person-gear me-1"></i>管理人物
+                        </button>
+                    </div>
+                    <div class="row g-2 mb-2">
+                        <div class="col-7">
+                            <select class="form-select form-select-sm" id="character-ip-select">
+                                <option value="">不使用预设人物 IP</option>
+                            </select>
+                        </div>
+                        <div class="col-5">
+                            <select class="form-select form-select-sm" id="character-ip-language">
+                                <option value="zh">中文提示词</option>
+                                <option value="en">英文提示词</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="d-flex gap-2 align-items-center mb-2 d-none" id="character-ip-selected-preview">
+                        <img src="" alt="人物参考图" class="character-ip-thumb">
+                        <div class="small">
+                            <div class="fw-bold text-dark" id="character-ip-selected-name"></div>
+                            <div class="text-muted">已同步人物图到参考图，提示词仍可手动修改。</div>
+                        </div>
+                    </div>
+                    <textarea id="character-ip-prompt" class="form-control" rows="4" placeholder="可手动输入人物 IP 提示词，也可从上方选择预设人物。"></textarea>
+                    <div class="small text-muted mt-2">生成时会按“人物 IP 提示词 + 画面描述”发送给模型。</div>
+                    <div class="mt-2 d-none" id="final-prompt-preview-wrap">
+                        <div class="small fw-bold text-secondary mb-1">实际发送 Prompt 预览</div>
+                        <div class="final-prompt-preview" id="final-prompt-preview"></div>
+                    </div>
+                </div>
+
                 <div class="mb-4" id="dynamic-file-params-container"></div>
+
+                <div class="modal fade" id="characterIpManagerModal" tabindex="-1" aria-hidden="true">
+                    <div class="modal-dialog modal-dialog-centered modal-xl">
+                        <div class="modal-content border-0 shadow-lg rounded-4">
+                            <div class="modal-header border-0 pb-0">
+                                <h5 class="modal-title fw-bold text-dark"><i class="bi bi-person-gear me-2 text-primary"></i>人物 IP 管理</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body pt-4">
+                                <div class="row g-4">
+                                    <div class="col-lg-5">
+                                        <div class="border rounded-4 p-3 bg-light">
+                                            <input type="hidden" id="character-ip-edit-id" value="">
+                                            <div class="mb-3">
+                                                <label class="form-label fw-bold text-secondary small">人物名称 <span class="text-danger">*</span></label>
+                                                <input type="text" class="form-control" id="character-ip-name" placeholder="例如：某某角色">
+                                            </div>
+                                            <div class="mb-3">
+                                                <label class="form-label fw-bold text-secondary small">人物参考图</label>
+                                                <div class="character-ip-upload-zone" id="character-ip-upload-zone">
+                                                    <i class="bi bi-cloud-arrow-up mb-2 d-block"></i>
+                                                    <span class="fw-bold text-muted">点击选择，或拖拽图片到这里</span>
+                                                    <div class="small text-muted mt-1">编辑时不重新选择图片则保留原图。</div>
+                                                </div>
+                                                <input type="file" class="d-none" id="character-ip-image" accept="image/*">
+                                                <div id="character-ip-image-preview" class="mt-2"></div>
+                                            </div>
+                                            <div class="mb-3">
+                                                <label class="form-label fw-bold text-secondary small">排序权重</label>
+                                                <input type="number" class="form-control" id="character-ip-order" value="0">
+                                            </div>
+                                            <div class="mb-3">
+                                                <label class="form-label fw-bold text-secondary small">人物 IP 中文提示词</label>
+                                                <textarea class="form-control" id="character-ip-form-prompt-zh" rows="5" placeholder="输入中文稳定人物特征、服装识别点、发型、气质等..."></textarea>
+                                            </div>
+                                            <div class="mb-3">
+                                                <label class="form-label fw-bold text-secondary small">人物 IP 英文提示词</label>
+                                                <textarea class="form-control" id="character-ip-form-prompt-en" rows="5" placeholder="Enter the English character identity prompt..."></textarea>
+                                            </div>
+                                            <div class="d-flex gap-2">
+                                                <button type="button" class="btn btn-primary rounded-pill px-4 fw-bold" id="btn-character-ip-save">
+                                                    <i class="bi bi-check2-circle me-1"></i>保存人物
+                                                </button>
+                                                <button type="button" class="btn btn-outline-secondary rounded-pill px-4" id="btn-character-ip-reset">新建</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-lg-7">
+                                        <div class="input-group mb-3">
+                                            <span class="input-group-text bg-white"><i class="bi bi-search text-muted"></i></span>
+                                            <input type="text" class="form-control" id="character-ip-search" placeholder="搜索人物名称或提示词">
+                                        </div>
+                                        <div id="character-ip-list" class="character-ip-list custom-scrollbar"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
 
                 <div class="modal fade" id="charRefModal" tabindex="-1" aria-hidden="true">
                     <div class="modal-dialog modal-dialog-centered modal-lg">
@@ -147,7 +241,20 @@
 
                 <div class="mb-4">
                     <label class="form-label fw-bold text-secondary small">3. 画面描述 (Prompt)</label>
+                    <div class="d-flex justify-content-end gap-2 mb-2 flex-wrap">
+                        <button type="button" class="btn btn-sm btn-outline-primary rounded-pill px-3" onclick="translateCreatePrompt('en')">
+                            <i class="bi bi-translate me-1"></i>译英
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3" onclick="translateCreatePrompt('zh')">
+                            <i class="bi bi-translate me-1"></i>译中
+                        </button>
+                    </div>
                     <textarea id="ai-prompt" class="form-control" rows="6" placeholder="详细描述你想要的画面，建议使用英文。"></textarea>
+                    <div class="prompt-face-alert mt-2 d-none" id="prompt-face-alert">
+                        <div class="small fw-bold text-warning-emphasis mb-1"><i class="bi bi-exclamation-triangle me-1"></i>检测到画面描述里含有人物脸部/五官特征</div>
+                        <div class="small text-muted mb-2">这些内容可能覆盖人物 IP 的稳定脸部设定，请确认是否确实需要。</div>
+                        <div id="prompt-face-highlights" class="prompt-face-highlights"></div>
+                    </div>
                 </div>
 
                 <div class="mb-4 p-3 bg-light rounded-3 border" id="create-gpt-prompt-mediation-panel" style="display: none;">
@@ -338,8 +445,10 @@
                                 <label class="form-label small text-muted mb-1" for="create-gpt-conversation-optimization-level">Prompt 优化</label>
                                 <select class="form-select form-select-sm" id="create-gpt-conversation-optimization-level">
                                     <option value="off">关闭优化</option>
-                                    <option value="balanced" selected>保真</option>
-                                    <option value="enhanced">增强</option>
+                                    <option value="balanced" selected>保真清洗</option>
+                                    <option value="balanced_local_ai">保真清洗 + 本地 Qwen3</option>
+                                    <option value="enhanced">增强视觉重写</option>
+                                    <option value="enhanced_local_ai">增强视觉重写 + 本地 Qwen3</option>
                                 </select>
                             </div>
                         </div>
@@ -380,6 +489,7 @@
     <script id="all-tags-data" type="application/json">{{ all_tags_json|safe|default:"[]" }}</script>
     <script id="all-chars-data" type="application/json">{{ all_chars_json|safe|default:"[]" }}</script>
     <script id="initial-data" type="application/json">{{ initial_data_json|safe|default:"{}" }}</script>
+    <script id="character-ip-data" type="application/json">{{ character_ip_data_json|safe|default:"[]" }}</script>
 
     <script src="{% static 'gallery/js/create.js' %}"></script>
 {% endblock %}

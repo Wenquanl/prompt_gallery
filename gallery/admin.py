@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import PromptGroup, ImageItem, Tag, AIModel, Character
+from .models import PromptGroup, ImageItem, Tag, AIModel, Character, CharacterIP
 from .forms import PromptGroupForm
 
 # 注册 AI 模型管理
@@ -17,6 +17,12 @@ class CharacterAdmin(admin.ModelAdmin):
     list_display = ('name', 'order')
     list_editable = ('order',)
     search_fields = ['name']
+
+@admin.register(CharacterIP)
+class CharacterIPAdmin(admin.ModelAdmin):
+    list_display = ('name', 'order', 'updated_at')
+    list_editable = ('order',)
+    search_fields = ['name', 'prompt_text', 'prompt_text_zh', 'prompt_text_en']
 
 class ImageItemInline(admin.TabularInline):
     model = ImageItem

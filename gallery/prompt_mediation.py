@@ -39,6 +39,16 @@ CONTROL_SEGMENT_LABELS = {
     'preserve',
 }
 
+RATIO_CONTROL_LABELS = {
+    '比例',
+    '画幅',
+    '画幅比例',
+    '构图比例',
+    '纵横比',
+    'aspect ratio',
+    'ratio',
+}
+
 CONTROL_SEGMENT_PATTERN = re.compile(
     r'不要改|不要改变|保持不变|保留|锁定|preserve|keep\b|do not change|don\'t change|without changing|negative prompt|negative constraints',
     re.IGNORECASE,
@@ -269,9 +279,9 @@ STRUCTURED_CATEGORY_ITEM_LIMITS = {
     'layout': 2,
     'subject': 1,
     'appearance': 2,
-    'expression': 1,
+    'expression': 2,
     'pose': 1,
-    'wardrobe': 1,
+    'wardrobe': 2,
     'material': 1,
     'environment': 1,
     'lighting': 1,
@@ -281,6 +291,17 @@ STRUCTURED_CATEGORY_ITEM_LIMITS = {
     'constraint': 3,
     'other': 1,
 }
+
+ENHANCED_DEFAULT_VISUAL_PARTS = {
+    'camera': 'cinematic portrait composition',
+    'lighting': 'soft directional lighting, natural shadow detail',
+    'quality': 'high detail, clean anatomy, coherent hands, refined texture',
+}
+
+CHARACTER_IDENTITY_PATTERN = re.compile(
+    r'人物\s*IP|角色|人物|character|identity|face|facial|五官|脸|面部|发型|reference',
+    re.IGNORECASE,
+)
 
 
 def _normalize_label_name(label):
@@ -293,11 +314,12 @@ def _is_control_segment_label(label):
 
 def _is_control_segment(label, text):
     normalized_text = str(text or '').strip()
+    normalized_label = _normalize_label_name(label)
     if _is_control_segment_label(label):
         return True
     if CONTROL_SEGMENT_PATTERN.search(normalized_text):
         return True
-    return bool(RATIO_PATTERN.search(normalized_text) and label)
+    return bool(RATIO_PATTERN.search(normalized_text) and normalized_label in {item.lower() for item in RATIO_CONTROL_LABELS})
 
 
 def _should_keep_line_intact(line):
@@ -319,11 +341,16 @@ def _format_segment_output(label, text):
 
 
 def _extract_structured_label(segment):
+    if RATIO_PATTERN.fullmatch(str(segment or '').strip()):
+        return '', segment.strip()
+
     match = re.match(r'^([A-Za-z0-9_\-/\u4e00-\u9fff ]{1,18})\s*[：:]\s*(.+)$', segment)
     if not match:
         return '', segment.strip()
 
     label, content = match.groups()
+    if label.strip().isdigit() and content.strip().isdigit():
+        return '', segment.strip()
     if len(label.split()) <= 3:
         return label.strip(), content.strip()
     return '', segment.strip()
@@ -343,15 +370,15 @@ def _infer_segment_category(label, text):
 
     normalized_text = str(text or '').lower()
     keyword_map = {
-        'appearance': ['skin', 'lips', 'hair', 'glass skin', 'glossy'],
-        'pose': ['pose', 'hand', 'finger', 'near lips'],
-        'wardrobe': ['outfit', 'dress', 'clothing', 'halter', 'fitted'],
-        'lighting': ['light', 'flash', 'shadow', 'rim light'],
-        'environment': ['background', 'indoor', 'outdoor', 'environment'],
-        'mood': ['mood', 'cinematic', 'atmosphere'],
-        'camera': ['selfie', 'low-angle', 'portrait', 'close-up'],
-        'style': ['style', 'ultra detailed', 'photorealistic'],
-        'expression': ['expression', 'calm', 'relaxed'],
+        'appearance': ['skin', 'lips', 'hair', 'glass skin', 'glossy', '短发', '长发', '发型', '泪痣', '痣', '五官', '脸', '面部'],
+        'pose': ['pose', 'hand', 'finger', 'near lips', '手势', '手指', '动作', '姿势'],
+        'wardrobe': ['outfit', 'dress', 'clothing', 'halter', 'fitted', '服装', '穿搭', '连衣裙', '外套'],
+        'lighting': ['light', 'flash', 'shadow', 'rim light', '灯光', '光线', '逆光', '柔光', '阴影'],
+        'environment': ['background', 'indoor', 'outdoor', 'environment', '背景', '街头', '雨夜', '室内', '室外', '东京', '城市'],
+        'mood': ['mood', 'cinematic', 'atmosphere', '氛围', '情绪', '电影感'],
+        'camera': ['selfie', 'low-angle', 'portrait', 'close-up', '半身', '全身', '特写', '近景', '镜头', '人像'],
+        'style': ['style', 'ultra detailed', 'photorealistic', '风格', '写实', '胶片'],
+        'expression': ['expression', 'calm', 'relaxed', '表情', '神态', '眼神'],
     }
     for category, keywords in keyword_map.items():
         if any(keyword in normalized_text for keyword in keywords):
@@ -420,7 +447,8 @@ def _normalize_segment(segment, optimization_level):
     normalized = normalized.replace('（', '(').replace('）', ')')
     normalized = normalized.replace('，', ',')
     normalized = re.sub(r'[\{\}\[\]"]+', ' ', normalized)
-    normalized = re.sub(r'^[\-•*\d\.)\s]+', '', normalized)
+    if not RATIO_PATTERN.fullmatch(normalized.strip()):
+        normalized = re.sub(r'^[\-•*\d\.)\s]+', '', normalized)
     label, normalized = _extract_structured_label(normalized)
 
     if _is_control_segment(label, normalized):
@@ -505,6 +533,75 @@ def _build_flattened_prompt(segments):
     return ', '.join(flattened_parts).strip(' ,')
 
 
+def _append_rewrite_detail(rewrite_details, rewrite_detail):
+    detail_key = (rewrite_detail['before'], rewrite_detail['after'], rewrite_detail['reason'])
+    existing_keys = {(item['before'], item['after'], item['reason']) for item in rewrite_details}
+    if detail_key not in existing_keys:
+        rewrite_details.append(rewrite_detail)
+
+
+def _apply_rules_preserving_layout(original_prompt, optimization_level):
+    optimized_lines = []
+    applied_rules = []
+    rewrite_details = []
+
+    for line in original_prompt.replace('\r\n', '\n').replace('\r', '\n').split('\n'):
+        if not line.strip():
+            optimized_lines.append(line)
+            continue
+
+        if _should_keep_line_intact(line):
+            optimized_lines.append(line)
+            continue
+
+        optimized_line, line_rules, line_details = _apply_rules_to_text(line, optimization_level)
+        optimized_line = re.sub(r'[ \t]+', ' ', optimized_line).strip()
+        optimized_lines.append(optimized_line)
+        applied_rules.extend(line_rules)
+        for rewrite_detail in line_details:
+            _append_rewrite_detail(rewrite_details, rewrite_detail)
+
+    optimized_prompt = '\n'.join(optimized_lines).strip()
+    optimized_prompt = re.sub(r'\n{3,}', '\n\n', optimized_prompt)
+    return optimized_prompt, applied_rules, rewrite_details
+
+
+def _build_enhanced_visual_prompt(structured_outline, segments, original_prompt):
+    visual_segments = [segment for segment in segments if segment.get('category') != 'constraint']
+    if not visual_segments:
+        return original_prompt
+
+    prompt_parts = []
+    categories_present = {block['category'] for block in structured_outline if block.get('items')}
+
+    if CHARACTER_IDENTITY_PATTERN.search(original_prompt):
+        prompt_parts.append('preserve the character identity, facial consistency, hairstyle, and key recognizable traits')
+
+    for category in STRUCTURED_PROMPT_ORDER:
+        block = next((item for item in structured_outline if item['category'] == category), None)
+        if not block or not block.get('items'):
+            continue
+
+        item_limit = STRUCTURED_CATEGORY_ITEM_LIMITS.get(category, 1)
+        for item in block['items'][:item_limit]:
+            if item and item not in prompt_parts:
+                prompt_parts.append(item)
+
+    for category, default_part in ENHANCED_DEFAULT_VISUAL_PARTS.items():
+        if category not in categories_present and default_part not in prompt_parts:
+            prompt_parts.append(default_part)
+
+    for segment in segments:
+        if segment.get('category') == 'constraint':
+            output_text = segment.get('output_text') or segment.get('optimized_text')
+            if output_text and output_text not in prompt_parts:
+                prompt_parts.append(output_text)
+
+    enhanced_prompt = ', '.join(prompt_parts)
+    enhanced_prompt = re.sub(r'\s+', ' ', enhanced_prompt).strip(' ,')
+    return enhanced_prompt
+
+
 def mediate_gpt_image_prompt(prompt, optimization_level=OPTIMIZATION_LEVEL_BALANCED):
     original_prompt = str(prompt or '').strip()
     normalized_level = _normalize_optimization_level(optimization_level)
@@ -521,6 +618,10 @@ def mediate_gpt_image_prompt(prompt, optimization_level=OPTIMIZATION_LEVEL_BALAN
         }
 
     normalized_prompt = original_prompt.replace('\r\n', '\n').replace('\r', '\n')
+    preserved_prompt, preserved_rules, preserved_details = _apply_rules_preserving_layout(
+        normalized_prompt,
+        normalized_level,
+    )
 
     raw_segments = []
     for line in normalized_prompt.split('\n'):
@@ -555,14 +656,25 @@ def mediate_gpt_image_prompt(prompt, optimization_level=OPTIMIZATION_LEVEL_BALAN
         normalized_segments.append(segment_info)
         applied_rules.extend(segment_info['applied_rules'])
         for rewrite_detail in segment_info['rewrite_details']:
-            detail_key = (rewrite_detail['before'], rewrite_detail['after'], rewrite_detail['reason'])
-            if detail_key not in {(item['before'], item['after'], item['reason']) for item in rewrite_details}:
-                rewrite_details.append(rewrite_detail)
+            _append_rewrite_detail(rewrite_details, rewrite_detail)
 
     structured_outline = _build_structured_outline(normalized_segments)
     flattened_prompt = _build_flattened_prompt(normalized_segments)
     short_visual_prompt = flattened_prompt or _build_short_visual_prompt(structured_outline)
-    optimized_prompt = original_prompt if normalized_level == OPTIMIZATION_LEVEL_OFF else flattened_prompt
+
+    if normalized_level == OPTIMIZATION_LEVEL_OFF:
+        optimized_prompt = original_prompt
+        applied_rules = []
+        rewrite_details = []
+    elif normalized_level == OPTIMIZATION_LEVEL_BALANCED:
+        optimized_prompt = preserved_prompt
+        applied_rules = preserved_rules
+        rewrite_details = preserved_details
+    else:
+        optimized_prompt = _build_enhanced_visual_prompt(structured_outline, normalized_segments, preserved_prompt)
+        applied_rules = list(dict.fromkeys(applied_rules + preserved_rules))
+        for rewrite_detail in preserved_details:
+            _append_rewrite_detail(rewrite_details, rewrite_detail)
 
     if not optimized_prompt:
         optimized_prompt = original_prompt

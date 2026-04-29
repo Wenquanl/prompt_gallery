@@ -19,6 +19,8 @@ urlpatterns = [
     path('add-images/<int:pk>/', views.add_images_to_group, name='add_images'),
     path('add-references/<int:pk>/', views.add_references_to_group, name='add_references'),
     path('api/generate-title/', views.api_generate_title, name='api_generate_title'),
+    path('api/translate-prompt/', views.api_translate_prompt, name='api_translate_prompt'),
+    path('api/summarize-prompt-diffs/', views.api_summarize_prompt_diffs, name='api_summarize_prompt_diffs'),
     # 标签管理 
     path('add-tag/<int:pk>/', views.add_tag_to_group, name='add_tag'),
     path('remove-tag/<int:pk>/', views.remove_tag_from_group, name='remove_tag'),
@@ -54,5 +56,8 @@ urlpatterns = [
     path('api/launch-comfyui/', views.launch_comfyui, name='launch_comfyui'),
     path('api/get-similar-groups-by-prompt/', views.api_get_similar_groups_by_prompt, name='api_get_similar_groups_by_prompt'),
     path('api/append-to-existing-group/', views.api_append_to_existing_group, name='api_append_to_existing_group'),
+    path('api/character-ips/', views.api_character_ips, name='api_character_ips'),
+    path('api/character-ips/<int:pk>/', views.api_character_ip_detail, name='api_character_ip_detail'),
+    path('api/character-ips/<int:pk>/delete/', views.api_character_ip_delete, name='api_character_ip_delete'),
 
 ]

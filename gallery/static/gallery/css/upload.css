@@ -203,3 +203,102 @@
 
 .char-ref-card:hover { transform: scale(1.05); z-index: 10; box-shadow: 0 .5rem 1rem rgba(0,0,0,.15)!important; }
 .char-ref-card:hover .char-ref-img { object-fit: contain !important; background-color: #f8f9fa; }
+
+.upload-prompt-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+    gap: 10px;
+    align-items: start;
+}
+
+.upload-prompt-card {
+    min-width: 0;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    border-radius: 12px;
+    background: #f8fafc;
+    box-shadow: 0 8px 22px -24px rgba(15, 23, 42, 0.7);
+    padding: 12px;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.upload-prompt-card.is-expanded {
+    border-color: rgba(37, 99, 235, 0.35);
+    background: linear-gradient(180deg, #f8fafc, #ffffff);
+    box-shadow: 0 12px 28px -24px rgba(37, 99, 235, 0.6);
+}
+
+.upload-prompt-card-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.upload-prompt-title {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    min-width: 0;
+}
+
+.upload-prompt-meta {
+    color: #64748b;
+    font-size: 0.74rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.upload-prompt-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 7px;
+    min-width: 0;
+}
+
+.upload-prompt-actions .btn {
+    min-height: 32px;
+    padding-left: 10px !important;
+    padding-right: 10px !important;
+    font-size: 0.78rem;
+}
+
+.upload-prompt-summary {
+    color: #334155;
+    font-size: 0.86rem;
+    line-height: 1.55;
+    word-break: break-word;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    min-height: 2.65rem;
+}
+
+.upload-prompt-textarea {
+    min-height: 142px;
+    resize: vertical;
+    border-radius: 10px;
+    border-color: rgba(203, 213, 225, 0.95);
+    background: #fff;
+    font-size: 0.88rem;
+    line-height: 1.55;
+}
+
+.upload-prompt-textarea:focus {
+    border-color: #60a5fa;
+    box-shadow: 0 0 0 0.18rem rgba(96, 165, 250, 0.18);
+}
+
+@media (max-width: 575.98px) {
+    .upload-prompt-card-header {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .upload-prompt-actions {
+        justify-content: flex-start;
+    }
+}

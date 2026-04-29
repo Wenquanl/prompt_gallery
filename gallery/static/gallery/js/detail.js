@@ -1465,6 +1465,10 @@ const promptEditorState = {
     items: [],
     draftItems: [],
     isEditing: false,
+    expandedIndex: null,
+    aiDiffSummaries: [],
+    aiDiffSignature: '',
+    aiDiffLoading: false,
 };
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -1473,8 +1477,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function initPromptListEditor() {
     const dataEl = document.getElementById('prompt-list-data');
-    const container = document.getElementById('promptListContainer');
-    if (!dataEl || !container) return;
+    if (!dataEl) return;
 
     try {
         const parsed = JSON.parse(dataEl.textContent || '[]');
@@ -1483,8 +1486,13 @@ function initPromptListEditor() {
         console.error('初始化提示词列表失败', error);
         promptEditorState.items = [];
     }
+    loadPromptDiffSummaryCache(promptEditorState.items);
 
-    renderPromptList(promptEditorState.items, false);
+    const container = document.getElementById('promptListContainer');
+    if (container) {
+        renderPromptList(promptEditorState.items, false);
+    }
+    renderAiStudioPromptDiffChoices(promptEditorState.items);
 }
 
 function normalizePromptEditorItems(items) {
@@ -1513,6 +1521,590 @@ function escapePromptHtml(text) {
     return div.innerHTML;
 }
 
+const PROMPT_CONTENT_TAG_CATEGORIES = [
+    {
+        key: 'action',
+        label: '动作',
+        labels: ['动作', '姿势', '姿态', '手势', '肢体', 'pose', 'action', 'gesture', 'body language'],
+        keywords: ['动作', '姿势', '姿态', '手势', '肢体', '手持', '拿着', '站立', '坐姿', '行走', '奔跑', '回头', '低头', '抬手', 'holding', 'standing', 'sitting', 'walking', 'running', 'pose', 'gesture', 'hand'],
+    },
+    {
+        key: 'makeup',
+        label: '妆容',
+        labels: ['妆容', '妆面', '化妆', '眼妆', '唇妆', '口红', '腮红', '睫毛', 'makeup', 'beauty', 'lip makeup', 'eye makeup'],
+        keywords: ['妆容', '妆面', '化妆', '眼妆', '唇妆', '口红', '腮红', '睫毛', '眼线', '眼影', '唇部', '唇色', '水光唇', '泪痣', 'makeup', 'lipstick', 'blush', 'eyeliner', 'eyeshadow', 'lashes', 'glossy lips'],
+    },
+    {
+        key: 'outfit',
+        label: '服饰',
+        labels: ['服饰', '服装', '穿搭', '衣服', '造型', '配饰', '材质', 'outfit', 'clothing', 'wardrobe', 'fashion', 'accessory'],
+        keywords: ['服饰', '服装', '穿搭', '衣服', '外套', '裙', '连衣裙', '衬衫', '西装', '夹克', '大衣', '靴', '鞋', '耳环', '项链', '配饰', '材质', 'outfit', 'dress', 'jacket', 'coat', 'shirt', 'suit', 'boots', 'accessory', 'leather', 'silk'],
+    },
+    {
+        key: 'environment',
+        label: '环境',
+        labels: ['环境', '场景', '背景', '地点', '空间', '灯光', '光线', '氛围', 'environment', 'scene', 'background', 'location', 'lighting', 'atmosphere'],
+        keywords: ['环境', '场景', '背景', '地点', '空间', '室内', '室外', '街头', '雨夜', '海边', '城市', '房间', '棚拍', '灯光', '光线', '霓虹', '氛围', 'environment', 'scene', 'background', 'street', 'rain', 'city', 'indoor', 'outdoor', 'lighting', 'neon', 'atmosphere'],
+    },
+];
+
+function splitPromptContentSegments(text) {
+    return String(text || '')
+        .replace(/\r\n/g, '\n')
+        .split(/\n|[;；,，]/)
+        .map(segment => segment.trim())
+        .filter(Boolean);
+}
+
+function parsePromptContentSegment(segment) {
+    const match = String(segment || '').match(/^([A-Za-z0-9_\-/\u4e00-\u9fff ]{1,18})\s*[：:]\s*(.+)$/);
+    if (!match) {
+        return { label: '', content: String(segment || '').trim() };
+    }
+    return {
+        label: match[1].trim().toLowerCase(),
+        content: match[2].trim(),
+    };
+}
+
+function compactPromptTagText(text, maxLength = 96) {
+    const compact = String(text || '')
+        .replace(/\s+/g, ' ')
+        .replace(/\s*[,，]\s*/g, '，')
+        .replace(/^[，,;；\s]+|[，,;；\s]+$/g, '');
+    if (!compact) return '';
+    return compact.length > maxLength ? `${compact.slice(0, maxLength)}...` : compact;
+}
+
+function extractPromptContentTags(text) {
+    const source = String(text || '').trim();
+    if (!source) return [];
+
+    const tags = PROMPT_CONTENT_TAG_CATEGORIES.map(category => ({
+        key: category.key,
+        label: category.label,
+        values: [],
+    }));
+
+    splitPromptContentSegments(source).forEach((segment) => {
+        const parsed = parsePromptContentSegment(segment);
+        const normalizedSegment = segment.toLowerCase();
+        const normalizedLabel = parsed.label;
+
+        PROMPT_CONTENT_TAG_CATEGORIES.forEach((category, categoryIndex) => {
+            const labelMatched = category.labels.some(label => normalizedLabel === label.toLowerCase());
+            const keywordMatched = !labelMatched && category.keywords.some(keyword => normalizedSegment.includes(keyword.toLowerCase()));
+            if (!labelMatched && !keywordMatched) return;
+
+            const value = compactPromptTagText(labelMatched ? parsed.content : segment);
+            if (value && !tags[categoryIndex].values.includes(value)) {
+                tags[categoryIndex].values.push(value);
+            }
+        });
+    });
+
+    return tags
+        .map(tag => ({
+            ...tag,
+            text: compactPromptTagText(tag.values.slice(0, 3).join('；'), 120),
+        }))
+        .filter(tag => tag.text);
+}
+
+function normalizePromptContentTagsForRender(tags) {
+    if (!Array.isArray(tags)) return [];
+    return tags.map((tag) => {
+        const key = String(tag.key || '').trim() || PROMPT_CONTENT_TAG_CATEGORIES.find(category => category.label === tag.label)?.key || 'custom';
+        const label = String(tag.label || '').trim() || PROMPT_CONTENT_TAG_CATEGORIES.find(category => category.key === key)?.label || '标签';
+        const text = compactPromptTagText(tag.text || tag.value || tag.content || '', 140);
+        return { key, label, text };
+    }).filter(tag => tag.text);
+}
+
+function mergePromptContentTags(aiTags, fallbackTags) {
+    const tagsByKey = new Map();
+
+    normalizePromptContentTagsForRender(aiTags).forEach((tag) => {
+        tagsByKey.set(tag.key, tag);
+    });
+
+    normalizePromptContentTagsForRender(fallbackTags).forEach((tag) => {
+        if (!tagsByKey.has(tag.key)) {
+            tagsByKey.set(tag.key, tag);
+        }
+    });
+
+    return PROMPT_CONTENT_TAG_CATEGORIES
+        .map(category => tagsByKey.get(category.key))
+        .filter(Boolean);
+}
+
+function renderPromptContentTagsHtml(text, options = {}) {
+    const aiTags = normalizePromptContentTagsForRender(options.aiTags || []);
+    const fallbackTags = extractPromptContentTags(text);
+    const tags = aiTags.length ? mergePromptContentTags(aiTags, fallbackTags) : fallbackTags;
+    if (!tags.length) return '';
+
+    const compactClass = options.compact ? ' is-compact' : '';
+    return `
+        <div class="prompt-content-tags${compactClass}">
+            ${tags.map(tag => `
+                <div class="prompt-content-tag prompt-content-tag--${escapePromptHtml(tag.key)}">
+                    <span class="prompt-content-tag-label">${escapePromptHtml(tag.label)}</span>
+                    <span class="prompt-content-tag-text">${escapePromptHtml(tag.text)}</span>
+                </div>
+            `).join('')}
+        </div>
+    `;
+}
+
+function getPromptSummaryText(text, maxLength = 92) {
+    const normalized = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!normalized) return '未填写';
+    return normalized.length > maxLength ? `${normalized.slice(0, maxLength)}...` : normalized;
+}
+
+function getPromptMetaText(text) {
+    const source = String(text || '').trim();
+    if (!source) return '空内容';
+    const lineCount = source.split(/\r?\n/).filter(line => line.trim()).length || 1;
+    return `${source.length} 字 · ${lineCount} 行`;
+}
+
+function splitPromptDiffLines(text) {
+    const source = String(text || '').replace(/\r\n/g, '\n').trim();
+    if (!source) return [];
+    return source.split('\n').map(line => line.trim()).filter(Boolean);
+}
+
+function getCommonPrefixLineCount(lineSets) {
+    if (!lineSets.length) return 0;
+    let count = 0;
+
+    while (lineSets[0][count] !== undefined) {
+        const candidate = lineSets[0][count];
+        if (!lineSets.every(lines => lines[count] === candidate)) break;
+        count += 1;
+    }
+
+    return count;
+}
+
+function getCommonSuffixLineCount(lineSets, prefixCount) {
+    if (!lineSets.length) return 0;
+    let count = 0;
+
+    while (true) {
+        const firstIndex = lineSets[0].length - 1 - count;
+        if (firstIndex < prefixCount) break;
+
+        const candidate = lineSets[0][firstIndex];
+        const matches = lineSets.every(lines => {
+            const index = lines.length - 1 - count;
+            return index >= prefixCount && lines[index] === candidate;
+        });
+
+        if (!matches) break;
+        count += 1;
+    }
+
+    return count;
+}
+
+function getCommonPrefixLength(texts) {
+    if (!texts.length) return 0;
+    const minLength = Math.min(...texts.map(text => text.length));
+    let count = 0;
+
+    while (count < minLength) {
+        const candidate = texts[0][count];
+        if (!texts.every(text => text[count] === candidate)) break;
+        count += 1;
+    }
+
+    return count;
+}
+
+function getCommonSuffixLength(texts, prefixLength) {
+    if (!texts.length) return 0;
+    const minRemainingLength = Math.min(...texts.map(text => Math.max(0, text.length - prefixLength)));
+    let count = 0;
+
+    while (count < minRemainingLength) {
+        const candidate = texts[0][texts[0].length - 1 - count];
+        if (!texts.every(text => text[text.length - 1 - count] === candidate)) break;
+        count += 1;
+    }
+
+    return count;
+}
+
+function buildAiStudioLineDiffs(items) {
+    const lineSets = items.map(item => splitPromptDiffLines(item.text));
+    const prefixCount = getCommonPrefixLineCount(lineSets);
+    const suffixCount = getCommonSuffixLineCount(lineSets, prefixCount);
+    const hasDifferentText = new Set(items.map(item => String(item.text || '').trim())).size > 1;
+
+    return items.map((item, index) => {
+        const lines = lineSets[index];
+        const endIndex = Math.max(prefixCount, lines.length - suffixCount);
+        const diffLines = lines.slice(prefixCount, endIndex);
+        const foldedParts = [];
+
+        if (prefixCount > 0) foldedParts.push(`已折叠公共前文 ${prefixCount} 行`);
+        if (suffixCount > 0) foldedParts.push(`公共后文 ${suffixCount} 行`);
+
+        return {
+            meta: diffLines.length ? `差异 ${diffLines.length} 行` : '无差异',
+            folded: foldedParts.join(' · ') || (hasDifferentText ? '已隐藏公共内容' : ''),
+            rawLines: diffLines.length ? diffLines : [],
+            lines: diffLines.length
+                ? diffLines.map(line => getPromptSummaryText(line, 180))
+                : [hasDifferentText ? '仅包含公共部分' : '与其它提示词完全相同'],
+            isEmpty: diffLines.length === 0,
+        };
+    });
+}
+
+function buildAiStudioCharDiffs(items) {
+    const texts = items.map(item => String(item.text || '').trim());
+    const prefixLength = getCommonPrefixLength(texts);
+    const suffixLength = getCommonSuffixLength(texts, prefixLength);
+    const hasDifferentText = new Set(texts).size > 1;
+
+    return items.map((item) => {
+        const text = String(item.text || '').trim();
+        const diffText = text.slice(prefixLength, Math.max(prefixLength, text.length - suffixLength)).trim();
+        const foldedParts = [];
+
+        if (prefixLength > 0) foldedParts.push(`已折叠公共前文 ${prefixLength} 字`);
+        if (suffixLength > 0) foldedParts.push(`公共后文 ${suffixLength} 字`);
+
+        return {
+            meta: diffText ? `差异 ${diffText.length} 字` : '无差异',
+            folded: foldedParts.join(' · ') || (hasDifferentText ? '已隐藏公共内容' : ''),
+            rawLines: diffText ? [diffText] : [],
+            lines: [diffText ? getPromptSummaryText(diffText, 220) : (hasDifferentText ? '仅包含公共部分' : '与其它提示词完全相同')],
+            isEmpty: !diffText,
+        };
+    });
+}
+
+function buildAiStudioPromptDiffs(items) {
+    if (items.length <= 1) {
+        return items.map(item => ({
+            meta: '单条提示词',
+            folded: '',
+            rawLines: [String(item.text || '').trim()].filter(Boolean),
+            lines: [getPromptSummaryText(item.text, 220)],
+            isEmpty: false,
+        }));
+    }
+
+    const lineSets = items.map(item => splitPromptDiffLines(item.text));
+    const shouldUseLineDiff = lineSets.some(lines => lines.length > 1);
+    return shouldUseLineDiff ? buildAiStudioLineDiffs(items) : buildAiStudioCharDiffs(items);
+}
+
+function getPromptDiffSignature(items) {
+    return normalizePromptEditorItems(items)
+        .map(item => String(item.text || '').trim())
+        .join('\u241e');
+}
+
+function loadPromptDiffSummaryCache(items) {
+    const dataEl = document.getElementById('prompt-diff-summary-data');
+    if (!dataEl) return;
+
+    try {
+        const summaries = JSON.parse(dataEl.textContent || '[]');
+        if (!Array.isArray(summaries) || summaries.length === 0) return;
+        promptEditorState.aiDiffSummaries = summaries;
+        promptEditorState.aiDiffSignature = getPromptDiffSignature(items);
+    } catch (error) {
+        console.warn('读取提示词差异摘要缓存失败', error);
+    }
+}
+
+function getAiPromptDiffSummary(index, items) {
+    if (promptEditorState.aiDiffSignature !== getPromptDiffSignature(items)) return '';
+    const summaryItem = (promptEditorState.aiDiffSummaries || []).find(item => Number(item.index) === index);
+    return summaryItem ? String(summaryItem.summary || '').trim() : '';
+}
+
+function getAiPromptContentTags(index, items) {
+    if (promptEditorState.aiDiffSignature !== getPromptDiffSignature(items)) return [];
+    const summaryItem = (promptEditorState.aiDiffSummaries || []).find(item => Number(item.index) === index);
+    return summaryItem ? (summaryItem.content_tags || summaryItem.tags || []) : [];
+}
+
+function applyAiPromptDiffSummary(diffInfo, index, items) {
+    if (!diffInfo) return diffInfo;
+    const summary = getAiPromptDiffSummary(index, items);
+    if (!summary) return diffInfo;
+
+    return {
+        ...diffInfo,
+        meta: 'AI 概括',
+        folded: diffInfo.folded ? `${diffInfo.folded} · AI 已概括` : 'AI 已概括差异',
+        lines: [summary],
+        isEmpty: false,
+    };
+}
+
+function buildPromptDiffSummaryPayload(items, diffData) {
+    return normalizePromptEditorItems(items).map((item, index) => ({
+        index,
+        label: item.label || `提示词${index + 1}`,
+        meta: diffData[index]?.meta || '',
+        folded: diffData[index]?.folded || '',
+        diff_lines: diffData[index]?.rawLines || diffData[index]?.lines || [],
+        source_text: item.text || '',
+        full_prompt_text: item.text || '',
+    }));
+}
+
+function renderAiStudioPromptDiffHtml(diffInfo) {
+    const maxVisibleLines = 5;
+    const visibleLines = (diffInfo.lines || []).slice(0, maxVisibleLines);
+    const hiddenCount = Math.max(0, (diffInfo.lines || []).length - maxVisibleLines);
+    const foldedHtml = diffInfo.folded
+        ? `<div class="ai-studio-diff-folded">${escapePromptHtml(diffInfo.folded)}</div>`
+        : '';
+    const lineHtml = visibleLines.map(line => `
+        <div class="ai-studio-diff-line ${diffInfo.isEmpty ? 'is-empty' : ''}">${escapePromptHtml(line)}</div>
+    `).join('');
+    const moreHtml = hiddenCount > 0
+        ? `<div class="ai-studio-diff-more">还有 ${hiddenCount} 行差异</div>`
+        : '';
+
+    return `${foldedHtml}${lineHtml}${moreHtml}`;
+}
+
+function renderAiStudioPromptDiffChoices(items) {
+    const promptItems = normalizePromptEditorItems(items);
+    const choiceList = document.getElementById('aiStudioPromptChoiceList');
+    if (choiceList && promptItems.length === 0) {
+        choiceList.innerHTML = `
+            <div class="ai-studio-empty-state">
+                <i class="bi bi-card-text"></i>
+                <div>
+                    <div class="fw-semibold text-dark">该作品暂无提示词文本</div>
+                    <div class="text-muted small">将仅带入参考图和标签。</div>
+                </div>
+                <input type="hidden" name="prompt_type" value="none">
+            </div>
+        `;
+        return;
+    }
+
+    if (choiceList && promptItems.length > 0) {
+        choiceList.innerHTML = promptItems.map((item, index) => `
+            <label class="ai-studio-choice-card cursor-pointer ${index === 0 ? 'is-selected' : ''}">
+                <input class="form-check-input ai-studio-choice-radio" type="radio" name="prompt_type" value="${index + 1}" ${index === 0 ? 'checked' : ''}>
+                <div class="ai-studio-choice-main">
+                    <div class="ai-studio-choice-top">
+                        <div class="ai-studio-choice-title">
+                            <span class="ai-studio-choice-number">${index + 1}</span>
+                            <strong>${escapePromptHtml(item.label || `提示词${index + 1}`)}</strong>
+                        </div>
+                        <span class="badge rounded-pill bg-light text-secondary border ai-studio-prompt-diff-meta" data-ai-studio-prompt-diff-meta="${index}">差异</span>
+                    </div>
+                    <div class="ai-studio-prompt-diff" data-ai-studio-prompt-diff="${index}"></div>
+                    ${renderPromptContentTagsHtml(item.text, { compact: true, aiTags: getAiPromptContentTags(index, promptItems) })}
+                </div>
+            </label>
+        `).join('');
+
+        choiceList.querySelectorAll('.ai-studio-choice-radio').forEach((input) => {
+            input.addEventListener('change', () => {
+                choiceList.querySelectorAll('.ai-studio-choice-card').forEach((card) => {
+                    const radio = card.querySelector('.ai-studio-choice-radio');
+                    card.classList.toggle('is-selected', Boolean(radio?.checked));
+                });
+            });
+        });
+    }
+
+    const diffElements = document.querySelectorAll('[data-ai-studio-prompt-diff]');
+    if (!diffElements.length) return;
+
+    const diffData = buildAiStudioPromptDiffs(promptItems);
+
+    diffElements.forEach((element) => {
+        const index = Number(element.dataset.aiStudioPromptDiff);
+        const diffInfo = applyAiPromptDiffSummary(diffData[index], index, promptItems);
+        if (!diffInfo) return;
+        element.innerHTML = renderAiStudioPromptDiffHtml(diffInfo);
+    });
+
+    document.querySelectorAll('[data-ai-studio-prompt-diff-meta]').forEach((element) => {
+        const index = Number(element.dataset.aiStudioPromptDiffMeta);
+        const diffInfo = applyAiPromptDiffSummary(diffData[index], index, promptItems);
+        if (!diffInfo) return;
+        element.textContent = diffInfo.meta;
+    });
+}
+
+function syncPromptDraftItemsIfEditing() {
+    if (promptEditorState.isEditing) {
+        promptEditorState.draftItems = collectPromptDraftItems({ keepEmpty: true });
+    }
+}
+
+function togglePromptItemExpanded(index) {
+    syncPromptDraftItemsIfEditing();
+    promptEditorState.expandedIndex = promptEditorState.expandedIndex === index ? null : index;
+    renderPromptList(promptEditorState.isEditing ? promptEditorState.draftItems : promptEditorState.items, promptEditorState.isEditing);
+}
+
+function getDetailPromptTranslationLabel(targetLanguage) {
+    return targetLanguage === 'zh' ? '中文' : '英文';
+}
+
+async function translateDetailPromptText(text, targetLanguage = 'en') {
+    const promptText = String(text || '').trim();
+    if (!promptText) {
+        Swal.fire('提示', '请先输入需要翻译的提示词。', 'info');
+        return '';
+    }
+
+    Swal.fire({
+        title: `正在翻译为${getDetailPromptTranslationLabel(targetLanguage)}...`,
+        allowOutsideClick: false,
+        didOpen: () => Swal.showLoading(),
+    });
+
+    const response = await fetch('/api/translate-prompt/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': window.getCookie ? getCookie('csrftoken') : '',
+        },
+        body: JSON.stringify({
+            text: promptText,
+            target_language: targetLanguage,
+        }),
+    });
+    const data = await response.json();
+    if (!response.ok || data.status !== 'success') {
+        throw new Error(data.message || '翻译失败');
+    }
+    return data.translated_text || '';
+}
+
+async function saveDetailPromptTranslation(index, translatedText) {
+    const detailConfig = window.detailConfig || getDetailPageConfig();
+    const groupId = detailConfig.groupId || getCurrentGroupId();
+    if (!groupId) {
+        throw new Error('无法获取当前作品 ID');
+    }
+
+    const updatedPrompts = promptEditorState.items.map((item, itemIndex) => ({
+        ...item,
+        text: itemIndex === index ? translatedText : item.text,
+    }));
+
+    const response = await fetch(`/update-prompts/${groupId}/`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCookie('csrftoken'),
+        },
+        body: JSON.stringify({ prompts: updatedPrompts }),
+    });
+    const data = await response.json();
+    if (!response.ok || data.status !== 'success') {
+        throw new Error(data.message || '保存失败');
+    }
+
+    promptEditorState.items = normalizePromptEditorItems(updatedPrompts);
+    promptEditorState.draftItems = [];
+    promptEditorState.isEditing = false;
+    promptEditorState.aiDiffSummaries = [];
+    promptEditorState.aiDiffSignature = '';
+    window.detailConfig = {
+        ...(window.detailConfig || {}),
+        rawPromptContent: promptEditorState.items.map(item => item.text).filter(Boolean).join('\n'),
+    };
+    renderPromptList(promptEditorState.items, false);
+    renderAiStudioPromptDiffChoices(promptEditorState.items);
+}
+
+async function translateDetailPromptItem(index, targetLanguage, btnElement) {
+    const input = document.querySelector(`#promptListContainer .prompt-list-input[data-index="${index}"]`);
+    const sourceText = promptEditorState.isEditing
+        ? (input?.value || '').trim()
+        : (promptEditorState.items[index]?.text || '').trim();
+    if (!sourceText) {
+        Swal.fire('提示', '请先输入需要翻译的提示词。', 'info');
+        return;
+    }
+
+    const originalHtml = btnElement?.innerHTML;
+    if (btnElement) {
+        btnElement.disabled = true;
+        btnElement.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>翻译';
+    }
+
+    try {
+        const translatedText = await translateDetailPromptText(sourceText, targetLanguage);
+        if (!translatedText) return;
+
+        const result = await Swal.fire({
+            title: `翻译为${getDetailPromptTranslationLabel(targetLanguage)}`,
+            html: `<textarea class="form-control text-start" rows="9" readonly>${escapePromptHtml(translatedText)}</textarea>`,
+            width: 720,
+            showCancelButton: true,
+            showDenyButton: true,
+            confirmButtonText: promptEditorState.isEditing ? '替换当前输入框' : '替换并保存',
+            denyButtonText: '复制',
+            cancelButtonText: '取消',
+        });
+
+        if (result.isDenied) {
+            copyToClipboard(translatedText);
+            return;
+        }
+
+        if (!result.isConfirmed) return;
+
+        if (promptEditorState.isEditing) {
+            if (input) {
+                input.value = translatedText;
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+            promptEditorState.draftItems = collectPromptDraftItems();
+            Swal.fire({
+                icon: 'success',
+                title: '已替换当前输入框',
+                toast: true,
+                position: 'top-end',
+                showConfirmButton: false,
+                timer: 1600,
+            });
+            return;
+        }
+
+        await saveDetailPromptTranslation(index, translatedText);
+        Swal.fire({
+            icon: 'success',
+            title: '翻译已保存',
+            toast: true,
+            position: 'top-end',
+            showConfirmButton: false,
+            timer: 1600,
+        });
+    } catch (error) {
+        Swal.fire('翻译失败', error.message || '请确认本地 Qwen3 服务已启动。', 'error');
+    } finally {
+        if (btnElement && originalHtml) {
+            btnElement.disabled = false;
+            btnElement.innerHTML = originalHtml;
+        }
+    }
+}
+
 function renderPromptList(items, isEditing) {
     const container = document.getElementById('promptListContainer');
     if (!container) return;
@@ -1527,24 +2119,47 @@ function renderPromptList(items, isEditing) {
         return;
     }
 
+    const promptDiffData = buildAiStudioPromptDiffs(displayItems);
+
     container.innerHTML = displayItems.map((item, index) => {
         const safeText = escapePromptHtml(item.text);
+        const isExpanded = promptEditorState.expandedIndex === index;
+        const safeMeta = escapePromptHtml(getPromptMetaText(item.text));
+        const diffInfo = applyAiPromptDiffSummary(promptDiffData[index], index, displayItems);
+        const safeDiffMeta = escapePromptHtml(diffInfo?.meta || '');
         return `
-            <div class="border rounded-4 bg-white shadow-sm p-3">
-                <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
-                    <span class="badge bg-light text-primary border rounded-pill px-3 py-2">提示词${index + 1}</span>
-                    <div class="d-flex align-items-center gap-2">
+            <div class="prompt-list-card ${isExpanded ? 'is-expanded' : ''}">
+                <div class="prompt-list-card-header">
+                    <div class="prompt-list-title">
+                        <span class="badge bg-light text-primary border rounded-pill px-3 py-2">提示词${index + 1}</span>
+                        <span class="prompt-list-meta">${safeMeta}</span>
+                        <span class="prompt-list-diff-meta">${safeDiffMeta}</span>
+                    </div>
+                    <div class="prompt-list-actions">
+                        <button type="button" class="btn btn-sm btn-outline-dark rounded-pill px-3" onclick="togglePromptItemExpanded(${index})">
+                            <i class="bi ${isExpanded ? 'bi-chevron-up' : 'bi-chevron-down'} me-1"></i>${isExpanded ? '收起' : (isEditing ? '编辑' : '展开')}
+                        </button>
                         <button type="button" class="btn btn-sm btn-outline-primary rounded-pill px-3" onclick="copyPromptItem(${index}, this)" ${item.text.trim() ? '' : 'disabled'}>
                             <i class="bi bi-clipboard me-1"></i>复制
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-primary rounded-pill px-3" onclick="translateDetailPromptItem(${index}, 'en', this)" ${isEditing || item.text.trim() ? '' : 'disabled'}>
+                            <i class="bi bi-translate me-1"></i>译英
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3" onclick="translateDetailPromptItem(${index}, 'zh', this)" ${isEditing || item.text.trim() ? '' : 'disabled'}>
+                            <i class="bi bi-translate me-1"></i>译中
                         </button>
                         <button type="button" class="btn btn-sm btn-outline-danger rounded-pill px-3" onclick="removePromptItem(${index})" style="${isEditing ? '' : 'display:none;'}">
                             <i class="bi bi-trash3 me-1"></i>删除
                         </button>
                     </div>
                 </div>
+                <div class="prompt-list-diff-summary ${isExpanded ? 'd-none' : ''}">
+                    ${diffInfo ? renderAiStudioPromptDiffHtml(diffInfo) : escapePromptHtml(getPromptSummaryText(item.text))}
+                </div>
+                ${renderPromptContentTagsHtml(item.text, { aiTags: getAiPromptContentTags(index, displayItems) })}
                 ${isEditing
-                    ? `<textarea class="form-control prompt-list-input" rows="4" data-index="${index}" placeholder="请输入提示词${index + 1}...">${safeText}</textarea>`
-                    : `<div class="prompt-box mb-0">${item.text.trim() ? safeText.replace(/\n/g, '<br>') : '<span class="empty-text">未填写</span>'}</div>`}
+                    ? `<textarea class="form-control prompt-list-input prompt-list-textarea ${isExpanded ? '' : 'd-none'}" rows="5" data-index="${index}" placeholder="请输入提示词${index + 1}...">${safeText}</textarea>`
+                    : `<div class="prompt-box prompt-list-body mb-0 ${isExpanded ? '' : 'd-none'}">${item.text.trim() ? safeText.replace(/\n/g, '<br>') : '<span class="empty-text">未填写</span>'}</div>`}
             </div>
         `;
     }).join('');
@@ -1561,9 +2176,16 @@ function togglePromptEditorControls(isEditing) {
     if (actions) actions.style.display = isEditing ? 'block' : 'none';
 }
 
-function collectPromptDraftItems() {
+function collectPromptDraftItems(options = {}) {
     const inputs = document.querySelectorAll('#promptListContainer .prompt-list-input');
-    return normalizePromptEditorItems(Array.from(inputs).map((input) => ({ text: input.value })));
+    const items = Array.from(inputs).map((input, index) => ({
+        id: `prompt_${index + 1}`,
+        label: `提示词${index + 1}`,
+        text: input.value || '',
+    }));
+    return options.keepEmpty
+        ? items
+        : normalizePromptEditorItems(items);
 }
 
 function buildDuplicatePromptEntries(items) {
@@ -1647,15 +2269,112 @@ function buildDuplicatePromptAlertHtml(duplicateEntries) {
     `;
 }
 
+function checkPromptListDuplicates() {
+    const sourceItems = promptEditorState.isEditing ? collectPromptDraftItems() : promptEditorState.items;
+    const duplicatePrompts = buildDuplicatePromptEntries(sourceItems);
+
+    if (promptEditorState.isEditing) {
+        if (duplicatePrompts.length > 0) {
+            highlightDuplicatePromptInputs(duplicatePrompts);
+        } else {
+            clearDuplicatePromptHighlights();
+        }
+    }
+
+    if (duplicatePrompts.length === 0) {
+        Swal.fire({
+            icon: 'success',
+            title: '没有发现重复提示词',
+            text: `已检查 ${sourceItems.length} 条提示词。`,
+            confirmButtonText: '好的',
+        });
+        return;
+    }
+
+    Swal.fire({
+        icon: 'warning',
+        title: `发现 ${duplicatePrompts.length} 组重复提示词`,
+        html: buildDuplicatePromptAlertHtml(duplicatePrompts),
+        confirmButtonText: '知道了',
+        width: 640,
+    });
+}
+
+async function summarizePromptDiffsWithAi(btnElement) {
+    if (promptEditorState.aiDiffLoading) return;
+
+    const sourceItems = normalizePromptEditorItems(
+        promptEditorState.isEditing ? collectPromptDraftItems() : promptEditorState.items
+    );
+    if (sourceItems.length <= 1) {
+        Swal.fire('提示', '至少需要两条提示词，才能让 AI 概括差异。', 'info');
+        return;
+    }
+
+    const diffData = buildAiStudioPromptDiffs(sourceItems);
+    const payloadItems = buildPromptDiffSummaryPayload(sourceItems, diffData);
+    const originalHtml = btnElement?.innerHTML;
+
+    promptEditorState.aiDiffLoading = true;
+    if (btnElement) {
+        btnElement.disabled = true;
+        btnElement.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>概括中';
+    }
+
+    try {
+        const response = await fetch('/api/summarize-prompt-diffs/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken'),
+            },
+            body: JSON.stringify({
+                items: payloadItems,
+                group_id: promptEditorState.isEditing ? '' : ((window.detailConfig || getDetailPageConfig()).groupId || getCurrentGroupId() || ''),
+            }),
+        });
+        const data = await response.json();
+        if (!response.ok || data.status !== 'success') {
+            throw new Error(data.message || 'AI 差异概括失败');
+        }
+
+        promptEditorState.aiDiffSummaries = Array.isArray(data.summaries) ? data.summaries : [];
+        promptEditorState.aiDiffSignature = getPromptDiffSignature(sourceItems);
+        renderPromptList(sourceItems, promptEditorState.isEditing);
+        renderAiStudioPromptDiffChoices(sourceItems);
+        Swal.fire({
+            icon: 'success',
+            title: 'AI 差异已概括',
+            toast: true,
+            position: 'top-end',
+            showConfirmButton: false,
+            timer: 1600,
+        });
+    } catch (error) {
+        Swal.fire('精炼失败', error.message || '请确认本地 Qwen3 服务已启动。', 'error');
+    } finally {
+        promptEditorState.aiDiffLoading = false;
+        if (btnElement && originalHtml) {
+            btnElement.disabled = false;
+            btnElement.innerHTML = originalHtml;
+        }
+    }
+}
+
 function enablePromptListEdit() {
     promptEditorState.draftItems = promptEditorState.items.map((item) => ({ ...item }));
+    if (promptEditorState.draftItems.length === 0) {
+        promptEditorState.draftItems = [{ id: 'prompt_1', label: '提示词1', text: '' }];
+    }
     promptEditorState.isEditing = true;
+    promptEditorState.expandedIndex = 0;
     renderPromptList(promptEditorState.draftItems, true);
 }
 
 function cancelPromptListEdit() {
     promptEditorState.isEditing = false;
     promptEditorState.draftItems = [];
+    promptEditorState.expandedIndex = null;
     clearDuplicatePromptHighlights();
     renderPromptList(promptEditorState.items, false);
 }
@@ -1669,6 +2388,7 @@ function addPromptItem() {
         label: `提示词${promptEditorState.draftItems.length + 1}`,
         text: '',
     });
+    promptEditorState.expandedIndex = promptEditorState.draftItems.length - 1;
     renderPromptList(promptEditorState.draftItems, true);
 
     const inputs = document.querySelectorAll('#promptListContainer .prompt-list-input');
@@ -1676,11 +2396,29 @@ function addPromptItem() {
     if (lastInput) lastInput.focus();
 }
 
-function removePromptItem(index) {
+async function removePromptItem(index) {
     if (!promptEditorState.isEditing) return;
 
     promptEditorState.draftItems = collectPromptDraftItems();
+    const promptText = promptEditorState.draftItems[index]?.text || '';
+    const preview = getPromptSummaryText(promptText, 80);
+    const result = await Swal.fire({
+        title: `删除提示词${index + 1}？`,
+        html: `<div class="text-start small text-muted">这条提示词会从当前编辑列表中移除，保存前仍可点击“取消”放弃本次编辑。</div><div class="text-start border rounded-3 bg-light p-2 mt-3">${escapePromptHtml(preview)}</div>`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: '确认删除',
+        cancelButtonText: '取消',
+        confirmButtonColor: '#dc3545',
+    });
+    if (!result.isConfirmed) return;
+
     promptEditorState.draftItems.splice(index, 1);
+    if (promptEditorState.expandedIndex === index) {
+        promptEditorState.expandedIndex = null;
+    } else if (promptEditorState.expandedIndex > index) {
+        promptEditorState.expandedIndex -= 1;
+    }
     renderPromptList(promptEditorState.draftItems, true);
 }
 
@@ -1714,8 +2452,12 @@ function savePromptList(pk) {
             promptEditorState.items = prompts;
             promptEditorState.draftItems = [];
             promptEditorState.isEditing = false;
+            promptEditorState.expandedIndex = null;
+            promptEditorState.aiDiffSummaries = [];
+            promptEditorState.aiDiffSignature = '';
             clearDuplicatePromptHighlights();
             renderPromptList(promptEditorState.items, false);
+            renderAiStudioPromptDiffChoices(promptEditorState.items);
             Swal.fire({ icon: 'success', title: '保存成功', toast: true, position: 'top-end', showConfirmButton: false, timer: 1500 });
         } else {
             Swal.fire({ icon: 'error', title: '保存失败', text: res.message || '未知错误' });

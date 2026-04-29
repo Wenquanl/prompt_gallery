@@ -24,7 +24,7 @@ from django.conf import settings
 from django.http import JsonResponse
 from django.urls import reverse
 from django.db.models import Q, Count, Case, When, IntegerField, Max, Prefetch
-from django.db import transaction
+from django.db import transaction, IntegrityError
 from django.core.files.base import ContentFile
 from django.core.files.images import get_image_dimensions
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -33,7 +33,8 @@ from django.views.decorators.http import require_GET, require_POST
 from django.core.cache import cache
 from django.template.loader import render_to_string
 from django.views.decorators.csrf import csrf_exempt
-from .models import ImageItem, PromptGroup, Tag, AIModel, ReferenceItem, Character, PROVIDER_CHOICES, GPTImageConversation, GPTImageConversationTurn, GPT_IMAGE_CONVERSATION_SOURCE_CHOICES
+from django.utils import timezone
+from .models import ImageItem, PromptGroup, Tag, AIModel, ReferenceItem, Character, CharacterIP, PROVIDER_CHOICES, GPTImageConversation, GPTImageConversationTurn, GPT_IMAGE_CONVERSATION_SOURCE_CHOICES
 from .forms import PromptGroupForm
 from .ai_utils import search_similar_images, generate_title_with_local_llm
 from .ai_providers import get_ai_provider
@@ -54,11 +55,44 @@ HIDDEN_MODEL_SUGGESTION_NAMES = {'GPT Image 2 官方'}
 LEGACY_MODEL_ALIAS_MAP = {
     'GPT Image 2 官方': 'GPT Image 2',
 }
-ADAPTIVE_PROMPT_OPTIMIZATION_LEVELS = ('off', 'balanced', 'enhanced')
+BALANCED_LOCAL_AI_PROMPT_OPTIMIZATION_LEVEL = 'balanced_local_ai'
+ENHANCED_LOCAL_AI_PROMPT_OPTIMIZATION_LEVEL = 'enhanced_local_ai'
+LOCAL_AI_PROMPT_OPTIMIZATION_LEVELS = (
+    BALANCED_LOCAL_AI_PROMPT_OPTIMIZATION_LEVEL,
+    ENHANCED_LOCAL_AI_PROMPT_OPTIMIZATION_LEVEL,
+)
+PROMPT_DIFF_SUMMARY_CACHE_VERSION = 7
+PROMPT_CONTENT_TAG_DEFINITIONS = (
+    ('action', '动作', ('动作', 'action', 'pose', 'gesture')),
+    ('makeup', '妆容', ('妆容', '妆面', 'makeup', 'beauty')),
+    ('outfit', '服饰', ('服饰', '服装', '穿搭', 'outfit', 'clothing', 'wardrobe')),
+    ('environment', '环境', ('环境', '场景', '背景', 'environment', 'scene', 'background', 'lighting')),
+)
+ADAPTIVE_PROMPT_OPTIMIZATION_LEVELS = (
+    'off',
+    'balanced',
+    BALANCED_LOCAL_AI_PROMPT_OPTIMIZATION_LEVEL,
+    'enhanced',
+    ENHANCED_LOCAL_AI_PROMPT_OPTIMIZATION_LEVEL,
+)
 ADAPTIVE_PROMPT_OPTIMIZATION_ALIASES = {
     'conservative': 'balanced',
     'faithful': 'balanced',
     'visual_rewrite': 'enhanced',
+    'balanced_qwen3': BALANCED_LOCAL_AI_PROMPT_OPTIMIZATION_LEVEL,
+    'balanced_qwen3_14b': BALANCED_LOCAL_AI_PROMPT_OPTIMIZATION_LEVEL,
+    'balanced_local': BALANCED_LOCAL_AI_PROMPT_OPTIMIZATION_LEVEL,
+    'faithful_local': BALANCED_LOCAL_AI_PROMPT_OPTIMIZATION_LEVEL,
+    'local_balanced': BALANCED_LOCAL_AI_PROMPT_OPTIMIZATION_LEVEL,
+    'enhanced_qwen3': ENHANCED_LOCAL_AI_PROMPT_OPTIMIZATION_LEVEL,
+    'enhanced_qwen3_14b': ENHANCED_LOCAL_AI_PROMPT_OPTIMIZATION_LEVEL,
+    'enhanced_local': ENHANCED_LOCAL_AI_PROMPT_OPTIMIZATION_LEVEL,
+    'local_enhanced': ENHANCED_LOCAL_AI_PROMPT_OPTIMIZATION_LEVEL,
+    'local_ai': ENHANCED_LOCAL_AI_PROMPT_OPTIMIZATION_LEVEL,
+    'qwen3': ENHANCED_LOCAL_AI_PROMPT_OPTIMIZATION_LEVEL,
+    'qwen3_14b': ENHANCED_LOCAL_AI_PROMPT_OPTIMIZATION_LEVEL,
+    'local': ENHANCED_LOCAL_AI_PROMPT_OPTIMIZATION_LEVEL,
+    'local_qwen': ENHANCED_LOCAL_AI_PROMPT_OPTIMIZATION_LEVEL,
 }
 
 
@@ -651,8 +685,10 @@ AI_STUDIO_CONFIG = {
                 ], 'default': 'medium'},
                 {'id': 'prompt_optimization_level', 'label': 'Prompt 优化强度', 'type': 'select', 'options': [
                     {'value': 'off', 'text': '关闭优化'},
-                    {'value': 'balanced', 'text': '保真 (默认)'},
-                    {'value': 'enhanced', 'text': '增强'}
+                    {'value': 'balanced', 'text': '保真清洗 (默认)'},
+                    {'value': 'balanced_local_ai', 'text': '保真清洗 + 本地 Qwen3'},
+                    {'value': 'enhanced', 'text': '增强视觉重写'},
+                    {'value': 'enhanced_local_ai', 'text': '增强视觉重写 + 本地 Qwen3'}
                 ], 'default': 'balanced'},
                 {'id': 'output_format', 'label': '输出格式', 'type': 'select', 'options': [
                     {'value': 'png', 'text': 'PNG (默认)'},
@@ -709,8 +745,10 @@ AI_STUDIO_CONFIG = {
                 ], 'default': 'medium'},
                 {'id': 'prompt_optimization_level', 'label': 'Prompt 优化强度', 'type': 'select', 'options': [
                     {'value': 'off', 'text': '关闭优化'},
-                    {'value': 'balanced', 'text': '保真 (默认)'},
-                    {'value': 'enhanced', 'text': '增强'}
+                    {'value': 'balanced', 'text': '保真清洗 (默认)'},
+                    {'value': 'balanced_local_ai', 'text': '保真清洗 + 本地 Qwen3'},
+                    {'value': 'enhanced', 'text': '增强视觉重写'},
+                    {'value': 'enhanced_local_ai', 'text': '增强视觉重写 + 本地 Qwen3'}
                 ], 'default': 'balanced'},
                 {'id': 'output_format', 'label': '输出格式', 'type': 'select', 'options': [
                     {'value': 'png', 'text': 'PNG (默认)'},
@@ -862,18 +900,496 @@ def _get_prompt_optimization_level(mapping, model_config):
     if explicit_next_level:
         return _normalize_prompt_optimization_level(explicit_next_level, default=default_level)
 
-    if _should_use_adaptive_prompt_optimization(mapping, model_config):
+    explicit_level = mapping.get('prompt_optimization_level')
+    if _should_use_adaptive_prompt_optimization(mapping, model_config) and not explicit_level:
         return 'off'
 
-    return _normalize_prompt_optimization_level(mapping.get('prompt_optimization_level') or default_level, default=default_level)
+    return _normalize_prompt_optimization_level(explicit_level or default_level, default=default_level)
+
+
+def _strip_local_ai_thinking_blocks(text):
+    text = str(text or '').strip()
+    text = re.sub(r'<think>.*?</think>', '', text, flags=re.IGNORECASE | re.DOTALL)
+    text = re.sub(r'^\s*/?no_think\s*', '', text, flags=re.IGNORECASE)
+    return text.strip()
+
+
+def _extract_local_ai_prompt_text(raw_text):
+    text = _strip_local_ai_thinking_blocks(raw_text)
+    fence_match = re.search(r'```(?:prompt|text|txt)?\s*(.*?)```', text, flags=re.IGNORECASE | re.DOTALL)
+    if fence_match:
+        text = fence_match.group(1).strip()
+
+    text = re.sub(
+        r'^\s*(?:优化后(?:的)?\s*Prompt|优化后(?:的)?提示词|Prompt|提示词|结果)\s*[:：]\s*',
+        '',
+        text,
+        flags=re.IGNORECASE,
+    )
+    return text.strip().strip('"“”\'` \n\r\t')
+
+
+def _extract_local_ai_plain_text(raw_text):
+    text = _strip_local_ai_thinking_blocks(raw_text)
+    fence_match = re.search(r'```(?:prompt|text|txt)?\s*(.*?)```', text, flags=re.IGNORECASE | re.DOTALL)
+    if fence_match:
+        text = fence_match.group(1).strip()
+    text = re.sub(r'^\s*(?:翻译结果|译文|translation|translated prompt)\s*[:：]\s*', '', text, flags=re.IGNORECASE)
+    return text.strip().strip('"“”\'` \n\r\t')
+
+
+def _is_local_ai_prompt_optimization_level(level):
+    return _normalize_prompt_optimization_level(level) in LOCAL_AI_PROMPT_OPTIMIZATION_LEVELS
+
+
+def _get_base_prompt_optimization_level(level):
+    normalized_level = _normalize_prompt_optimization_level(level)
+    if normalized_level == BALANCED_LOCAL_AI_PROMPT_OPTIMIZATION_LEVEL:
+        return 'balanced'
+    if normalized_level == ENHANCED_LOCAL_AI_PROMPT_OPTIMIZATION_LEVEL:
+        return 'enhanced'
+    return normalized_level
+
+
+def _build_local_ai_prompt_optimizer_messages(prompt, optimization_level='balanced'):
+    base_level = _get_base_prompt_optimization_level(optimization_level)
+    if base_level == 'enhanced':
+        mode_instruction = (
+            '当前强度：增强视觉重写。你可以在不改变原意的前提下重组画面描述，'
+            '补强镜头语言、构图、光线、材质、场景层次、画质控制和安全表达。'
+            '可以把零散描述整理成更适合图像生成模型理解的 Prompt，但不得新增新的主体身份、人物长相、关键动作或剧情。'
+        )
+    else:
+        mode_instruction = (
+            '当前强度：保真清洗。以保留原文为最高优先级，不要自由扩写，不要新增画面元素。'
+            '只做措辞清晰化、轻量摄影语言补强、重复合并，以及把容易触发审核或语义过强的词改成中性视觉表达。'
+            '尽量保留原来的分行、字段顺序和信息密度。'
+        )
+
+    system_prompt = (
+        '你是图像生成 Prompt 优化器。只优化用户提供的“画面描述 Prompt”。'
+        '人物 IP 提示词不会发给你，因此不要推断、补写或改写任何人物 IP。'
+        '不要新增、删除、推断或改写任何身份、脸型、骨相、五官比例、眼型、鼻型、唇型、痣、发型、固定服装等角色识别信息。'
+        '如果画面描述里已经包含这些人物识别信息，只做语义保真、审核更友好的表达，不改变含义。'
+        f'{mode_instruction}'
+        '输出只能是优化后的画面描述 Prompt 本文，不要解释，不要标题，不要 Markdown。'
+    )
+    user_prompt = (
+        '/no_think\n'
+        '请优化下面的画面描述 Prompt。只输出优化后的 Prompt：\n\n'
+        f'{prompt}'
+    )
+    return [
+        {'role': 'system', 'content': system_prompt},
+        {'role': 'user', 'content': user_prompt},
+    ]
+
+
+def _call_local_qwen_prompt_optimizer(prompt, optimization_level='balanced'):
+    url = getattr(settings, 'LOCAL_PROMPT_OPTIMIZER_URL', 'http://127.0.0.1:11434/api/chat')
+    model = getattr(settings, 'LOCAL_PROMPT_OPTIMIZER_MODEL', 'qwen3:14b')
+    timeout = getattr(settings, 'LOCAL_PROMPT_OPTIMIZER_TIMEOUT', 120)
+    payload = {
+        'model': model,
+        'messages': _build_local_ai_prompt_optimizer_messages(prompt, optimization_level=optimization_level),
+        'stream': False,
+        'options': {
+            'temperature': 0.2,
+            'top_p': 0.8,
+            'num_predict': 800,
+        },
+    }
+    response = requests.post(url, json=payload, timeout=timeout)
+    response.raise_for_status()
+    data = response.json()
+    raw_content = (
+        data.get('message', {}).get('content')
+        or data.get('response')
+        or data.get('content')
+        or ''
+    )
+    optimized_prompt = _extract_local_ai_prompt_text(raw_content)
+    if not optimized_prompt:
+        raise ValueError('本地 Qwen3 没有返回可用的 Prompt 文本')
+    return optimized_prompt, {
+        'model': model,
+        'url': url,
+    }
+
+
+def _normalize_prompt_translation_language(target_language):
+    normalized = str(target_language or '').strip().lower()
+    if normalized in {'en', 'english', '英文'}:
+        return 'en', '英文'
+    if normalized in {'zh', 'zh-cn', 'zh_cn', 'chinese', '中文', '简体中文'}:
+        return 'zh', '中文'
+    raise ValueError('不支持的翻译目标语言')
+
+
+def _build_local_ai_prompt_translator_messages(prompt, target_language='en'):
+    _, language_label = _normalize_prompt_translation_language(target_language)
+    system_prompt = (
+        '你是图像生成 Prompt 翻译器。只翻译用户提供的提示词，不优化、不扩写、不删减。'
+        '保留原有分行、字段顺序、括号、权重、比例、参数、参考图编号和专有名词。'
+        '人物姓名、角色 IP 名称、模型参数不要擅自改写。'
+        '如果目标语言是英文，保留必要的中文人物名称和专有名词；如果目标语言是中文，保留模型参数和英文专有名词。'
+        '只输出翻译后的提示词正文，不要解释，不要标题，不要 Markdown。'
+    )
+    user_prompt = (
+        '/no_think\n'
+        f'目标语言：{language_label}\n'
+        '请翻译下面的图像生成 Prompt：\n\n'
+        f'{prompt}'
+    )
+    return [
+        {'role': 'system', 'content': system_prompt},
+        {'role': 'user', 'content': user_prompt},
+    ]
+
+
+def _call_local_qwen_prompt_translator(prompt, target_language='en'):
+    normalized_language, _ = _normalize_prompt_translation_language(target_language)
+    url = getattr(settings, 'LOCAL_PROMPT_OPTIMIZER_URL', 'http://127.0.0.1:11434/api/chat')
+    model = getattr(settings, 'LOCAL_PROMPT_OPTIMIZER_MODEL', 'qwen3:14b')
+    timeout = getattr(settings, 'LOCAL_PROMPT_OPTIMIZER_TIMEOUT', 120)
+    payload = {
+        'model': model,
+        'messages': _build_local_ai_prompt_translator_messages(prompt, target_language=normalized_language),
+        'stream': False,
+        'options': {
+            'temperature': 0.1,
+            'top_p': 0.8,
+            'num_predict': 1200,
+        },
+    }
+    response = requests.post(url, json=payload, timeout=timeout)
+    response.raise_for_status()
+    data = response.json()
+    raw_content = (
+        data.get('message', {}).get('content')
+        or data.get('response')
+        or data.get('content')
+        or ''
+    )
+    translated_prompt = _extract_local_ai_plain_text(raw_content)
+    if not translated_prompt:
+        raise ValueError('本地 Qwen3 没有返回可用的翻译文本')
+    return translated_prompt, {
+        'model': model,
+        'url': url,
+        'target_language': normalized_language,
+    }
+
+
+def _extract_local_ai_json(raw_text):
+    text = _strip_local_ai_thinking_blocks(raw_text)
+    fence_match = re.search(r'```(?:json)?\s*(.*?)```', text, flags=re.IGNORECASE | re.DOTALL)
+    if fence_match:
+        text = fence_match.group(1).strip()
+
+    start = text.find('{')
+    end = text.rfind('}')
+    if start >= 0 and end > start:
+        text = text[start:end + 1]
+
+    return json.loads(text)
+
+
+def _normalize_prompt_diff_summary_items(items):
+    normalized_items = []
+    for index, item in enumerate(items or []):
+        if not isinstance(item, dict):
+            continue
+        try:
+            prompt_index = int(item.get('index', index))
+        except (TypeError, ValueError):
+            prompt_index = index
+
+        diff_lines = item.get('diff_lines') or item.get('lines') or []
+        if isinstance(diff_lines, str):
+            diff_lines = [diff_lines]
+        diff_text = '\n'.join(str(line or '').strip() for line in diff_lines if str(line or '').strip())
+        folded = str(item.get('folded') or '').strip()
+        meta = str(item.get('meta') or '').strip()
+        label = str(item.get('label') or f'提示词{prompt_index + 1}').strip()
+        full_prompt_text = str(item.get('full_prompt_text') or item.get('source_text') or item.get('text') or item.get('prompt_text') or '').strip()
+
+        if not diff_text and not folded and not meta and not full_prompt_text:
+            continue
+
+        normalized_items.append({
+            'index': prompt_index,
+            'label': label[:40],
+            'meta': meta[:40],
+            'folded': folded[:120],
+            'diff_text': diff_text[:3000],
+            'full_prompt_text': full_prompt_text[:5000],
+        })
+
+        if len(normalized_items) >= 30:
+            break
+
+    return normalized_items
+
+
+def _get_prompt_diff_summary_signature(prompt_items):
+    prompt_texts = [
+        str(item.get('text') if isinstance(item, dict) else item or '').strip()
+        for item in prompt_items or []
+    ]
+    signature_source = '\u241e'.join(prompt_texts)
+    return hashlib.sha256(signature_source.encode('utf-8')).hexdigest()
+
+
+def _get_valid_prompt_diff_summary_cache(group):
+    cache_payload = group.prompt_diff_summary_cache or {}
+    if not isinstance(cache_payload, dict):
+        return []
+
+    prompt_items = group.get_prompt_items()
+    expected_signature = _get_prompt_diff_summary_signature(prompt_items)
+    if cache_payload.get('version') != PROMPT_DIFF_SUMMARY_CACHE_VERSION:
+        return []
+    if cache_payload.get('signature') != expected_signature:
+        return []
+
+    summaries = cache_payload.get('summaries') or []
+    if not isinstance(summaries, list):
+        return []
+    return summaries
+
+
+def _build_local_ai_prompt_diff_summary_messages(diff_items):
+    system_prompt = (
+        '你是图像生成提示词的差异概括器。用户会给你多条提示词之间已经提取出的差异片段。'
+        '你的任务是为“每一条提示词”写一个能帮助用户快速选择的差异概括，而不是写极短标签。'
+        '只能根据差异片段概括该提示词相对其它提示词的独特点，不要补充公共部分，不要推断人物身份，不要改写原提示词。'
+        'summary 用中文，建议 90 到 180 个汉字；信息密度要高，要覆盖所有能影响选图/创作判断的关键变化。'
+        '优先保留能区分提示词的构图、景别、人物动作、表情神态、服装/道具、场景环境、光线色调、风格质感、画幅比例。'
+        '如果差异片段里有多个重要变化，用分号或短句串联；不要为了变短而合并、遗漏服装、动作、镜头、氛围、材质等细节。'
+        '可以写成 2 到 3 个短句，但仍放在同一个 summary 字符串里。'
+        '不要写“与提示词1相比”“与提示词5重复”“未明确”“缺少”“没有某细节”等比较或缺失判断。'
+        '不要在 summary 里提到任何提示词编号，只描述这一条自身实际包含的差异内容。'
+        '如果某条没有实际差异，不要写“无明显差异”或“未见独特差异”；请根据 full_prompt_text 概括这条提示词的主要内容，并用“内容基本一致：”开头。'
+        '同时从每条 full_prompt_text 的完整提示词中提取内容标签 tags，必须包含四个键：动作、妆容、服饰、环境。'
+        '注意：summary 使用 diff_text；tags 只能使用 full_prompt_text。不要从 diff_text 提取 tags，也不要因为 diff_text 没提到就漏掉 full_prompt_text 里的标签内容。'
+        'tags 不是复制原文，要用中文概括；每个标签 8 到 36 个汉字；没有对应内容时填空字符串，不要编造。'
+        '妆容包含妆面、眼妆、唇妆、口红、唇部水光、眼线、眼影、睫毛、腮红、肤质、痣等面部视觉细节；只要 full_prompt_text 提到这些内容就必须填写妆容。'
+        '只输出 JSON，不要 Markdown，不要解释。格式：{"summaries":[{"index":0,"summary":"...","tags":{"动作":"...","妆容":"...","服饰":"...","环境":"..."}}]}'
+    )
+    user_prompt = '/no_think\n请为以下每条提示词写“差异概括”，保留关键不同点但不要复述公共内容：\n' + json.dumps(diff_items, ensure_ascii=False)
+    return [
+        {'role': 'system', 'content': system_prompt},
+        {'role': 'user', 'content': user_prompt},
+    ]
+
+
+def _compact_prompt_summary_text(text, max_length=260):
+    compact_text = re.sub(r'\s+', ' ', str(text or '')).strip()
+    compact_text = re.sub(r'\s*[,，]\s*', '，', compact_text)
+    if not compact_text:
+        return ''
+    return compact_text[:max_length]
+
+
+def _clean_prompt_diff_summary(summary, fallback_text='', source_text=''):
+    summary = str(summary or '').strip()
+    fallback_text = str(fallback_text or '').strip()
+    source_text = str(source_text or '').strip()
+    fallback_summary = _compact_prompt_summary_text(fallback_text) or _compact_prompt_summary_text(source_text)
+    if not summary:
+        return fallback_summary or '内容为空，无法概括'
+
+    blocked_pattern = re.compile(
+        r'提示词\s*\d+|重复|未明确|未提及|未见(?:独特)?差异|无(?:明显)?差异|无独特差异|缺少|缺乏|没有(?:明显)?(?:肢体|动作|表情|场景|服装|光线|细节|差异)|不包含',
+        re.IGNORECASE,
+    )
+    parts = re.split(r'(?<=[。；;])|[，,]\s*', summary)
+    kept_parts = [
+        part.strip(' ，,。；;')
+        for part in parts
+        if part.strip(' ，,。；;') and not blocked_pattern.search(part)
+    ]
+    cleaned = '，'.join(kept_parts).strip(' ，,。；;')
+    cleaned = re.sub(r'\s+', ' ', cleaned)
+
+    if not cleaned:
+        cleaned = fallback_summary or '内容为空，无法概括'
+    return cleaned[:260]
+
+
+def _normalize_prompt_content_tags(raw_tags):
+    if not raw_tags:
+        return []
+
+    raw_map = {}
+    if isinstance(raw_tags, dict):
+        raw_map = raw_tags
+    elif isinstance(raw_tags, list):
+        for item in raw_tags:
+            if not isinstance(item, dict):
+                continue
+            label = item.get('label') or item.get('name') or item.get('key')
+            text = item.get('text') or item.get('value') or item.get('content')
+            if label:
+                raw_map[str(label)] = text
+
+    normalized = []
+    for key, label, aliases in PROMPT_CONTENT_TAG_DEFINITIONS:
+        value = ''
+        for alias in aliases + (label, key):
+            if alias in raw_map:
+                value = raw_map.get(alias)
+                break
+        text = _compact_prompt_summary_text(value, max_length=120)
+        if not text:
+            continue
+        normalized.append({
+            'key': key,
+            'label': label,
+            'text': text,
+        })
+    return normalized
+
+
+def _call_local_qwen_prompt_diff_summarizer(diff_items):
+    normalized_items = _normalize_prompt_diff_summary_items(diff_items)
+    if not normalized_items:
+        raise ValueError('没有可概括的差异内容')
+
+    url = getattr(settings, 'LOCAL_PROMPT_OPTIMIZER_URL', 'http://127.0.0.1:11434/api/chat')
+    model = getattr(settings, 'LOCAL_PROMPT_OPTIMIZER_MODEL', 'qwen3:14b')
+    timeout = getattr(settings, 'LOCAL_PROMPT_OPTIMIZER_TIMEOUT', 120)
+    payload = {
+        'model': model,
+        'messages': _build_local_ai_prompt_diff_summary_messages(normalized_items),
+        'stream': False,
+        'options': {
+            'temperature': 0.15,
+            'top_p': 0.8,
+            'num_predict': 3200,
+        },
+    }
+    response = requests.post(url, json=payload, timeout=timeout)
+    response.raise_for_status()
+    data = response.json()
+    raw_content = (
+        (data.get('message') or {}).get('content')
+        or data.get('response')
+        or data.get('content')
+        or ''
+    )
+    parsed = _extract_local_ai_json(raw_content)
+    raw_summaries = parsed.get('summaries') if isinstance(parsed, dict) else []
+
+    summaries_by_index = {}
+    tags_by_index = {}
+    for item in raw_summaries or []:
+        if not isinstance(item, dict):
+            continue
+        try:
+            item_index = int(item.get('index'))
+        except (TypeError, ValueError):
+            continue
+        summary = str(item.get('summary') or '').strip()
+        if summary:
+            summaries_by_index[item_index] = summary
+        tags_by_index[item_index] = _normalize_prompt_content_tags(item.get('tags') or item.get('content_tags'))
+
+    summaries = []
+    for item in normalized_items:
+        summary = _clean_prompt_diff_summary(
+            summaries_by_index.get(item['index']) or '',
+            fallback_text=item.get('diff_text') or '',
+            source_text=item.get('full_prompt_text') or '',
+        )
+        summaries.append({
+            'index': item['index'],
+            'label': item['label'],
+            'summary': summary,
+            'content_tags': tags_by_index.get(item['index']) or [],
+        })
+
+    return summaries, {
+        'model': model,
+        'url': url,
+    }
+
+
+def _build_local_ai_prompt_mediation(original_prompt, optimized_prompt, optimization_level, optimizer_info=None, fallback_info=None):
+    original_prompt = str(original_prompt or '').strip()
+    optimized_prompt = str(optimized_prompt or '').strip() or original_prompt
+    outline_source = mediate_gpt_image_prompt(original_prompt, optimization_level='off')
+    base_level = _get_base_prompt_optimization_level(optimization_level)
+    changed = optimized_prompt != original_prompt
+    model_name = (optimizer_info or {}).get('model') or getattr(settings, 'LOCAL_PROMPT_OPTIMIZER_MODEL', 'qwen3:14b')
+    applied_rules = ['local_ai_qwen3'] if changed else []
+    rewrite_details = []
+
+    if changed:
+        rewrite_details.append({
+            'before': original_prompt,
+            'after': optimized_prompt,
+            'reason_tag': '本地 AI 优化',
+            'reason': f'由本地 {model_name} 按“{base_level}”强度优化画面描述；人物 IP 提示词未参与优化。',
+            'category': 'local_ai',
+        })
+
+    if fallback_info:
+        applied_rules.append('local_ai_fallback')
+        rewrite_details.append({
+            'before': original_prompt,
+            'after': optimized_prompt,
+            'reason_tag': '本地 AI 兜底',
+            'reason': fallback_info,
+            'category': 'local_ai',
+        })
+
+    return {
+        'original_prompt': original_prompt,
+        'optimized_prompt': optimized_prompt,
+        'short_visual_prompt': outline_source.get('short_visual_prompt', ''),
+        'optimization_level': _normalize_prompt_optimization_level(optimization_level),
+        'changed': changed,
+        'applied_rules': applied_rules,
+        'rewrite_details': rewrite_details,
+        'structured_outline': outline_source.get('structured_outline', []),
+        'local_ai_optimizer': {
+            **(optimizer_info or {'model': model_name}),
+            'base_optimization_level': base_level,
+        },
+        'fallback_optimization_level': base_level if fallback_info else '',
+    }
+
+
+def _mediate_prompt_with_local_ai(prompt, optimization_level):
+    base_level = _get_base_prompt_optimization_level(optimization_level)
+    try:
+        optimized_prompt, optimizer_info = _call_local_qwen_prompt_optimizer(prompt, optimization_level=optimization_level)
+        return _build_local_ai_prompt_mediation(
+            prompt,
+            optimized_prompt,
+            optimization_level,
+            optimizer_info=optimizer_info,
+        )
+    except Exception as exc:
+        fallback = mediate_gpt_image_prompt(prompt, optimization_level=base_level)
+        return _build_local_ai_prompt_mediation(
+            prompt,
+            fallback.get('optimized_prompt', prompt),
+            optimization_level,
+            optimizer_info={'model': getattr(settings, 'LOCAL_PROMPT_OPTIMIZER_MODEL', 'qwen3:14b')},
+            fallback_info=f'本地 Qwen3 调用失败，已自动使用对应的“{base_level}”规则优化兜底：{exc}',
+        )
 
 
 def _mediate_ai_studio_prompt(model_choice, model_config, prompt, mapping, optimization_level=None):
     prompt = str(prompt or '').strip()
+    level = optimization_level or _get_prompt_optimization_level(mapping, model_config)
     mediation = {
         'original_prompt': prompt,
         'optimized_prompt': prompt,
-        'optimization_level': 'balanced',
+        'optimization_level': level,
         'changed': False,
         'applied_rules': [],
         'rewrite_details': [],
@@ -881,12 +1397,41 @@ def _mediate_ai_studio_prompt(model_choice, model_config, prompt, mapping, optim
     }
 
     if prompt and _is_gpt_image_2_model(model_config):
-        mediation = mediate_gpt_image_prompt(
-            prompt,
-            optimization_level=optimization_level or _get_prompt_optimization_level(mapping, model_config),
-        )
+        if _is_local_ai_prompt_optimization_level(level):
+            mediation = _mediate_prompt_with_local_ai(prompt, level)
+        else:
+            mediation = mediate_gpt_image_prompt(
+                prompt,
+                optimization_level=level,
+            )
 
     return mediation['optimized_prompt'], mediation
+
+
+def _combine_prompt_parts(*parts):
+    return '\n\n'.join(str(part or '').strip() for part in parts if str(part or '').strip())
+
+
+def _attach_protected_prompt_prefix_to_mediation(mediation, protected_prompt_prefix):
+    protected_prompt_prefix = str(protected_prompt_prefix or '').strip()
+    if not protected_prompt_prefix:
+        return mediation['optimized_prompt'], mediation
+
+    scene_original_prompt = mediation.get('original_prompt', '')
+    scene_optimized_prompt = mediation.get('optimized_prompt', '')
+    final_original_prompt = _combine_prompt_parts(protected_prompt_prefix, scene_original_prompt)
+    final_optimized_prompt = _combine_prompt_parts(protected_prompt_prefix, scene_optimized_prompt)
+
+    mediation = {
+        **mediation,
+        'original_prompt': final_original_prompt,
+        'optimized_prompt': final_optimized_prompt,
+        'original_scene_prompt': scene_original_prompt,
+        'optimized_scene_prompt': scene_optimized_prompt,
+        'protected_prompt_prefix': protected_prompt_prefix,
+        'protected_prompt_prefix_unchanged': True,
+    }
+    return final_optimized_prompt, mediation
 
 
 def _build_ai_studio_api_args(mapping, model_config, prompt):
@@ -925,6 +1470,8 @@ def _build_ai_studio_api_args(mapping, model_config, prompt):
         api_args.pop('image_size_mode', None)
         api_args.pop('aspect_ratio', None)
         api_args.pop('resolution', None)
+
+    api_args.pop('prompt_optimization_level', None)
 
     return api_args
 
@@ -1030,7 +1577,7 @@ def _save_generated_images(model_choice, generated_urls):
     return final_urls, saved_paths
 
 
-def _run_ai_studio_generation(model_choice, prompt, mapping, base_image_files=None, extra_files=None):
+def _run_ai_studio_generation(model_choice, prompt, mapping, base_image_files=None, extra_files=None, protected_prompt_prefix=''):
     if not prompt:
         raise ValueError('提示词不能为空')
 
@@ -1070,7 +1617,11 @@ def _run_ai_studio_generation(model_choice, prompt, mapping, base_image_files=No
         mapping,
         optimization_level=attempted_optimization_level,
     )
-    api_args = _build_ai_studio_api_args(mapping, model_config, optimized_prompt)
+    final_prompt, prompt_mediation = _attach_protected_prompt_prefix_to_mediation(
+        prompt_mediation,
+        protected_prompt_prefix,
+    )
+    api_args = _build_ai_studio_api_args(mapping, model_config, final_prompt)
     provider_name = model_config.get('provider', 'fal_ai')
     provider = get_ai_provider(provider_name)
 
@@ -1087,7 +1638,7 @@ def _run_ai_studio_generation(model_choice, prompt, mapping, base_image_files=No
                 'provider_name': provider_name,
                 'api_args': api_args,
                 'prompt_mediation': prompt_mediation,
-                'optimized_prompt': optimized_prompt,
+                'optimized_prompt': final_prompt,
                 'image_urls': [],
                 'saved_paths': [],
                 'failed': True,
@@ -1109,7 +1660,7 @@ def _run_ai_studio_generation(model_choice, prompt, mapping, base_image_files=No
         'provider_name': provider_name,
         'api_args': api_args,
         'prompt_mediation': prompt_mediation,
-        'optimized_prompt': optimized_prompt,
+        'optimized_prompt': final_prompt,
         'image_urls': image_urls,
         'saved_paths': saved_paths,
     }
@@ -1462,6 +2013,11 @@ def extract_prompt_items_from_mapping(mapping):
         except (TypeError, ValueError, json.JSONDecodeError):
             raw_prompts = None
 
+    if raw_prompts is None and hasattr(mapping, 'getlist'):
+        prompt_list = [item for item in mapping.getlist('prompts') if str(item or '').strip()]
+        if prompt_list:
+            raw_prompts = prompt_list
+
     if raw_prompts is None and hasattr(mapping, 'get'):
         direct_prompts = mapping.get('prompts')
         if isinstance(direct_prompts, list):
@@ -1471,11 +2027,6 @@ def extract_prompt_items_from_mapping(mapping):
                 raw_prompts = json.loads(direct_prompts)
             except (TypeError, ValueError, json.JSONDecodeError):
                 raw_prompts = [direct_prompts]
-
-    if raw_prompts is None and hasattr(mapping, 'getlist'):
-        prompt_list = [item for item in mapping.getlist('prompts') if str(item or '').strip()]
-        if prompt_list:
-            raw_prompts = prompt_list
 
     prompt_items = normalize_prompt_items(raw_prompts)
     if prompt_items:
@@ -1970,6 +2521,7 @@ def detail(request, pk):
         'group': group,
         'prompt_entries': group.get_prompt_items(),
         'prompt_entries_json': json.dumps(group.get_prompt_items(), ensure_ascii=False),
+        'prompt_diff_summaries_json': json.dumps(_get_valid_prompt_diff_summary_cache(group), ensure_ascii=False),
         'sorted_tags': tags_list,
         'chars_list': chars_list,
         'all_tags': all_tags,
@@ -2578,10 +3130,12 @@ def update_group_prompts(request, pk):
     group = get_object_or_404(PromptGroup, pk=pk)
     try:
         data = json.loads(request.body)
+        prompts_changed = False
         if 'title' in data:
             group.title = data['title']
         if 'prompts' in data:
             group.prompts = normalize_prompt_items(data.get('prompts'))
+            prompts_changed = True
         elif any(key in data for key in ['prompt_text', 'prompt_text_zh', 'negative_prompt']):
             legacy_prompt_items = PromptGroup.build_prompts_from_legacy_fields(
                 data['prompt_text'] if 'prompt_text' in data else group.prompt_text,
@@ -2589,6 +3143,7 @@ def update_group_prompts(request, pk):
                 data['negative_prompt'] if 'negative_prompt' in data else group.negative_prompt,
             )
             group.prompts = legacy_prompt_items
+            prompts_changed = True
 
         duplicate_prompts = find_duplicate_prompt_texts(group.prompts)
         if duplicate_prompts:
@@ -2604,6 +3159,8 @@ def update_group_prompts(request, pk):
             group.model_info = data['model_info']
         if 'provider' in data:                    
             group.provider = data['provider']
+        if prompts_changed:
+            group.prompt_diff_summary_cache = {}
             
         group.save()
         return JsonResponse({'status': 'success'})
@@ -2983,6 +3540,133 @@ def add_ai_model(request):
         return JsonResponse({'status': 'success'})
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)})
+
+
+def _serialize_character_ip(profile):
+    image_url = ''
+    thumbnail_url = ''
+    if profile.image:
+        try:
+            image_url = profile.image.url
+        except Exception:
+            image_url = ''
+        try:
+            thumbnail_url = profile.thumbnail.url
+        except Exception:
+            thumbnail_url = image_url
+
+    legacy_prompt_text = profile.prompt_text or ''
+    prompt_text_zh = profile.prompt_text_zh or ''
+    prompt_text_en = profile.prompt_text_en or ''
+    if legacy_prompt_text and not prompt_text_zh and not prompt_text_en:
+        if re.search(r'[\u4e00-\u9fff]', legacy_prompt_text):
+            prompt_text_zh = legacy_prompt_text
+        else:
+            prompt_text_en = legacy_prompt_text
+
+    return {
+        'id': profile.id,
+        'name': profile.name,
+        'prompt_text': prompt_text_zh or prompt_text_en or legacy_prompt_text,
+        'prompt_text_zh': prompt_text_zh,
+        'prompt_text_en': prompt_text_en,
+        'image_url': image_url,
+        'thumbnail_url': thumbnail_url or image_url,
+        'order': profile.order,
+        'updated_at': profile.updated_at.strftime('%Y-%m-%d %H:%M') if profile.updated_at else '',
+    }
+
+
+def _get_character_ip_payload():
+    return [_serialize_character_ip(profile) for profile in CharacterIP.objects.all()]
+
+
+def _upsert_character_ip_from_request(request, profile=None):
+    name = request.POST.get('name', '').strip()
+    prompt_text_zh = request.POST.get('prompt_text_zh', '').strip()
+    prompt_text_en = request.POST.get('prompt_text_en', '').strip()
+    legacy_prompt_text = request.POST.get('prompt_text', '').strip()
+    order_raw = request.POST.get('order', '0').strip()
+
+    if not name:
+        raise ValueError('人物名称不能为空')
+
+    duplicate_qs = CharacterIP.objects.filter(name__iexact=name)
+    if profile:
+        duplicate_qs = duplicate_qs.exclude(pk=profile.pk)
+    if duplicate_qs.exists():
+        raise ValueError('这个人物已经存在，请直接编辑原记录')
+
+    try:
+        order = int(order_raw or 0)
+    except ValueError:
+        order = 0
+
+    if profile is None:
+        profile = CharacterIP()
+
+    profile.name = name
+    profile.prompt_text_zh = prompt_text_zh or legacy_prompt_text
+    profile.prompt_text_en = prompt_text_en
+    profile.prompt_text = profile.prompt_text_zh or profile.prompt_text_en
+    profile.order = order
+
+    image_file = request.FILES.get('image')
+    if image_file:
+        profile.image = image_file
+
+    profile.save()
+    return profile
+
+
+@csrf_exempt
+def api_character_ips(request):
+    if request.method == 'GET':
+        return JsonResponse({'status': 'success', 'results': _get_character_ip_payload()})
+
+    if request.method != 'POST':
+        return JsonResponse({'status': 'error', 'message': '仅支持 GET / POST'}, status=405)
+
+    try:
+        profile = _upsert_character_ip_from_request(request)
+        return JsonResponse({
+            'status': 'success',
+            'profile': _serialize_character_ip(profile),
+            'results': _get_character_ip_payload(),
+        })
+    except (ValueError, IntegrityError) as exc:
+        return JsonResponse({'status': 'error', 'message': str(exc)}, status=400)
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({'status': 'error', 'message': str(exc)}, status=500)
+
+
+@csrf_exempt
+@require_POST
+def api_character_ip_detail(request, pk):
+    profile = get_object_or_404(CharacterIP, pk=pk)
+    try:
+        profile = _upsert_character_ip_from_request(request, profile=profile)
+        return JsonResponse({
+            'status': 'success',
+            'profile': _serialize_character_ip(profile),
+            'results': _get_character_ip_payload(),
+        })
+    except (ValueError, IntegrityError) as exc:
+        return JsonResponse({'status': 'error', 'message': str(exc)}, status=400)
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({'status': 'error', 'message': str(exc)}, status=500)
+
+
+@csrf_exempt
+@require_POST
+def api_character_ip_delete(request, pk):
+    profile = get_object_or_404(CharacterIP, pk=pk)
+    profile.delete()
+    return JsonResponse({'status': 'success', 'results': _get_character_ip_payload()})
     
 @require_GET
 def create_view(request):
@@ -3085,12 +3769,14 @@ def create_view(request):
     #         char_refs_data.append({'character': char, 'refs': unique_refs})
 
     char_refs_data = get_cached_char_refs_data()
+    character_ip_data = _get_character_ip_payload()
 
     return render(request, 'gallery/create.html', {
-        'ai_config_json': json.dumps(AI_STUDIO_CONFIG),
-        'initial_data_json': json.dumps(initial_data),
-        'all_tags_json': json.dumps(all_tags),
-        'all_chars_json': json.dumps(all_chars),
+        'ai_config_json': json.dumps(AI_STUDIO_CONFIG, ensure_ascii=False),
+        'initial_data_json': json.dumps(initial_data, ensure_ascii=False),
+        'all_tags_json': json.dumps(all_tags, ensure_ascii=False),
+        'all_chars_json': json.dumps(all_chars, ensure_ascii=False),
+        'character_ip_data_json': json.dumps(character_ip_data, ensure_ascii=False),
         'char_refs_data': char_refs_data,
     })
 
@@ -3098,7 +3784,9 @@ def create_view(request):
 @require_POST
 def api_generate_and_download(request):
     try:
-        prompt = request.POST.get('prompt', '').strip()
+        scene_prompt = request.POST.get('scene_prompt', '').strip()
+        prompt = scene_prompt or request.POST.get('prompt', '').strip()
+        character_ip_prompt = request.POST.get('character_ip_prompt', '').strip()
         model_choice = request.POST.get('model_choice')
         base_image_files = request.FILES.getlist('base_images') 
         extra_files = {}
@@ -3115,6 +3803,7 @@ def api_generate_and_download(request):
                 request.POST,
                 base_image_files=base_image_files,
                 extra_files=extra_files,
+                protected_prompt_prefix=character_ip_prompt,
             )
         except (ValueError, RuntimeError) as exc:
             return JsonResponse({'status': 'error', 'message': str(exc)})
@@ -3735,6 +4424,76 @@ def edit_model_api(request):
         import traceback
         traceback.print_exc()
         return JsonResponse({'status': 'error', 'message': str(e)})
+
+@csrf_exempt
+@require_POST
+def api_translate_prompt(request):
+    """Translate a prompt with the local Qwen model without rewriting its content."""
+    try:
+        if request.content_type and 'application/json' in request.content_type:
+            data = json.loads(request.body or '{}')
+        else:
+            data = request.POST
+
+        prompt = str(data.get('text') or data.get('prompt') or '').strip()
+        target_language = data.get('target_language') or data.get('language') or 'en'
+        if not prompt:
+            return JsonResponse({'status': 'error', 'message': '提示词不能为空'}, status=400)
+
+        normalized_language, _ = _normalize_prompt_translation_language(target_language)
+        translated_prompt, translator_info = _call_local_qwen_prompt_translator(
+            prompt,
+            target_language=normalized_language,
+        )
+        return JsonResponse({
+            'status': 'success',
+            'translated_text': translated_prompt,
+            'target_language': normalized_language,
+            'translator': translator_info,
+        })
+    except ValueError as exc:
+        return JsonResponse({'status': 'error', 'message': str(exc)}, status=400)
+    except Exception as exc:
+        return JsonResponse({'status': 'error', 'message': f'本地翻译失败：{exc}'}, status=500)
+
+
+@csrf_exempt
+@require_POST
+def api_summarize_prompt_diffs(request):
+    """Summarize prompt differences with the local Qwen model."""
+    try:
+        if request.content_type and 'application/json' in request.content_type:
+            data = json.loads(request.body or '{}')
+        else:
+            data = request.POST
+
+        diff_items = data.get('items') or data.get('diffs') or []
+        if isinstance(diff_items, str):
+            diff_items = json.loads(diff_items)
+        summaries, summarizer_info = _call_local_qwen_prompt_diff_summarizer(diff_items)
+
+        group_id = data.get('group_id') or data.get('groupId')
+        if group_id:
+            group = get_object_or_404(PromptGroup, pk=group_id)
+            group.prompt_diff_summary_cache = {
+                'version': PROMPT_DIFF_SUMMARY_CACHE_VERSION,
+                'signature': _get_prompt_diff_summary_signature(group.get_prompt_items()),
+                'summaries': summaries,
+                'model': summarizer_info.get('model', ''),
+                'updated_at': timezone.now().isoformat(),
+            }
+            group.save(update_fields=['prompt_diff_summary_cache'])
+
+        return JsonResponse({
+            'status': 'success',
+            'summaries': summaries,
+            'summarizer': summarizer_info,
+        })
+    except ValueError as exc:
+        return JsonResponse({'status': 'error', 'message': str(exc)}, status=400)
+    except Exception as exc:
+        return JsonResponse({'status': 'error', 'message': f'本地差异概括失败：{exc}'}, status=500)
+
 
 @csrf_exempt
 @require_POST
